@@ -14,7 +14,7 @@
 
 ### 1. 로컬 DB 실행 (최초 1회)
 ```
-docker run --name gyeot-mysql -e MYSQL_ROOT_PASSWORD=gyeot1234 -e MYSQL_DATABASE=gyeot -p 3307:3306 -v gyeot-mysql-data:/var/lib/mysql -d mysql:8.4
+docker run --name gyeot-mysql -e MYSQL_ROOT_PASSWORD=gyeot1234 -e MYSQL_DATABASE=gyeot -p 127.0.0.1:3307:3306 -v gyeot-mysql-data:/var/lib/mysql -d mysql:8.4
 ```
 재부팅 후에는 `docker start gyeot-mysql`
 

@@ -2,7 +2,7 @@ spring:
   application:
     name: gyeot
   profiles:
-    active: local
+    default: local
   jpa:
     open-in-view: false
     properties:
