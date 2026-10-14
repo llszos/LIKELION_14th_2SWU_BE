@@ -17,4 +17,5 @@
 <!-- 리뷰 시 확인이 필요한 부분, 다른 기능에 영향을 주는 변경, 후속 작업 등을 작성해주세요. -->
 
 ## 🔗 관련 Issue
-Related to #
+<!-- 이 PR로 Issue가 끝나면 Closes, 일부만 해결하면 Related to를 써 주세요. -->
+Closes #
