@@ -8,4 +8,4 @@ spring:
     properties:
       hibernate:
         jdbc:
-          time_zone: UTC
+          time_zone: Asia/Seoul  # DB에 시각을 저장하고 읽을 때 기준 시간대
