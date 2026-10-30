@@ -13,9 +13,17 @@ import java.time.LocalDateTime;
 /**
  * request_assignments - 요청 대상자 지정 엔티티입니다.
  * 요청 대상자, 응답 상태, 대상 변경 이력 관리를 담당합니다.
+ * 같은 요청에서 동일 사용자를 다시 지정할 수 없습니다. (uk_request_assignments_target, ERD 4.7·6.2)
+ * 요청당 현재 지정 최대 1건은 생성 컬럼 + UNIQUE라 DDL에서만 관리하고 엔티티에는 매핑하지 않았습니다.
  */
 @Entity
-@Table(name = "request_assignments")
+@Table(
+        name = "request_assignments",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_request_assignments_target",
+                columnNames = {"request_id", "target_user_id"}
+        )
+)
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class RequestAssignment extends BaseCreatedEntity {
