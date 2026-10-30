@@ -2,6 +2,7 @@ package com.gyeot.domain.carerequest.entity;
 
 import com.gyeot.domain.carerequest.enums.AssignmentCloseReason;
 import com.gyeot.domain.carerequest.enums.CareRequestStatus;
+import com.gyeot.domain.carerequest.enums.NoAssigneeReason;
 import com.gyeot.global.common.entity.BaseCreatedEntity;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -90,6 +91,11 @@ public class RequestAssignment extends BaseCreatedEntity {
     @Column(name = "notice_closed_at")
     private LocalDateTime noticeClosedAt; // 미확인 null
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "notice_reason", length = 30)
+    private NoAssigneeReason noticeReason; // 요청자가 모달을 닫을 때의 담당자 없음 사유, 미확인 null
+
+
     private RequestAssignment(CareRequest careRequest, Long targetUserId,
                               int assignmentOrder, LocalDateTime responseDeadline) {
         this.careRequest = careRequest;
@@ -159,7 +165,8 @@ public class RequestAssignment extends BaseCreatedEntity {
         // 가능으로 응답해 실제로 수락된 경우
         if(newStatus == AssignmentResponseStatus.AVAILABLE) {
             this.acceptedAt = now;
-            this.noticeClosedAt = null;  // F-14: 수락되면 다음 담당자 없음 때 모달을 다시 1회 표시
+            this.noticeClosedAt = null;
+            this.noticeReason = null; // 수락되면 다음 담당자 없음 때 다시 표시
         }
     }
 
@@ -193,14 +200,37 @@ public class RequestAssignment extends BaseCreatedEntity {
         this.closeReason = reason;
     }
 
-    /**
-     * 담당자 없음 모달 닫음 기록 (F-14)
-     * 여러 번 호출되어도 처음 닫은 시각만 남김
-     */
-    public void closeNotice(LocalDateTime now) {
-        if(this.noticeClosedAt == null) {
-            this.noticeClosedAt = now;
+    /** 지금의 담당자 없음 사유. 담당자 없음이 아니면 null */
+    public NoAssigneeReason currentNoAssigneeReason(LocalDateTime now) {
+        if (!isOpen()) {
+            return NoAssigneeReason.from(closeReason);
         }
+        if (isAccepted()) {
+            return null; // 현재 담당자
+        }
+        if (responseStatus == AssignmentResponseStatus.UNAVAILABLE) {
+            return NoAssigneeReason.UNAVAILABLE;
+        }
+        return isDeadlinePassed(now) ? NoAssigneeReason.DEADLINE_PASSED : null;
+    }
+
+    /** 모달을 띄워야 하는지: 담당자 없음이고, 아직 이 사유로 닫은 적이 없음 (F-14 사유마다 1회) */
+    public boolean needsNoAssigneeNotice(LocalDateTime now) {
+        NoAssigneeReason reason = currentNoAssigneeReason(now);
+        return reason != null && reason != noticeReason;
+    }
+
+    /**
+     * 담당자 없음 모달 닫음 기록 (F-14, 기존 closeNotice 교체)
+     * 화면에 보여준 사유를 받습니다.
+     * 모달을 보는 사이에 사유가 바뀌어도, 새 사유 모달이 한 번 더 뜨게 하기 위해서 입니다.
+     */
+    public void closeNotice(NoAssigneeReason shownReason, LocalDateTime now) {
+        if(this.noticeClosedAt == null) {
+            throw new IllegalArgumentException("모달에 표시한 사유는 필수입니다.");
+        }
+        this.noticeReason = shownReason;
+        this.noticeClosedAt = now;
     }
 
     // 요청 시작 시각이 앞당겨지면 응답 기한이 새 시작 시각을 넘지 않도록 줄입니다
