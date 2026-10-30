@@ -18,11 +18,18 @@ import com.gyeot.domain.carerequest.enums.ChangeableField;
 import java.util.Set;
 
 /**
- * request_requests - 돌봄 요청 엔티티입니다.
+ * care_requests - 돌봄 요청 엔티티입니다.
  * 돌봄 요청의 내용·일정·진행 상태 관리를 담당합니다.
  */
 @Entity
-@Table(name = "care_requests")
+@Table(name = "care_requests",
+        indexes = {
+                @Index(name = "idx_care_requests_situation_id_status", columnList = "situation_id, status"), // 상황별 요청
+                @Index(name = "idx_care_requests_requester_id_created_at", columnList = "requester_id, created_at"), // 과거 요청
+                @Index(name = "idx_care_requests_status_starts_at", columnList = "status, starts_at"), // 시작·만료 자동 처리
+                @Index(name = "idx_care_requests_status_ends_at", columnList = "status, ends_at")  // 완료 자동 처리
+        }
+)
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class CareRequest extends BaseEntity {
@@ -70,7 +77,7 @@ public class CareRequest extends BaseEntity {
 
     // 예정 종료 일시
     @Column(name = "ends_at")
-    private LocalDateTime endsAt; // 알반 요청 필수, 급한 요청 NULL
+    private LocalDateTime endsAt; // 일반 요청 필수, 급한 요청 NULL
 
     // 요청 상태
     @Enumerated(EnumType.STRING)
@@ -81,10 +88,10 @@ public class CareRequest extends BaseEntity {
      *  체크리스트 저장 구조는 JSON 칼럼을 사용할 예정이고, 지금은 필드만 먼저 넣어두었습니다.
      */
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "checklist", columnDefinition = "json")
+    @Column(name = "checklist", columnDefinition = "json", updatable = false)
     private List<ChecklistItem> checklist; // F-12 (SHOULD), NULL 허용
 
-    // 실세 시작 처리 일시
+    // 실제 시작 처리 일시
     @Column(name = "started_at")
     private LocalDateTime startedAt;
 

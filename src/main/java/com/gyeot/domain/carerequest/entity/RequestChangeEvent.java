@@ -29,7 +29,12 @@ import java.util.*;
 
 @Entity
 @Immutable
-@Table(name = "request_change_events")
+@Table(name = "request_change_events",
+        indexes = {
+                @Index(name = "idx_change_events_request_id_occurred_at", columnList = "request_id, occurred_at"), // 요청 이력
+                @Index(name = "idx_change_events_assignment_id_occurred_at", columnList = "assignment_id, occurred_at")  // 응답 변경 이력
+        }
+)
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class RequestChangeEvent {

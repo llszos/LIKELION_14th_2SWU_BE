@@ -7,7 +7,7 @@ package com.gyeot.domain.carerequest.enums;
 public enum CancelReason {
     REQUESTER_CANCELED, // 요청자 직접 취소
     ASSIGNEE_LEFT, // 진행 중 담당자 이탈
-    RELATIONSHIP_ENDED, // 관게 해제
+    RELATIONSHIP_ENDED, // 관계 해제
     SITUATION_ENDED, // 상황 종료
     USER_WITHDRAWN, // 회원 탈퇴
     RECONFIRMATION_REJECTED // 재확인 거절
