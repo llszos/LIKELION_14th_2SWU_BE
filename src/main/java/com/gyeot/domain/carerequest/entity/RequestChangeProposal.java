@@ -172,7 +172,7 @@ public class RequestChangeProposal extends BaseCreatedEntity {
     // === 상태 변경 메서드 ===
     /**
      * 재확인 수락: PENDING → ACCEPTED
-     * 원본 요청 반영(careRequest.applyChanges())과 공개 항목 권한 처리(D)는 서비스에서 호출합니다.
+     * 원본 요청 반영(careRequest.applyProposal())과 공개 항목 권한 처리(D)는 서비스에서 호출합니다.
      */
     public void accept(LocalDateTime now) {
         requirePending();
