@@ -121,6 +121,7 @@ public class RequestChangeProposal extends BaseCreatedEntity {
     // === 생성 메서드 ===
     /**
      * 변경 제안 생성 (수락 후 주요 변경 시)
+     * 시작 시간을 바꾸면 수정 시점부터 1시간 이후여야 합니다.
      * 요청자 본인 확인, 요청당 PENDING 1건 확인은 서비스에서 처리합니다
      */
     public static RequestChangeProposal create(CareRequest careRequest, RequestAssignment assignment,
@@ -131,6 +132,12 @@ public class RequestChangeProposal extends BaseCreatedEntity {
         validateTarget(careRequest, assignment);
         validateChangedFields(careRequest, changedFields, proposedStartsAt, proposedEndsAt,
                 proposedPlace, proposedInformationIds);
+
+        // 시작 시간을 바꾸면 수정 시점부터 1시간 이후여야 합니다. (F-05, F-29)
+        if (changedFields.contains(ChangeableField.STARTS_AT)) {
+            CareRequest.requireStartLeadTime(proposedStartsAt, now);
+        }
+
         validateSchedule(careRequest, changedFields, proposedStartsAt, proposedEndsAt);
 
         LocalDateTime deadline = calculateDeadline(careRequest, changedFields, proposedStartsAt, now);
