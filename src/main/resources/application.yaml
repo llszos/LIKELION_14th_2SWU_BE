@@ -9,3 +9,9 @@ spring:
       hibernate:
         jdbc:
           time_zone: Asia/Seoul  # DB에 시각을 저장하고 읽을 때 기준 시간대
+gyeot:
+  security:
+    jwt:
+      secret: ${JWT_SECRET:}
+      issuer: ${JWT_ISSUER:gyeot}
+      access-token-ttl: ${JWT_ACCESS_TTL:PT15M}
