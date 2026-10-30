@@ -16,7 +16,7 @@ import java.util.Map;
  * - 담당자 없음·응답 대기 판단은 RequestDisplayStatus 한 곳에서 계산합니다.
  * - now를 받는 메서드는 응답 기한 경과 여부를 계산합니다. 테스트에서 시각을 고정할 수 있도록 인자로 받습니다.
  *
- * TODO: B 담장자님 리뷰 후 확정 — 필드, 응답 필요 기준, 지난 상황 필터 방식
+ * TODO: B 담당자님 리뷰 후 확정 — 필드, 응답 필요 기준, 지난 상황 필터 방식
  */
 public interface CareRequestSummaryReader {
 
