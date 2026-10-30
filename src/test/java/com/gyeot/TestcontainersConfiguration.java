@@ -12,7 +12,8 @@ class TestcontainersConfiguration {
 	@Bean
 	@ServiceConnection
 	MySQLContainer mysqlContainer() {
-		return new MySQLContainer(DockerImageName.parse("mysql:8.4"));
+		return new MySQLContainer(DockerImageName.parse("mysql:8.4"))
+				.withEnv("TZ", "Asia/Seoul"); // 테스트용 MySQL도 로컬, 운영과 같은 시간대로 실행
 	}
 
 }
