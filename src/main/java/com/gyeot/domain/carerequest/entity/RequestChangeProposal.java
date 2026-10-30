@@ -24,7 +24,12 @@ import java.util.*;
  */
 
 @Entity
-@Table(name = "request_change_proposals")
+@Table(name = "request_change_proposals",
+        indexes = {
+                @Index(name = "idx_proposals_assignment_id_status_response_deadline",
+                        columnList = "assignment_id, status, response_deadline") // 재확인 대기
+        }
+)
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class RequestChangeProposal extends BaseCreatedEntity {

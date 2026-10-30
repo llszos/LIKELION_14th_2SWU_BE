@@ -22,7 +22,12 @@ import java.time.LocalDateTime;
         uniqueConstraints = @UniqueConstraint(
                 name = "uk_request_assignments_target",
                 columnNames = {"request_id", "target_user_id"}
-        )
+        ),
+        indexes = {
+                @Index(name = "idx_assignments_request_id_closed_at", columnList = "request_id, closed_at"), // 현재 대상자 조회
+                @Index(name = "idx_assignments_target_user_id_closed_at_response_deadline",
+                        columnList = "target_user_id, closed_at, response_deadline")  // 받은 요청/응답 필요 요청
+        }
 )
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)

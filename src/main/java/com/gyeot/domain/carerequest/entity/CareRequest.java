@@ -22,7 +22,14 @@ import java.util.Set;
  * 돌봄 요청의 내용·일정·진행 상태 관리를 담당합니다.
  */
 @Entity
-@Table(name = "care_requests")
+@Table(name = "care_requests",
+        indexes = {
+                @Index(name = "idx_care_requests_situation_id_status", columnList = "situation_id, status"), // 상황별 요청
+                @Index(name = "idx_care_requests_requester_id_created_at", columnList = "requester_id, created_at"), // 과거 요청
+                @Index(name = "idx_care_requests_status_starts_at", columnList = "status, starts_at"), // 시작·만료 자동 처리
+                @Index(name = "idx_care_requests_status_ends_at", columnList = "status, ends_at")  // 완료 자동 처리
+        }
+)
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class CareRequest extends BaseEntity {
