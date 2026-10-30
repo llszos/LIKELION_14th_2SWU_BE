@@ -11,7 +11,7 @@ import com.gyeot.domain.carerequest.enums.AssignmentResponseStatus;
 import java.time.LocalDateTime;
 
 /**
- * request_assingments - 요청 대상자 지정 엔티티입니다.
+ * request_assignments - 요청 대상자 지정 엔티티입니다.
  * 요청 대상자, 응답 상태, 대상 변경 이력 관리를 담당합니다.
  */
 @Entity

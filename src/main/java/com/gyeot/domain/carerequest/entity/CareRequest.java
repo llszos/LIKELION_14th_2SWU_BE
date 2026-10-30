@@ -18,7 +18,7 @@ import com.gyeot.domain.carerequest.enums.ChangeableField;
 import java.util.Set;
 
 /**
- * request_requests - 돌봄 요청 엔티티입니다.
+ * care_requests - 돌봄 요청 엔티티입니다.
  * 돌봄 요청의 내용·일정·진행 상태 관리를 담당합니다.
  */
 @Entity
@@ -70,7 +70,7 @@ public class CareRequest extends BaseEntity {
 
     // 예정 종료 일시
     @Column(name = "ends_at")
-    private LocalDateTime endsAt; // 알반 요청 필수, 급한 요청 NULL
+    private LocalDateTime endsAt; // 일반 요청 필수, 급한 요청 NULL
 
     // 요청 상태
     @Enumerated(EnumType.STRING)
@@ -84,7 +84,7 @@ public class CareRequest extends BaseEntity {
     @Column(name = "checklist", columnDefinition = "json")
     private List<ChecklistItem> checklist; // F-12 (SHOULD), NULL 허용
 
-    // 실세 시작 처리 일시
+    // 실제 시작 처리 일시
     @Column(name = "started_at")
     private LocalDateTime startedAt;
 
