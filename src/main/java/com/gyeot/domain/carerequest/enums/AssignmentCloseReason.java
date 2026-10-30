@@ -11,6 +11,6 @@ public enum AssignmentCloseReason {
     PARTICIPANT_LEFT,        // 상황 이탈
     USER_WITHDRAWN,          // 대상자 회원 탈퇴
     REQUEST_ENDED,           // 요청 취소·만료·완료로 함께 마감
-    RESPONSE_DEADLINE_PASSED // 급한 요청의 30분 기한 경과 TODO: Enum 문서에는 RESPONSE_EXPIRED로 설정되어 있음 (변경 필요)
+    RESPONSE_DEADLINE_PASSED // 급한 요청의 30분 기한 경과
 }
 

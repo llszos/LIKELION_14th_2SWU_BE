@@ -59,7 +59,7 @@ public class RequestChangeProposal extends BaseCreatedEntity {
     private List<Long> proposedInformationIds;
 
     /** 변경 예정 장소 (제안된 장소)
-     * changed_fields에 place가 있고 값이 NULL이면 장소를 지우는 변경
+     * changed_fields에 place가 있고 급한 요청만 NULL로 지울 수 있음
      * */
     @Column(name = "proposed_place", columnDefinition = "TEXT", updatable = false)
     private String proposedPlace;
@@ -205,7 +205,7 @@ public class RequestChangeProposal extends BaseCreatedEntity {
         return changedFields.contains(field);
     }
 
-    // ===== 생성 시 검증 =====
+    // === 생성 시 검증 ===
     // TODO: B 공통 에러 코드가 병합되면 팀 공통 예외로 교체
 
     // 수락된 요청의 현재 담당자에게만 제안할 수 있습니다.
@@ -262,6 +262,13 @@ public class RequestChangeProposal extends BaseCreatedEntity {
         if (!changesPlace && proposedPlace != null) {
             throw new IllegalArgumentException("장소를 변경하지 않는다면 변경 예정 장소는 비어 있어야 합니다.");
         }
+
+        // 일반 요청은 장소가 필수라 비우는 변경을 할 수 없습니다.
+        if (changesPlace && !careRequest.isUrgent()
+                && (proposedPlace == null || proposedPlace.isBlank())) {
+            throw new IllegalArgumentException("일반 요청은 장소를 비울 수 없습니다.");
+        }
+
         if (changesInfo != (proposedInformationIds != null)) {
             throw new IllegalArgumentException(
                     "공개 항목은 변경할 때만 값이 있어야 하며, 모두 제외할 때는 빈 목록을 사용합니다.");
@@ -283,7 +290,7 @@ public class RequestChangeProposal extends BaseCreatedEntity {
         }
     }
 
-    // ===== 상태 변경 시 검증 =====
+    // === 상태 변경 시 검증 ===
 
     private void requirePending() {
         if (!isPending()) {

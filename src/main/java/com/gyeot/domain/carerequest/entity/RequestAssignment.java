@@ -10,7 +10,10 @@ import lombok.NoArgsConstructor;
 import com.gyeot.domain.carerequest.enums.AssignmentResponseStatus;
 import java.time.LocalDateTime;
 
-
+/**
+ * request_assingments - 요청 대상자 지정 엔티티입니다.
+ * 요청 대상자, 응답 상태, 대상 변경 이력 관리를 담당합니다.
+ */
 @Entity
 @Table(name = "request_assignments")
 @Getter
@@ -147,7 +150,7 @@ public class RequestAssignment extends BaseCreatedEntity {
         }
     }
 
-    /** 스케줄러가 처리하기 직전에 응답이 들어오는 경우를 대비합니다. */
+    // 스케줄러가 처리하기 직전에 응답이 들어오는 경우를 대비
     private void requireRespondable(LocalDateTime now) {
         if (careRequest.getStatus() != CareRequestStatus.REQUESTED) {
             throw new IllegalStateException("응답할 수 없는 요청입니다: " + careRequest.getStatus());
@@ -187,8 +190,11 @@ public class RequestAssignment extends BaseCreatedEntity {
         }
     }
 
-    /** 요청 시작 시각이 앞당겨지면 응답 기한이 새 시작 시각을 넘지 않도록 줄입니다. */
+    // 요청 시작 시각이 앞당겨지면 응답 기한이 새 시작 시각을 넘지 않도록 줄입니다
     public void limitDeadlineTo(LocalDateTime newStartsAt) {
+        if (newStartsAt == null) {
+            return; // 급한 요청은 시작 시각이 없으므로 줄이지 않음
+        }
         if (isOpen() && responseDeadline.isAfter(newStartsAt)) {
             this.responseDeadline = newStartsAt;
         }

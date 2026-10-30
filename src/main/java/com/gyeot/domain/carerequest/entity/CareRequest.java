@@ -17,6 +17,10 @@ import static com.gyeot.domain.carerequest.enums.CareRequestStatus.*;
 import com.gyeot.domain.carerequest.enums.ChangeableField;
 import java.util.Set;
 
+/**
+ * request_requests - 돌봄 요청 엔티티입니다.
+ * 돌봄 요청의 내용·일정·진행 상태 관리를 담당합니다.
+ */
 @Entity
 @Table(name = "care_requests")
 @Getter
@@ -75,7 +79,6 @@ public class CareRequest extends BaseEntity {
 
     /** TODO: SHOULD 기능이므로 1차 추가 때 재확인이 필요합니다.
      *  체크리스트 저장 구조는 JSON 칼럼을 사용할 예정이고, 지금은 필드만 먼저 넣어두었습니다.
-     *  ERD 수정이 필요합니다.
      */
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "checklist", columnDefinition = "json")
@@ -124,13 +127,13 @@ public class CareRequest extends BaseEntity {
      * 일반 요청 생성
      * 엔티티가 혼자 판단할 수 있는 규칙만 검증
      * (requester_id = situations.creator_id, 요청 시간이 상황 기간 안에 포함, 시작 1시간 전ㅡ 대상자가 나의 사람 및 보호자이면서 참여자,
-     * 도움 유형별 장소 필수 등은 서비스 위치 에서 검증)
+     * 도움 유형별 장소 필수 등은 서비스 위치에서 검증
      */
     public static CareRequest createGeneral(Long situationId, Long requesterId, HelpType helpType,
                                             String description, String place,
                                             LocalDateTime startsAt, LocalDateTime endsAt,
                                             List<ChecklistItem> checklist) {
-        // 일반 요청은 급한 요청과 달리 상황과 일정이 필수입니다.
+        // 일반 요청은 상황과 일정이 필수입니다.
         if (situationId == null || startsAt == null || endsAt == null) {
             throw new IllegalArgumentException("일반 요청은 상황과 일정이 필수입니다.");
         }
@@ -252,6 +255,9 @@ public class CareRequest extends BaseEntity {
             this.endsAt = end;
         }
         if (fields.contains(ChangeableField.PLACE)) {
+            if (!isUrgent() && (newPlace == null || newPlace.isBlank())) {
+                throw new IllegalArgumentException("일반 요청은 장소를 비울 수 없습니다.");
+            }
             this.place = newPlace;
         }
     }
