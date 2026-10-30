@@ -81,7 +81,7 @@ public class CareRequest extends BaseEntity {
      *  체크리스트 저장 구조는 JSON 칼럼을 사용할 예정이고, 지금은 필드만 먼저 넣어두었습니다.
      */
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "checklist", columnDefinition = "json")
+    @Column(name = "checklist", columnDefinition = "json", updatable = false)
     private List<ChecklistItem> checklist; // F-12 (SHOULD), NULL 허용
 
     // 실제 시작 처리 일시
