@@ -12,7 +12,7 @@ import java.util.Objects;
  * 요청 취소 (요청자 취소·상황 종료·재확인 거절·진행 중 담당자 이탈·관계 해제·회원 탈퇴)
  * - D: 요청의 모든 ACTIVE·PENDING 권한 회수 (requestId 기준)
  * - B(알림): 취소 당시 지정되어 있던 대상자·담당자에게 취소 알림
- * - assignmentId·targetUserId: 취소 당시 열려 있던 지정. 없었으면 둘 다 null
+ * - assignmentId/targetUserId: 취소 당시 열려 있던 지정. 없었으면 둘 다 null
  */
 public record CareRequestCanceledEvent(
         Long requestId,

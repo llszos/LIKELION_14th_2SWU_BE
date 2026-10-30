@@ -11,7 +11,8 @@ import java.util.Set;
  * 대상 지정 마감 (관계 해제·상황 제외·회원 탈퇴·급한 요청 응답 기한 경과)
  * - D: 해당 지정의 권한 회수
  * - B(알림): 없음 (요청자에게는 알림 대신 다음 연락 모달 F-14)
- * 아래 사유는 다른 이벤트가 같은 사실을 알리므로 이 이벤트로 발행하지 않습니다.
+
+ * 아래 사유는 다른 이벤트가 같은 사실을 알리므로 이 이벤트로 발행하지 않았습니다.
  * - TARGET_CHANGED → CareRequestTargetChangedEvent
  * - ACCEPTANCE_WITHDRAWN → CareRequestAcceptanceWithdrawnEvent
  * - REQUEST_ENDED → 취소·완료·만료 이벤트
