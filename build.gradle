@@ -48,4 +48,5 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+	jvmArgs '-Duser.timezone=Asia/Seoul' // 테스트는 main()을 거치지 않아서 여기서 시간대를 따로 고정
 }
