@@ -10,3 +10,11 @@ gyeot:
       secret: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
       issuer: gyeot-test
       access-token-ttl: PT15M
+      refresh-token-ttl: P30D
+    cookie:
+      refresh-token-name: refresh_token
+      path: /api/auth
+      secure: false
+      same-site: Lax
+    cors:
+      allowed-origins: http://localhost:3000

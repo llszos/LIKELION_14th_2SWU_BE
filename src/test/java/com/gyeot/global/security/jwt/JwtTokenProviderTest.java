@@ -56,8 +56,9 @@ class JwtTokenProviderTest {
     @Test
     void rejectsTamperedToken() {
         String token = provider.createAccessToken(17L);
-        char last = token.charAt(token.length() - 1);
-        String tampered = token.substring(0, token.length() - 1) + (last == 'A' ? 'B' : 'A');
+        String[] parts = token.split("\\.");
+        parts[1] = (parts[1].charAt(0) == 'A' ? "B" : "A") + parts[1].substring(1);
+        String tampered = String.join(".", parts);
 
         assertThrows(JwtException.class, () -> provider.getUserId(tampered));
     }

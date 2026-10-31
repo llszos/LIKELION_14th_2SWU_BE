@@ -5,12 +5,20 @@ import com.gyeot.domain.user.dto.request.SignupRequest;
 import com.gyeot.domain.user.dto.response.LoginResponse;
 import com.gyeot.domain.user.dto.response.SignupResponse;
 import com.gyeot.domain.user.service.AuthService;
+import com.gyeot.domain.user.service.LoginSession;
+import com.gyeot.global.security.cookie.RefreshTokenCookieService;
+import com.gyeot.global.security.refresh.service.IssuedRefreshToken;
+import com.gyeot.global.security.refresh.service.RefreshTokenService;
+import com.gyeot.global.security.jwt.JwtTokenProvider;
+import com.gyeot.global.security.jwt.JwtProperties;
+import jakarta.servlet.http.HttpServletRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpHeaders;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -25,9 +33,19 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final RefreshTokenService refreshTokenService;
+    private final JwtTokenProvider jwtTokenProvider;
+    private final RefreshTokenCookieService cookieService;
+    private final JwtProperties jwtProperties;
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, RefreshTokenService refreshTokenService,
+                          JwtTokenProvider jwtTokenProvider, RefreshTokenCookieService cookieService,
+                          JwtProperties jwtProperties) {
         this.authService = authService;
+        this.refreshTokenService = refreshTokenService;
+        this.jwtTokenProvider = jwtTokenProvider;
+        this.cookieService = cookieService;
+        this.jwtProperties = jwtProperties;
     }
 
     @PostMapping("/signup")
@@ -55,10 +73,36 @@ public class AuthController {
     public ResponseEntity<LoginResponse> login(
             @Valid @RequestBody LoginRequest request
     ) {
-        LoginResponse response = authService.login(request);
+        LoginSession session = authService.login(request);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setCacheControl("no-store");
+        cookieService.addRefreshTokenCookie(headers, session.refreshToken());
 
-        return ResponseEntity.ok()
-                .header("Cache-Control", "no-store")
-                .body(response);
+        return ResponseEntity.ok().headers(headers).body(session.response());
+    }
+
+    @PostMapping("/refresh")
+    @SecurityRequirements
+    @Operation(summary = "토큰 재발급", description = "Refresh Token 쿠키를 회전하고 새 Access Token을 발급합니다.")
+    public ResponseEntity<LoginResponse> refresh(HttpServletRequest request) {
+        IssuedRefreshToken rotated = refreshTokenService.rotate(cookieService.readRefreshToken(request));
+        LoginResponse response = new LoginResponse(
+                jwtTokenProvider.createAccessToken(rotated.userId()), "Bearer",
+                jwtProperties.getAccessTokenTtl().toSeconds());
+        HttpHeaders headers = new HttpHeaders();
+        headers.setCacheControl("no-store");
+        cookieService.addRefreshTokenCookie(headers, rotated);
+        return ResponseEntity.ok().headers(headers).body(response);
+    }
+
+    @PostMapping("/logout")
+    @SecurityRequirements
+    @Operation(summary = "로그아웃", description = "현재 로그인 세션의 Refresh Token을 폐기합니다.")
+    public ResponseEntity<Void> logout(HttpServletRequest request) {
+        refreshTokenService.revokeCurrentSession(cookieService.readRefreshTokenIfPresent(request).orElse(null));
+        HttpHeaders headers = new HttpHeaders();
+        headers.setCacheControl("no-store");
+        cookieService.clearRefreshTokenCookie(headers);
+        return ResponseEntity.noContent().headers(headers).build();
     }
 }

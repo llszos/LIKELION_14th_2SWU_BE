@@ -5,6 +5,12 @@ import com.gyeot.domain.user.dto.request.SignupRequest;
 import com.gyeot.domain.user.dto.response.LoginResponse;
 import com.gyeot.domain.user.dto.response.SignupResponse;
 import com.gyeot.domain.user.service.AuthService;
+import com.gyeot.domain.user.service.LoginSession;
+import com.gyeot.global.security.cookie.RefreshTokenCookieService;
+import com.gyeot.global.security.jwt.JwtProperties;
+import com.gyeot.global.security.jwt.JwtTokenProvider;
+import com.gyeot.global.security.refresh.service.IssuedRefreshToken;
+import com.gyeot.global.security.refresh.service.RefreshTokenService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,6 +33,10 @@ class AuthControllerTest {
     @Mock
     private AuthService authService;
 
+    @Mock private RefreshTokenService refreshTokenService;
+    @Mock private JwtTokenProvider jwtTokenProvider;
+    @Mock private RefreshTokenCookieService cookieService;
+
     private MockMvc mockMvc;
     private LocalValidatorFactoryBean validator;
 
@@ -36,7 +46,8 @@ class AuthControllerTest {
         validator.afterPropertiesSet();
 
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new AuthController(authService))
+                .standaloneSetup(new AuthController(authService, refreshTokenService,
+                        jwtTokenProvider, cookieService, new JwtProperties()))
                 .setValidator(validator)
                 .build();
     }
@@ -71,8 +82,10 @@ class AuthControllerTest {
     @Test
     void loginReturnsTokenAndNoStoreHeader() throws Exception {
         when(authService.login(any(LoginRequest.class)))
-                .thenReturn(new LoginResponse(
-                        "test-access-token", "Bearer", 900L));
+                .thenReturn(new LoginSession(
+                        new LoginResponse("test-access-token", "Bearer", 900L),
+                        new IssuedRefreshToken(17L, "raw-refresh-token", "session-id",
+                                java.time.LocalDateTime.now().plusDays(30))));
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)

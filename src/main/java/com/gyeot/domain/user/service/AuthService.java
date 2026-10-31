@@ -9,6 +9,10 @@ import com.gyeot.domain.user.entity.User;
 import com.gyeot.domain.user.repository.UserRepository;
 import com.gyeot.global.security.jwt.JwtProperties;
 import com.gyeot.global.security.jwt.JwtTokenProvider;
+import com.gyeot.global.security.auth.AuthErrorCode;
+import com.gyeot.global.security.auth.AuthException;
+import com.gyeot.global.security.refresh.service.IssuedRefreshToken;
+import com.gyeot.global.security.refresh.service.RefreshTokenService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,17 +31,20 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final JwtProperties jwtProperties;
+    private final RefreshTokenService refreshTokenService;
 
     public AuthService(
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
             JwtTokenProvider jwtTokenProvider,
-            JwtProperties jwtProperties
+            JwtProperties jwtProperties,
+            RefreshTokenService refreshTokenService
     ) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtTokenProvider = jwtTokenProvider;
         this.jwtProperties = jwtProperties;
+        this.refreshTokenService = refreshTokenService;
     }
 
     /**
@@ -50,8 +57,7 @@ public class AuthService {
         validatePasswordLength(request.password());
 
         if (userRepository.existsByEmail(request.email())) {
-            // TODO: 팀 공통 비즈니스 예외 체계에 연결합니다.
-            throw new IllegalArgumentException("이미 가입된 이메일입니다.");
+            throw new AuthException(AuthErrorCode.EMAIL_ALREADY_REGISTERED);
         }
 
         String passwordHash =
@@ -71,14 +77,13 @@ public class AuthService {
     /**
      * 이메일·비밀번호와 계정 상태를 확인하고 Access Token을 발급합니다.
      *
-     * Refresh Token 발급 및 인증 오류의 공통 응답 처리는
-     * 인증 2차에서 연결합니다.
+     * Refresh Token도 함께 발급하고 원문은 쿠키로 전달합니다.
      */
-    @Transactional(readOnly = true)
-    public LoginResponse login(LoginRequest request) {
+    @Transactional
+    public LoginSession login(LoginRequest request) {
         validatePasswordLength(request.password());
 
-        User user = userRepository.findByEmail(request.email())
+        User user = userRepository.findByEmailForUpdate(request.email())
                 .orElseThrow(this::loginFailed);
 
         if (user.getAccountStatus() != AccountStatus.ACTIVE
@@ -94,11 +99,11 @@ public class AuthService {
 
         String accessToken =
                 jwtTokenProvider.createAccessToken(user.getId());
+        IssuedRefreshToken refreshToken = refreshTokenService.issueInitial(user.getId());
 
-        return new LoginResponse(
-                accessToken,
-                "Bearer",
-                jwtProperties.getAccessTokenTtl().toSeconds()
+        return new LoginSession(
+                new LoginResponse(accessToken, "Bearer", jwtProperties.getAccessTokenTtl().toSeconds()),
+                refreshToken
         );
     }
 
@@ -114,9 +119,7 @@ public class AuthService {
         }
     }
 
-    private IllegalArgumentException loginFailed() {
-        // TODO: 인증 2차에서 인증 예외 및 공통 응답 처리로 교체합니다.
-        return new IllegalArgumentException(
-                "이메일 또는 비밀번호가 올바르지 않습니다.");
+    private AuthException loginFailed() {
+        return new AuthException(AuthErrorCode.LOGIN_FAILED);
     }
 }

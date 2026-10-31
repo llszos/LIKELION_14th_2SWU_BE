@@ -18,6 +18,11 @@ public interface UserRepository extends JpaRepository<User, Long> {
     // 로그인 시 이메일로 사용자 계정을 조회합니다.
     Optional<User> findByEmail(String email);
 
+    // 로그인과 탈퇴 처리가 동시에 실행될 때 계정 상태 확인을 직렬화합니다.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from User u where u.email = :email")
+    Optional<User> findByEmailForUpdate(@Param("email") String email);
+
     // JWT 인증 시 활성 계정인지 확인합니다.
     boolean existsByIdAndAccountStatus(
             Long id,

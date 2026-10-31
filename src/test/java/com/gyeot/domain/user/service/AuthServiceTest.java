@@ -9,6 +9,9 @@ import com.gyeot.domain.user.entity.User;
 import com.gyeot.domain.user.repository.UserRepository;
 import com.gyeot.global.security.jwt.JwtProperties;
 import com.gyeot.global.security.jwt.JwtTokenProvider;
+import com.gyeot.global.security.auth.AuthException;
+import com.gyeot.global.security.refresh.service.IssuedRefreshToken;
+import com.gyeot.global.security.refresh.service.RefreshTokenService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -35,6 +38,9 @@ class AuthServiceTest {
     @Mock
     private JwtTokenProvider jwtTokenProvider;
 
+    @Mock
+    private RefreshTokenService refreshTokenService;
+
     private AuthService authService;
 
     @BeforeEach
@@ -46,7 +52,8 @@ class AuthServiceTest {
                 userRepository,
                 passwordEncoder,
                 jwtTokenProvider,
-                properties
+                properties,
+                refreshTokenService
         );
     }
 
@@ -87,7 +94,7 @@ class AuthServiceTest {
         when(userRepository.existsByEmail(request.email())).thenReturn(true);
 
         assertThrows(
-                IllegalArgumentException.class,
+                AuthException.class,
                 () -> authService.signup(request)
         );
 
@@ -119,18 +126,23 @@ class AuthServiceTest {
         when(user.getAccountStatus()).thenReturn(AccountStatus.ACTIVE);
         when(user.getPasswordHash()).thenReturn("encoded-password");
 
-        when(userRepository.findByEmail(request.email()))
+        when(userRepository.findByEmailForUpdate(request.email()))
                 .thenReturn(Optional.of(user));
         when(passwordEncoder.matches(request.password(), "encoded-password"))
                 .thenReturn(true);
         when(jwtTokenProvider.createAccessToken(17L))
                 .thenReturn("test-access-token");
+        when(refreshTokenService.issueInitial(17L)).thenReturn(
+                new IssuedRefreshToken(17L, "raw-refresh-token", "session-id",
+                        java.time.LocalDateTime.now().plusDays(30)));
 
-        LoginResponse response = authService.login(request);
+        LoginSession session = authService.login(request);
+        LoginResponse response = session.response();
 
         assertEquals("test-access-token", response.accessToken());
         assertEquals("Bearer", response.tokenType());
         assertEquals(900L, response.expiresIn());
+        assertEquals("raw-refresh-token", session.refreshToken().rawToken());
     }
 
     @Test
@@ -138,11 +150,11 @@ class AuthServiceTest {
         LoginRequest request =
                 new LoginRequest("unknown@example.com", "password");
 
-        when(userRepository.findByEmail(request.email()))
+        when(userRepository.findByEmailForUpdate(request.email()))
                 .thenReturn(Optional.empty());
 
         assertThrows(
-                IllegalArgumentException.class,
+                AuthException.class,
                 () -> authService.login(request)
         );
 
@@ -158,13 +170,13 @@ class AuthServiceTest {
         when(user.getAccountStatus()).thenReturn(AccountStatus.ACTIVE);
         when(user.getPasswordHash()).thenReturn("encoded-password");
 
-        when(userRepository.findByEmail(request.email()))
+        when(userRepository.findByEmailForUpdate(request.email()))
                 .thenReturn(Optional.of(user));
         when(passwordEncoder.matches(
                 request.password(), "encoded-password")).thenReturn(false);
 
         assertThrows(
-                IllegalArgumentException.class,
+                AuthException.class,
                 () -> authService.login(request)
         );
 
@@ -179,11 +191,11 @@ class AuthServiceTest {
         User user = mock(User.class);
         when(user.getAccountStatus()).thenReturn(AccountStatus.WITHDRAWN);
 
-        when(userRepository.findByEmail(request.email()))
+        when(userRepository.findByEmailForUpdate(request.email()))
                 .thenReturn(Optional.of(user));
 
         assertThrows(
-                IllegalArgumentException.class,
+                AuthException.class,
                 () -> authService.login(request)
         );
 
