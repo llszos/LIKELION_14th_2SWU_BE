@@ -1,4 +1,4 @@
-package com.gyeot.domain.access.service;
+package com.gyeot.domain.access.query;
 
 /**
  * 다른 영역이 D에게 공유 건수를 물어볼 때 쓰는 조회 인터페이스입니다.

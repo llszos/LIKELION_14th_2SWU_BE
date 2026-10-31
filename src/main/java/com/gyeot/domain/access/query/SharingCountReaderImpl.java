@@ -1,4 +1,4 @@
-package com.gyeot.domain.access.service;
+package com.gyeot.domain.access.query;
 
 import com.gyeot.domain.access.entity.PermissionStatus;
 import com.gyeot.domain.access.repository.RequestInformationPermissionRepository;
