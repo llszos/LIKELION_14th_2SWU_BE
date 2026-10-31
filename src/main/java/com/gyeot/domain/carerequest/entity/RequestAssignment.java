@@ -226,7 +226,7 @@ public class RequestAssignment extends BaseCreatedEntity {
      * 모달을 보는 사이에 사유가 바뀌어도, 새 사유 모달이 한 번 더 뜨게 하기 위해서 입니다.
      */
     public void closeNotice(NoAssigneeReason shownReason, LocalDateTime now) {
-        if(this.noticeClosedAt == null) {
+        if(shownReason == null) {
             throw new IllegalArgumentException("모달에 표시한 사유는 필수입니다.");
         }
         this.noticeReason = shownReason;
