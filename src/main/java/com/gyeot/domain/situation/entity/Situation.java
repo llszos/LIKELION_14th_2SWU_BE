@@ -11,18 +11,20 @@ import java.time.LocalDateTime;
 
 /** ERD 4.4 situations. 생성·수정 시각은 BaseEntity가 관리합니다. */
 @Entity
-@Table(name = "situations")
+@Table(name = "situations", indexes = {
+        @Index(name = "idx_situations_creator_id_status", columnList = "creator_id, status")
+})
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Situation extends BaseEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "id", columnDefinition = "BIGINT UNSIGNED")
+    @Column(name = "id")
     private Long id;
 
     // 다른 도메인의 User는 ID로만 참조합니다.
-    @Column(name = "creator_id", nullable = false, columnDefinition = "BIGINT UNSIGNED")
+    @Column(name = "creator_id", nullable = false)
     private Long creatorId;
 
     // TODO: SituationType 허용값 확정 후 enum과 EnumType.STRING 매핑으로 전환합니다.
@@ -40,10 +42,10 @@ public class Situation extends BaseEntity {
     private LocalDate endDate;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false, length = 20, columnDefinition = "VARCHAR(20)")
+    @Column(name = "status", nullable = false, length = 20)
     private SituationStatus status;
 
-    @Column(name = "ended_at", columnDefinition = "DATETIME(6)")
+    @Column(name = "ended_at")
     private LocalDateTime endedAt;
 
     /** 상황만 생성합니다. OWNER 참여 행의 동시 저장은 후속 Service의 트랜잭션 책임입니다. */
