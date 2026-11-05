@@ -2,7 +2,6 @@ package com.gyeot.domain.carerequest.query;
 
 import com.gyeot.domain.carerequest.entity.CareRequest;
 import com.gyeot.domain.carerequest.entity.RequestAssignment;
-import com.gyeot.domain.carerequest.enums.AssignmentResponseStatus;
 
 import java.time.LocalDateTime;
 
@@ -35,14 +34,10 @@ public enum RequestDisplayStatus {
         };
     }
 
+    // 담당자 없음을 판단하는 기준을 RequestAssignment 기준으로 통일합니다.
     private static boolean isWaiting(RequestAssignment assignment, LocalDateTime now) {
-        if (assignment == null || !assignment.isOpen()) {
-            return false;
-        }
-        if (assignment.getResponseStatus() == AssignmentResponseStatus.UNAVAILABLE) {
-            return false;
-        }
-        return !assignment.isDeadlinePassed(now);
+        return assignment != null && assignment.isOpen()
+                && assignment.currentNoAssigneeReason(now) == null;
     }
 
     public boolean isTerminal() {

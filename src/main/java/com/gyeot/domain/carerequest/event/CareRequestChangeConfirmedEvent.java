@@ -52,7 +52,7 @@ public record CareRequestChangeConfirmedEvent(
         informationIds = informationIds == null ? null : List.copyOf(informationIds);
     }
 
-    // 수락 전 직접 수정: careRequest.applyChanges() 뒤에 호출합니다. 열린 지정이 없으면 currentAssignment는 null입니다.
+    // 수락 전 직접 수정: careRequest.editBeforeAcceptance() 뒤에 호출합니다. 열린 지정이 없으면 currentAssignment는 null입니다.
     public static CareRequestChangeConfirmedEvent ofDirectEdit(CareRequest careRequest,
                                                                RequestAssignment currentAssignment,
                                                                Set<ChangeableField> changedFields,
@@ -67,7 +67,7 @@ public record CareRequestChangeConfirmedEvent(
                 assignmentId, targetUserId, changedFields, informationIds, occurredAt);
     }
 
-    // 재확인 수락: proposal.accept()와 careRequest.applyChanges() 뒤에 호출합니다.
+    // 재확인 수락: proposal.accept()와 careRequest.applyProposal() 뒤에 호출합니다.
     public static CareRequestChangeConfirmedEvent ofProposal(RequestChangeProposal proposal, LocalDateTime occurredAt) {
         if (proposal.getStatus() != ProposalStatus.ACCEPTED) {
             throw new IllegalStateException("수락된 제안이 아닙니다: " + proposal.getStatus());

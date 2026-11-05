@@ -182,7 +182,7 @@ public class RequestChangeEvent {
 
     /**
      * 수락 전 직접 수정 (REQUEST_UPDATED)
-     * careRequest.applyChanges() 호출 뒤에 호출합니다.
+     * careRequest.editBeforeAcceptance() 호출 뒤에 호출합니다.
      * 수정이 반영되면 원래 일정이 덮어써지므로 일정 이전 값을 남깁니다. 장소는 원문을 남기지 않고 필드 이름만 남깁니다.
      * event_details 예시:
      * {"changed_fields": ["starts_at", "place"], "previous_starts_at": "2026-10-02T14:00"}
@@ -249,7 +249,7 @@ public class RequestChangeEvent {
 
     /**
      * 재확인 수락 (RECONFIRMATION_ACCEPTED)
-     * proposal.accept()와 careRequest.applyChanges() 호출 뒤에 호출합니다.
+     * proposal.accept()와 careRequest.applyProposal() 호출 뒤에 호출합니다.
      * 반영되면 원래 일정이 덮어써지므로 일정 이전 값을 남깁니다. 일정이 바뀌지 않았으면 상세는 NULL입니다.
      * event_details 예시: {"previous_starts_at": "2026-10-02T14:00", "previous_ends_at": "2026-10-02T17:00"}
      */

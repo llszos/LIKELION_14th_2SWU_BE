@@ -1,9 +1,6 @@
 package com.gyeot.domain.carerequest.entity;
 
-import com.gyeot.domain.carerequest.enums.CancelReason;
-import com.gyeot.domain.carerequest.enums.CareRequestStatus;
-import com.gyeot.domain.carerequest.enums.HelpType;
-import com.gyeot.domain.carerequest.enums.RequestType;
+import com.gyeot.domain.carerequest.enums.*;
 import com.gyeot.global.common.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -14,8 +11,10 @@ import org.hibernate.type.SqlTypes;
 import java.util.List;
 import java.time.LocalDateTime;
 import static com.gyeot.domain.carerequest.enums.CareRequestStatus.*;
-import com.gyeot.domain.carerequest.enums.ChangeableField;
+
+import java.util.Objects;
 import java.util.Set;
+import java.time.Duration;
 
 /**
  * care_requests - 돌봄 요청 엔티티입니다.
@@ -33,6 +32,9 @@ import java.util.Set;
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class CareRequest extends BaseEntity {
+
+    // 새 요청·시작 시간 수정 모두 시작까지 최소 1시간 (F-05, F-29)
+    public static final Duration MIN_START_LEAD_TIME = Duration.ofHours(1);
 
     // 요청 ID
     @Id
@@ -112,6 +114,7 @@ public class CareRequest extends BaseEntity {
     @Column(name = "cancel_reason", length = 40)
     private CancelReason cancelReason;
 
+    // 생성자
     private CareRequest(Long situationId, Long requesterId, RequestType requestType,
                         HelpType helpType, String description, String place,
                         LocalDateTime startsAt, LocalDateTime endsAt,
@@ -238,15 +241,62 @@ public class CareRequest extends BaseEntity {
     }
 
     /**
-     * 요청 수정 반영 (수락 전 직접 수정, 수락 후 재확인 수락 시 공통)
+     * 수락 전 직접 수정 (재확인 없이 바로 반영)
+     * 시작 시간을 바꾸면 수정 시점부터 1시간 이후여야 합니다.
+     */
+    public void editBeforeAcceptance(Set<ChangeableField> fields, LocalDateTime newStartsAt,
+                                     LocalDateTime newEndsAt, String newPlace, LocalDateTime now) {
+        requireStatus(REQUESTED);
+        if (fields.contains(ChangeableField.STARTS_AT)) {
+            requireStartLeadTime(newStartsAt, now);
+        }
+        applyChanges(fields, newStartsAt, newEndsAt, newPlace);
+    }
+
+    /**
+     * 재확인 수락 반영
+     * 1시간 규칙은 제안을 만들 때 이미 검사했으므로 다시 검사하지 않습니다.
+     */
+    public void applyProposal(RequestChangeProposal proposal) {
+        requireStatus(ACCEPTED);
+        if (proposal.getStatus() != ProposalStatus.ACCEPTED
+                || !Objects.equals(proposal.getCareRequest().getId(), this.id)) {
+            throw new IllegalArgumentException("이 요청의 수락된 제안만 반영할 수 있습니다.");
+        }
+        applyChanges(proposal.getChangedFields(), proposal.getProposedStartsAt(),
+                proposal.getProposedEndsAt(), proposal.getProposedPlace());
+    }
+
+    // === 조회용 메서드 ===
+
+    /**
+     * 급한 요청인지 확인
+     */
+    public boolean isUrgent() {
+        return requestType == RequestType.URGENT;
+    }
+
+    /**
+     * 상태가 완료 또는 만료 또는 취소인지 확인
+     */
+    public boolean isTerminal() {
+        return status.isTerminal();
+    }
+
+    // === 공통 검증 ===
+    public static void requireStartLeadTime(LocalDateTime startsAt, LocalDateTime now) {
+        if (startsAt.isBefore(now.plus(MIN_START_LEAD_TIME))) {
+            throw new IllegalArgumentException("시작 시간은 지금부터 1시간 이후여야 합니다.");
+        }
+    }
+
+    // === 내부 처리 ===
+    /**
+     * 수정 내용 반영 (editBeforeAcceptance, applyProposal에서만 호출)
      * changed_fields에 있는 필드만 적용하고, 공개 항목(information_ids)은 D가 권한으로 처리
      */
-    public void applyChanges(Set<ChangeableField> fields, LocalDateTime newStartsAt,
+    private void applyChanges(Set<ChangeableField> fields, LocalDateTime newStartsAt,
                              LocalDateTime newEndsAt, String newPlace) {
-
-        if (status != REQUESTED && status != ACCEPTED) {
-            throw new IllegalStateException("진행 중이거나 종료된 요청은 수정할 수 없습니다: " + status);
-        }
         boolean scheduleChanged = fields.contains(ChangeableField.STARTS_AT)
                 || fields.contains(ChangeableField.ENDS_AT);
 
@@ -267,22 +317,6 @@ public class CareRequest extends BaseEntity {
             }
             this.place = newPlace;
         }
-    }
-
-    // === 조회용 메소드 ===
-
-    /**
-     * 급한 요청인지 확인
-     */
-    public boolean isUrgent() {
-        return requestType == RequestType.URGENT;
-    }
-
-    /**
-     * 상태가 완료 또는 만료 또는 취소인지 확인
-     */
-    public boolean isTerminal() {
-        return status.isTerminal();
     }
 
     // === 내부 검증 ===
