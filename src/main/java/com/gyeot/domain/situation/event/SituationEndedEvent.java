@@ -5,6 +5,8 @@ import java.util.Objects;
 
 /**
  * B가 상황 종료를 알리는 이벤트입니다. C가 관련 요청을 취소하고 후속 이벤트로 D의 권한 회수를 연결합니다.
+ * 정보 주인의 종료 및 기간 종료 자동 종료(F-04)에 발행합니다.
+ * 회원 탈퇴로 인한 상황 삭제에는 발행하지 않습니다. 회원 탈퇴 처리는 UserWithdrawnEvent로 수행합니다.
  * @param situationId 종료된 상황 ID (situations.id)
  * @param occurredAt 상황에 기록한 실제 종료 시각(endedAt), Asia/Seoul 기준
  */
