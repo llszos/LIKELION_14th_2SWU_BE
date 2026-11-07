@@ -1,11 +1,13 @@
 package com.gyeot.global.security.auth;
 
-public class AuthException extends RuntimeException {
+import com.gyeot.global.exception.BusinessException;
+
+public class AuthException extends BusinessException {
 
     private final AuthErrorCode errorCode;
 
     public AuthException(AuthErrorCode errorCode) {
-        super(errorCode.getMessage());
+        super(errorCode);
         this.errorCode = errorCode;
     }
 

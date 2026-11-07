@@ -72,7 +72,8 @@ class AuthControllerTest {
                                 }
                                 """))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.userId").value(17));
+                .andExpect(jsonPath("$.status").value("success"))
+                .andExpect(jsonPath("$.data.userId").value(17));
 
         verify(authService).signup(
                 new SignupRequest(
@@ -98,14 +99,26 @@ class AuthControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(header().string(
                         "Cache-Control", "no-store"))
-                .andExpect(jsonPath("$.accessToken")
+                .andExpect(jsonPath("$.status").value("success"))
+                .andExpect(jsonPath("$.data.accessToken")
                         .value("test-access-token"))
-                .andExpect(jsonPath("$.tokenType")
+                .andExpect(jsonPath("$.data.tokenType")
                         .value("Bearer"))
-                .andExpect(jsonPath("$.expiresIn").value(900));
+                .andExpect(jsonPath("$.data.expiresIn").value(900));
 
         verify(authService).login(
                 new LoginRequest("user@example.com", "password"));
+    }
+
+    @Test
+    void logoutReturnsOkWithCommonSuccessResponse() throws Exception {
+        mockMvc.perform(post("/api/auth/logout"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("success"))
+                .andExpect(jsonPath("$.data").doesNotExist());
+
+        verify(refreshTokenService).revokeCurrentSession(null);
+        verify(cookieService).clearRefreshTokenCookie(any());
     }
 
     @Test

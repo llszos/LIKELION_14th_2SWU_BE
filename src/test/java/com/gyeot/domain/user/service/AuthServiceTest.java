@@ -10,6 +10,7 @@ import com.gyeot.domain.user.repository.UserRepository;
 import com.gyeot.global.security.jwt.JwtProperties;
 import com.gyeot.global.security.jwt.JwtTokenProvider;
 import com.gyeot.global.security.auth.AuthException;
+import com.gyeot.global.security.auth.AuthErrorCode;
 import com.gyeot.global.security.refresh.service.IssuedRefreshToken;
 import com.gyeot.global.security.refresh.service.RefreshTokenService;
 import org.junit.jupiter.api.BeforeEach;
@@ -108,10 +109,11 @@ class AuthServiceTest {
         SignupRequest request =
                 new SignupRequest("user@example.com", "가".repeat(25), "사용자");
 
-        assertThrows(
-                IllegalArgumentException.class,
+        AuthException exception = assertThrows(
+                AuthException.class,
                 () -> authService.signup(request)
         );
+        assertEquals(AuthErrorCode.PASSWORD_TOO_LONG, exception.getErrorCode());
 
         verifyNoInteractions(userRepository, passwordEncoder);
     }

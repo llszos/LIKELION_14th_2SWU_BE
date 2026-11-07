@@ -109,13 +109,12 @@ public class AuthService {
 
     private void validatePasswordLength(String password) {
         if (password == null || password.isBlank()) {
-            throw new IllegalArgumentException("비밀번호는 필수입니다.");
+            throw new AuthException(AuthErrorCode.PASSWORD_REQUIRED);
         }
 
         if (password.getBytes(StandardCharsets.UTF_8).length
                 > BCRYPT_MAX_PASSWORD_BYTES) {
-            throw new IllegalArgumentException(
-                    "비밀번호는 UTF-8 기준 72바이트 이하여야 합니다.");
+            throw new AuthException(AuthErrorCode.PASSWORD_TOO_LONG);
         }
     }
 

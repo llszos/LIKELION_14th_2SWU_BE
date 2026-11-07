@@ -2,6 +2,7 @@ package com.gyeot;
 
 import com.gyeot.domain.user.entity.User;
 import com.gyeot.domain.user.repository.UserRepository;
+import com.gyeot.domain.user.service.UserWithdrawalService;
 import com.gyeot.global.security.auth.AuthErrorCode;
 import com.gyeot.global.security.auth.AuthException;
 import com.gyeot.global.security.refresh.entity.RefreshToken;
@@ -41,6 +42,7 @@ class RefreshTokenServiceIntegrationTest {
     @Autowired private RefreshTokenGenerator tokenGenerator;
     @Autowired private RefreshTokenCleanupScheduler cleanupScheduler;
     @Autowired private UserRepository userRepository;
+    @Autowired private UserWithdrawalService userWithdrawalService;
 
     @BeforeEach
     void cleanDatabase() {
@@ -126,6 +128,34 @@ class RefreshTokenServiceIntegrationTest {
         assertTrue(refreshTokenRepository.findByTokenHash(tokenGenerator.hash(recentRaw)).isPresent());
     }
 
+    @Test
+    void withdrawalRacingWithRefreshLeavesEverySessionTokenRevoked() throws Exception {
+        Long userId = createUser();
+        IssuedRefreshToken initial = refreshTokenService.issueInitial(userId);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Object> refresh = executor.submit(() -> rotateAfter(start, initial.rawToken()));
+            Future<Object> withdrawal = executor.submit(() -> withdrawAfter(start, userId));
+            start.countDown();
+
+            Object refreshResult = refresh.get();
+            Object withdrawalResult = withdrawal.get();
+
+            assertEquals("withdrawn", withdrawalResult);
+            assertTrue(refreshResult instanceof IssuedRefreshToken
+                    || refreshResult instanceof AuthException);
+            assertEquals(com.gyeot.domain.user.entity.AccountStatus.WITHDRAWN,
+                    userRepository.findById(userId).orElseThrow().getAccountStatus());
+            assertTrue(refreshTokenRepository.findAllBySessionId(initial.sessionId()).stream()
+                    .allMatch(token -> token.getRevokedAt() != null));
+            assertAuthError(() -> refreshTokenService.rotate(initial.rawToken()),
+                    AuthErrorCode.REFRESH_TOKEN_REVOKED);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
     private Long createUser() {
         return userRepository.save(User.register("refresh-" + UUID.randomUUID() + "@example.com", "hash", "테스트")).getId();
     }
@@ -143,6 +173,19 @@ class RefreshTokenServiceIntegrationTest {
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException(exception);
+        }
+    }
+
+    private Object withdrawAfter(CountDownLatch start, Long userId) {
+        try {
+            start.await();
+            userWithdrawalService.withdraw(userId);
+            return "withdrawn";
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(exception);
+        } catch (RuntimeException exception) {
+            return exception;
         }
     }
 

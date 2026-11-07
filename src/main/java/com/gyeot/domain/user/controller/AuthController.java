@@ -6,6 +6,7 @@ import com.gyeot.domain.user.dto.response.LoginResponse;
 import com.gyeot.domain.user.dto.response.SignupResponse;
 import com.gyeot.domain.user.service.AuthService;
 import com.gyeot.domain.user.service.LoginSession;
+import com.gyeot.global.common.ApiResponse;
 import com.gyeot.global.security.cookie.RefreshTokenCookieService;
 import com.gyeot.global.security.refresh.service.IssuedRefreshToken;
 import com.gyeot.global.security.refresh.service.RefreshTokenService;
@@ -54,14 +55,14 @@ public class AuthController {
             summary = "회원가입",
             description = "이메일·비밀번호·이름으로 가입합니다. 가입 후 자동 로그인은 하지 않습니다."
     )
-    public ResponseEntity<SignupResponse> signup(
+    public ResponseEntity<ApiResponse<SignupResponse>> signup(
             @Valid @RequestBody SignupRequest request
     ) {
         SignupResponse response = authService.signup(request);
 
         return ResponseEntity
                 .status(HttpStatus.CREATED)
-                .body(response);
+                .body(ApiResponse.success(response));
     }
 
     @PostMapping("/login")
@@ -70,7 +71,7 @@ public class AuthController {
             summary = "로그인",
             description = "이메일·비밀번호를 확인하고 Access Token을 발급합니다."
     )
-    public ResponseEntity<LoginResponse> login(
+    public ResponseEntity<ApiResponse<LoginResponse>> login(
             @Valid @RequestBody LoginRequest request
     ) {
         LoginSession session = authService.login(request);
@@ -78,13 +79,13 @@ public class AuthController {
         headers.setCacheControl("no-store");
         cookieService.addRefreshTokenCookie(headers, session.refreshToken());
 
-        return ResponseEntity.ok().headers(headers).body(session.response());
+        return ResponseEntity.ok().headers(headers).body(ApiResponse.success(session.response()));
     }
 
     @PostMapping("/refresh")
     @SecurityRequirements
     @Operation(summary = "토큰 재발급", description = "Refresh Token 쿠키를 회전하고 새 Access Token을 발급합니다.")
-    public ResponseEntity<LoginResponse> refresh(HttpServletRequest request) {
+    public ResponseEntity<ApiResponse<LoginResponse>> refresh(HttpServletRequest request) {
         IssuedRefreshToken rotated = refreshTokenService.rotate(cookieService.readRefreshToken(request));
         LoginResponse response = new LoginResponse(
                 jwtTokenProvider.createAccessToken(rotated.userId()), "Bearer",
@@ -92,17 +93,17 @@ public class AuthController {
         HttpHeaders headers = new HttpHeaders();
         headers.setCacheControl("no-store");
         cookieService.addRefreshTokenCookie(headers, rotated);
-        return ResponseEntity.ok().headers(headers).body(response);
+        return ResponseEntity.ok().headers(headers).body(ApiResponse.success(response));
     }
 
     @PostMapping("/logout")
     @SecurityRequirements
     @Operation(summary = "로그아웃", description = "현재 로그인 세션의 Refresh Token을 폐기합니다.")
-    public ResponseEntity<Void> logout(HttpServletRequest request) {
+    public ResponseEntity<ApiResponse<Void>> logout(HttpServletRequest request) {
         refreshTokenService.revokeCurrentSession(cookieService.readRefreshTokenIfPresent(request).orElse(null));
         HttpHeaders headers = new HttpHeaders();
         headers.setCacheControl("no-store");
         cookieService.clearRefreshTokenCookie(headers);
-        return ResponseEntity.noContent().headers(headers).build();
+        return ResponseEntity.ok().headers(headers).body(ApiResponse.success());
     }
 }

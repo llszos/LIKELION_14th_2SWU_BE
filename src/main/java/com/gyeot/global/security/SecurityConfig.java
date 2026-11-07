@@ -7,13 +7,12 @@ import com.gyeot.global.security.jwt.JwtTokenProvider;
 import com.gyeot.global.security.cookie.AuthCookieProperties;
 import com.gyeot.global.security.cors.CorsProperties;
 import com.gyeot.global.security.csrf.RefreshCookieCsrfMatcher;
-import jakarta.servlet.DispatcherType;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpMethod;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -30,19 +29,9 @@ import java.util.List;
 
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity
 @EnableConfigurationProperties({JwtProperties.class, AuthCookieProperties.class, CorsProperties.class})
 public class SecurityConfig {
-
-    private static final String[] PUBLIC_URLS = {
-            "/swagger-ui/**",
-            "/swagger-ui.html",
-            "/v3/api-docs/**",
-            "/api/auth/signup",
-            "/api/auth/login",
-            "/api/auth/refresh",
-            "/api/auth/logout",
-            "/api/auth/csrf"
-    };
 
     @Bean
     public SecurityFilterChain securityFilterChain(
@@ -50,7 +39,10 @@ public class SecurityConfig {
             JwtTokenProvider tokenProvider,
             UserRepository userRepository,
             RefreshCookieCsrfMatcher csrfMatcher,
-            CookieCsrfTokenRepository csrfTokenRepository
+            CookieCsrfTokenRepository csrfTokenRepository,
+            PublicApiRequestMatcher publicApiRequestMatcher,
+            ApiAuthenticationEntryPoint authenticationEntryPoint,
+            ApiAccessDeniedHandler accessDeniedHandler
     ) throws Exception {
 
         http
@@ -64,18 +56,18 @@ public class SecurityConfig {
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(
                                 SessionCreationPolicy.STATELESS))
-                // 인증 예외의 공통 응답 처리는 인증 2차에서 적용합니다.
+                .exceptionHandling(exception -> exception
+                        .authenticationEntryPoint(authenticationEntryPoint)
+                        .accessDeniedHandler(accessDeniedHandler))
                 .authorizeHttpRequests(auth -> auth
-                        .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
-                        .requestMatchers(PUBLIC_URLS).permitAll()
-                        .requestMatchers(
-                                HttpMethod.GET, "/api/invitations/**").permitAll()
-                        .requestMatchers(
-                                HttpMethod.OPTIONS, "/**").permitAll()
+                        .requestMatchers(publicApiRequestMatcher).permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(
                         new JwtAuthenticationFilter(
-                                tokenProvider, userRepository),
+                                tokenProvider,
+                                userRepository,
+                                publicApiRequestMatcher,
+                                authenticationEntryPoint),
                         UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
