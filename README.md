@@ -109,7 +109,7 @@
 
 [Swagger UI](http://localhost:8080/swagger-ui/index.html) · [프로필·환경변수·문제 해결](docs/development.md)
 
-[인증 연동 문서 — PR #33 검토 커밋](https://github.com/llszos/LIKELION_14th_2SWU_BE/blob/caa373bd85a72789a6806e93e66d05c3f71c4216/docs/authentication.md): 토큰·쿠키·CSRF·로그인 사용자 ID 사용법. 해당 문서는 #33에서 추가되며 병합 후 저장소의 `docs/authentication.md`로 연결합니다.
+[인증 연동 문서](docs/authentication.md): 토큰·쿠키·CSRF·로그인 사용자 ID 사용법.
 
 ## 테스트
 
