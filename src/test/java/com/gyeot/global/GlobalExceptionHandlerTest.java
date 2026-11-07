@@ -10,16 +10,25 @@ import jakarta.validation.constraints.NotBlank;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.context.request.WebRequest;
+import org.springframework.validation.BeanPropertyBindingResult;
+import org.springframework.validation.FieldError;
+import org.springframework.core.MethodParameter;
 
 import java.util.List;
 import java.util.Map;
 
 import static org.hamcrest.Matchers.nullValue;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -80,7 +89,10 @@ class GlobalExceptionHandlerTest {
     @Test
     void invalidBodyBecomes400() throws Exception {
         mvc.perform(post("/api/test").contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"\"}"))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"))
+                .andExpect(jsonPath("$.message").value("이름을 입력해 주세요."))
+                .andExpect(jsonPath("$.data").value(nullValue()))
+                .andExpect(jsonPath("$").value(org.hamcrest.Matchers.aMapWithSize(4)));
     }
 
     @Test
@@ -105,13 +117,19 @@ class GlobalExceptionHandlerTest {
     void unsupportedMethodPreserves405AndAllowHeader() throws Exception {
         mvc.perform(put("/api/test"))
                 .andExpect(status().isMethodNotAllowed()).andExpect(header().exists("Allow"))
-                .andExpect(jsonPath("$.status").value("error"));
+                .andExpect(jsonPath("$.status").value("error"))
+                .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"))
+                .andExpect(jsonPath("$.message").value("지원하지 않는 요청 방식입니다."))
+                .andExpect(jsonPath("$.data").value(nullValue()));
     }
 
     @Test
     void unsupportedContentTypePreserves415() throws Exception {
         mvc.perform(post("/api/test").contentType(MediaType.TEXT_PLAIN).content("hello"))
-                .andExpect(status().isUnsupportedMediaType()).andExpect(jsonPath("$.status").value("error"));
+                .andExpect(status().isUnsupportedMediaType()).andExpect(jsonPath("$.status").value("error"))
+                .andExpect(jsonPath("$.code").value("UNSUPPORTED_MEDIA_TYPE"))
+                .andExpect(jsonPath("$.message").value("지원하지 않는 미디어 타입입니다."))
+                .andExpect(jsonPath("$.data").value(nullValue()));
     }
 
     @Test
@@ -128,13 +146,85 @@ class GlobalExceptionHandlerTest {
     void businessAuthenticationErrorUses401() throws Exception {
         mvc.perform(get("/api/test/unauthorized"))
                 .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+                .andExpect(jsonPath("$.message").value("로그인이 필요합니다."))
                 .andExpect(jsonPath("$.data").value(nullValue()));
     }
 
     @Test
     void businessPermissionErrorUses403() throws Exception {
         mvc.perform(get("/api/test/forbidden"))
-                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("FORBIDDEN"));
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("FORBIDDEN"))
+                .andExpect(jsonPath("$.message").value("접근 권한이 없습니다."))
+                .andExpect(jsonPath("$.data").value(nullValue()));
+    }
+
+    @Test
+    void unknownApiPathUsesCommonNotFoundCode() throws Exception {
+        mvc.perform(get("/api/unknown"))
+                .andExpect(status().isNotFound())
+                .andExpect(content().json("""
+                        {"status":"error","code":"NOT_FOUND","message":"존재하지 않는 요청입니다.","data":null}
+                        """));
+    }
+
+    @Test
+    void other4xxPreservesStatusAndHeadersWithInvalidInput() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-Test", "preserved");
+        var response = new ExposedHandler().internal(new IllegalArgumentException("internal"), headers,
+                HttpStatusCode.valueOf(422));
+        assertEquals(422, response.getStatusCode().value());
+        assertEquals("preserved", response.getHeaders().getFirst("X-Test"));
+        assertEquals(ApiResponse.error(CommonErrorCode.INVALID_INPUT), response.getBody());
+    }
+
+    @Test
+    void spring5xxHidesExceptionAndOriginalBody() {
+        var response = new ExposedHandler().internal(new IllegalStateException("secret"),
+                new HttpHeaders(), HttpStatus.SERVICE_UNAVAILABLE);
+        assertEquals(503, response.getStatusCode().value());
+        assertEquals(ApiResponse.error(CommonErrorCode.INTERNAL_SERVER_ERROR), response.getBody());
+    }
+
+    @Test
+    void validationUsesFirstFieldErrorWithoutExposingRejectedValue() throws Exception {
+        var errors = new BeanPropertyBindingResult(new CreateRequest(""), "request");
+        errors.addError(new FieldError("request", "name", "sensitive-rejected-value", false,
+                null, null, "첫 번째 오류입니다."));
+        errors.addError(new FieldError("request", "name", "두 번째 오류입니다."));
+        var response = validationResponse(errors);
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        assertEquals(ApiResponse.error(CommonErrorCode.INVALID_INPUT, "첫 번째 오류입니다."), response.getBody());
+    }
+
+    @Test
+    void validationFallsBackWhenFieldErrorIsMissing() throws Exception {
+        var errors = new BeanPropertyBindingResult(new CreateRequest(""), "request");
+        assertEquals(ApiResponse.error(CommonErrorCode.INVALID_INPUT), validationResponse(errors).getBody());
+    }
+
+    @Test
+    void validationFallsBackWhenFirstMessageIsNullOrBlank() throws Exception {
+        for (String message : new String[]{null, "", " "}) {
+            var errors = new BeanPropertyBindingResult(new CreateRequest(""), "request");
+            errors.addError(new FieldError("request", "name", message));
+            assertEquals(ApiResponse.error(CommonErrorCode.INVALID_INPUT), validationResponse(errors).getBody());
+        }
+    }
+
+    private ResponseEntity<Object> validationResponse(BeanPropertyBindingResult errors) throws Exception {
+        var parameter = new MethodParameter(ExampleController.class.getDeclaredMethod("create", CreateRequest.class), 0);
+        return new ExposedHandler().validation(new MethodArgumentNotValidException(parameter, errors));
+    }
+
+    private static class ExposedHandler extends GlobalExceptionHandler {
+        ResponseEntity<Object> internal(Exception exception, HttpHeaders headers, HttpStatusCode status) {
+            return handleExceptionInternal(exception, "sensitive-original-body", headers, status, mock(WebRequest.class));
+        }
+
+        ResponseEntity<Object> validation(MethodArgumentNotValidException exception) {
+            return handleMethodArgumentNotValid(exception, new HttpHeaders(), HttpStatus.BAD_REQUEST, mock(WebRequest.class));
+        }
     }
 
     private enum ExampleErrorCode implements ErrorCode {
@@ -146,7 +236,7 @@ class GlobalExceptionHandlerTest {
         public String getMessage() { return "대상이 없습니다."; }
     }
 
-    record CreateRequest(@NotBlank String name) { }
+    record CreateRequest(@NotBlank(message = "이름을 입력해 주세요.") String name) { }
 
     @RestController
     @RequestMapping("/api/test")
