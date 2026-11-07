@@ -1,6 +1,5 @@
 package com.gyeot.global.security.jwt;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gyeot.domain.user.entity.AccountStatus;
 import com.gyeot.domain.user.repository.UserRepository;
 import com.gyeot.global.security.ApiAuthenticationEntryPoint;
@@ -10,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.lang.reflect.Proxy;
 import java.time.Clock;
@@ -19,6 +19,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 class JwtAuthenticationFilterTest {
+
+    private final JsonMapper jsonMapper = JsonMapper.builder().build();
 
     private JwtTokenProvider tokenProvider;
     private JwtAuthenticationFilter filter;
@@ -33,7 +35,7 @@ class JwtAuthenticationFilterTest {
                 tokenProvider,
                 userRepository(false),
                 new PublicApiRequestMatcher(),
-                new ApiAuthenticationEntryPoint(new ObjectMapper()));
+                new ApiAuthenticationEntryPoint(jsonMapper));
     }
 
     @Test
@@ -58,7 +60,7 @@ class JwtAuthenticationFilterTest {
         filter.doFilter(request, response, new MockFilterChain());
 
         assertEquals(401, response.getStatus());
-        var errorBody = new ObjectMapper().readTree(response.getContentAsString());
+        var errorBody = jsonMapper.readTree(response.getContentAsString());
         assertEquals("error", errorBody.get("status").asText());
         assertEquals("UNAUTHORIZED", errorBody.get("code").asText());
     }
@@ -71,13 +73,13 @@ class JwtAuthenticationFilterTest {
                 tokenProvider,
                 userRepository(false),
                 new PublicApiRequestMatcher(),
-                new ApiAuthenticationEntryPoint(new ObjectMapper()));
+                new ApiAuthenticationEntryPoint(jsonMapper));
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         filter.doFilter(request, response, new MockFilterChain());
 
         assertEquals(401, response.getStatus());
-        assertEquals("UNAUTHORIZED", new ObjectMapper().readTree(response.getContentAsString())
+        assertEquals("UNAUTHORIZED", jsonMapper.readTree(response.getContentAsString())
                 .get("code").asText());
     }
 

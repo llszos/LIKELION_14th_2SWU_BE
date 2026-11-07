@@ -1,6 +1,5 @@
 package com.gyeot.global.security;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gyeot.global.common.ApiResponse;
 import com.gyeot.global.exception.CommonErrorCode;
 import jakarta.servlet.ServletException;
@@ -11,6 +10,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -19,10 +19,10 @@ import java.nio.charset.StandardCharsets;
 @Component
 public class ApiAuthenticationEntryPoint implements AuthenticationEntryPoint {
 
-    private final ObjectMapper objectMapper;
+    private final JsonMapper jsonMapper;
 
-    public ApiAuthenticationEntryPoint(ObjectMapper objectMapper) {
-        this.objectMapper = objectMapper;
+    public ApiAuthenticationEntryPoint(JsonMapper jsonMapper) {
+        this.jsonMapper = jsonMapper;
     }
 
     @Override
@@ -35,6 +35,6 @@ public class ApiAuthenticationEntryPoint implements AuthenticationEntryPoint {
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-        objectMapper.writeValue(response.getWriter(), ApiResponse.error(CommonErrorCode.UNAUTHORIZED));
+        jsonMapper.writeValue(response.getWriter(), ApiResponse.error(CommonErrorCode.UNAUTHORIZED));
     }
 }

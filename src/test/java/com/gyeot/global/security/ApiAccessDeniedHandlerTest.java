@@ -1,6 +1,6 @@
 package com.gyeot.global.security;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -13,7 +13,8 @@ class ApiAccessDeniedHandlerTest {
 
     @Test
     void returnsCommonForbiddenResponse() throws Exception {
-        ApiAccessDeniedHandler handler = new ApiAccessDeniedHandler(new ObjectMapper());
+        JsonMapper jsonMapper = JsonMapper.builder().build();
+        ApiAccessDeniedHandler handler = new ApiAccessDeniedHandler(jsonMapper);
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         handler.handle(
@@ -21,7 +22,7 @@ class ApiAccessDeniedHandlerTest {
                 response,
                 new AccessDeniedException("forbidden"));
 
-        var body = new ObjectMapper().readTree(response.getContentAsString());
+        var body = jsonMapper.readTree(response.getContentAsString());
         assertEquals(403, response.getStatus());
         assertEquals("error", body.get("status").asText());
         assertEquals("FORBIDDEN", body.get("code").asText());
