@@ -44,7 +44,7 @@ public class SafetyInformation extends BaseEntity {
     @Column(name = "information_type", nullable = false, length = 40) // 어떤 항목인지 (생년월일, 복용약 등)
     private InformationType informationType;
 
-    @Column(name = "title", length = 150)  // 항목 이름 (예: 혈압약). 생년월일·혈액형·기타 메모처럼 이름이 없는 항목은 NULL
+    @Column(name = "title", length = 150)  // 항목 이름 (예: 혈압약). 생년월일·혈액형·주소·출입 방법처럼 이름이 없는 항목은 NULL
     private String title;
 
     @Column(name = "information_value", nullable = false, columnDefinition = "TEXT")  // 실제 항목 내용 (예: 아침 식후 1알)
