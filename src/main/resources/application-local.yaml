@@ -10,3 +10,7 @@ spring:
     properties:
       hibernate:
         format_sql: true
+
+# 로컬 개발 전용 안심카드 암호화 키입니다. 운영·테스트에서는 사용하지 않습니다.
+safety-info:
+  encryption-key: ${SAFETY_INFO_ENCRYPTION_KEY:ZvqfM2q/dTM89/Q+v4OHYNmShqA/If1F754Ed3RnzhE=}

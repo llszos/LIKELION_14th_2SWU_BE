@@ -9,3 +9,8 @@ spring:
       hibernate:
         jdbc:
           time_zone: Asia/Seoul  # DB에 시각을 저장하고 읽을 때 기준 시간대
+
+# 안심카드 항목 저장 암호화 키 (#37). Base64로 인코딩한 32바이트(AES-256)
+# 운영은 환경변수로만 주입하고, 없거나 형식이 틀리면 서버가 시작되지 않음
+safety-info:
+  encryption-key: ${SAFETY_INFO_ENCRYPTION_KEY:}
