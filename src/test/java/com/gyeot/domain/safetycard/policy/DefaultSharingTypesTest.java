@@ -7,6 +7,7 @@ import static com.gyeot.domain.safetycard.entity.InformationType.*;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+/** 도움 종류별 기본 공개 항목이 기능명세서(F-03)와 같은지 확인합니다. DB나 Docker는 필요 없습니다. */
 class DefaultSharingTypesTest {
 
     @Test

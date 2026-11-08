@@ -26,9 +26,11 @@ import static com.gyeot.domain.safetycard.entity.InformationType.PET;
  */
 public final class DefaultSharingTypes {
 
+    // 도움 종류 → 기본 공개 항목 유형
     private static final Map<HelpType, Set<InformationType>> DEFAULTS = new EnumMap<>(HelpType.class);
 
     static {
+        // 식사와 장보기는 기본값이 같음 (F-03 기능명세서: '장보기: 식사와 같다')
         Set<InformationType> mealOrGrocery = EnumSet.of(DISEASE, MEDICATION, ALLERGY, CAUTION, ADDRESS, ENTRY_METHOD);
 
         DEFAULTS.put(HelpType.HOSPITAL, EnumSet.of(MEDICATION, ALLERGY));          // 병원 동행
@@ -40,14 +42,16 @@ public final class DefaultSharingTypes {
     }
 
     private DefaultSharingTypes() {
-        // 상수만 모아 둔 클래스라 객체를 만들지 않음
+        // 값만 꺼내 쓰는 클래스라 객체를 만들지 않음
     }
 
     /**
      * 도움 종류의 기본 공개 항목 유형을 돌려줍니다. 돌려받은 Set은 수정할 수 없습니다.
      * 매핑이 없는 도움 종류가 새로 생기면 빈 Set을 돌려줍니다. (아무것도 미리 선택하지 않음)
+     * 사용 예: DefaultSharingTypes.of(HelpType.HOSPITAL) → [MEDICATION, ALLERGY]
      */
     public static Set<InformationType> of(HelpType helpType) {
+        // 받은 쪽에서 수정해도 기본값이 바뀌지 않도록 수정 불가 Set으로 돌려줌
         return Collections.unmodifiableSet(DEFAULTS.getOrDefault(helpType, EnumSet.noneOf(InformationType.class)));
     }
 }
