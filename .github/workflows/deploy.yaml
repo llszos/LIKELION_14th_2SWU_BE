@@ -27,9 +27,12 @@ env:
 jobs:
   deploy:
     # push로 실행된 CI가 성공했을 때만 (PR CI는 제외)
+    # 수동 실행은 develop에서만 (다른 브랜치 이미지가 latest로 올라가지 않게)
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/develop') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     env:
