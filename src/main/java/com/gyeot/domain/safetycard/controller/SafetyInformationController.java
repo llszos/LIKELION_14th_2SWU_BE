@@ -1,12 +1,19 @@
 package com.gyeot.domain.safetycard.controller;
 
+import com.gyeot.domain.safetycard.dto.request.SafetyInformationCreateRequest;
 import com.gyeot.domain.safetycard.dto.response.CategoryItemsResponse;
 import com.gyeot.domain.safetycard.dto.response.SafetyCardSummaryResponse;
+import com.gyeot.domain.safetycard.dto.response.SafetyInformationResponse;
 import com.gyeot.domain.safetycard.entity.InformationCategory;
 import com.gyeot.domain.safetycard.service.SafetyInformationService;
 import com.gyeot.global.common.ApiResponse;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -38,5 +45,19 @@ public class SafetyInformationController {
             @RequestHeader("X-User-Id") Long userId,
             @RequestParam InformationCategory category) {   // 분류 (BASIC / HEALTH / LIFE / ADVANCE_MESSAGE)
         return ApiResponse.success(safetyInformationService.getCategoryItems(userId, category)); // 200 + 공통 응답 형식으로 감쌈
+    }
+
+    /**
+     * 항목 작성: POST /api/safety-information
+     * 입력 규칙을 어기면 400 INVALID_INPUT, 1개만 등록하는 항목을 또 작성하면 409 SAFETY_INFO_ALREADY_EXISTS
+     */
+    @PostMapping
+    public ResponseEntity<ApiResponse<SafetyInformationResponse>> create(
+            // TODO: #33(JWT 인증) 병합 후 @AuthenticationPrincipal AuthenticatedUser로 교체. 그전까지 임시 사용자 ID 헤더 사용
+            @RequestHeader("X-User-Id") Long userId,
+            @Valid @RequestBody SafetyInformationCreateRequest request) { // @Valid: 요청 DTO의 공통 규칙 검사
+        SafetyInformationResponse response = safetyInformationService.create(userId, request);
+        return ResponseEntity.status(HttpStatus.CREATED)                     // 201 Created
+                .body(ApiResponse.success(response, "항목을 추가했습니다.")); // 명세의 성공 메시지
     }
 }

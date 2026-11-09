@@ -1,23 +1,31 @@
 package com.gyeot.domain.safetycard.service;
 
 import com.gyeot.domain.access.query.SharingCountReader;
+import com.gyeot.domain.safetycard.dto.request.SafetyInformationCreateRequest;
 import com.gyeot.domain.safetycard.dto.response.CategoryItemsResponse;
 import com.gyeot.domain.safetycard.dto.response.CategoryItemsResponse.Item;
 import com.gyeot.domain.safetycard.dto.response.CategoryItemsResponse.TypeItems;
 import com.gyeot.domain.safetycard.dto.response.SafetyCardSummaryResponse;
 import com.gyeot.domain.safetycard.dto.response.SafetyCardSummaryResponse.CategorySummary;
+import com.gyeot.domain.safetycard.dto.response.SafetyInformationResponse;
 import com.gyeot.domain.safetycard.entity.InformationCategory;
 import com.gyeot.domain.safetycard.entity.InformationType;
 import com.gyeot.domain.safetycard.entity.SafetyInformation;
+import com.gyeot.domain.safetycard.exception.SafetyCardErrorCode;
 import com.gyeot.domain.safetycard.repository.SafetyInformationRepository;
+import com.gyeot.global.exception.BusinessException;
+import com.gyeot.global.exception.CommonErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -31,6 +39,31 @@ public class SafetyInformationService {
 
     private final SafetyInformationRepository safetyInformationRepository; // 안심카드 항목 조회·저장
     private final SharingCountReader sharingCountReader;                   // 공유 중 건수 (F-30 기준, access 영역)
+
+    private static final Set<String> BLOOD_TYPES = Set.of("A", "B", "O", "AB"); // 혈액형 허용 값 (표시 "AB형"은 FE가 변환)
+
+    /**
+     * 안심카드 항목 1개를 작성합니다. (항목 작성)
+     * 1개만 등록하는 항목(생년월일·혈액형·주소·출입 방법)을 또 작성하면 409 SAFETY_INFO_ALREADY_EXISTS
+     */
+    @Transactional // 저장하므로 읽기 전용이 아닌 트랜잭션
+    public SafetyInformationResponse create(Long userId, SafetyInformationCreateRequest request) {
+        InformationType type = request.informationType();
+
+        // 1. 유형마다 다른 입력 규칙 검사 (공통 규칙은 요청 DTO의 @Valid에서 이미 검사)
+        validateByType(type, request.title(), request.informationValue());
+
+        // 2. 1개만 등록하는 유형이면 이미 있는지 확인. 있으면 FE는 기존 항목 수정으로 안내
+        if (!type.isMultiple() && safetyInformationRepository.existsByOwnerIdAndInformationType(userId, type)) {
+            throw new BusinessException(SafetyCardErrorCode.SAFETY_INFO_ALREADY_EXISTS);
+        }
+
+        // 3. 저장 (title·내용은 Converter가 암호화해서 DB에 넣음, 응답은 평문)
+        SafetyInformation saved = safetyInformationRepository.save(
+                SafetyInformation.create(userId, type, request.title(), request.informationValue()));
+
+        return SafetyInformationResponse.from(saved);
+    }
 
     /**
      * 안심카드 메인(C-00)에 필요한 분류별 최근 갱신일과 공유 중 건수를 돌려줍니다. (안심카드 메인 조회)
@@ -74,6 +107,39 @@ public class SafetyInformationService {
 
         // 3. 분류 정보와 함께 응답으로 묶음
         return new CategoryItemsResponse(category, category.getDescription(), types);
+    }
+
+    // 유형마다 다른 입력 규칙. 어기면 공통 에러 400 INVALID_INPUT (요구사항 명세 F-02 입력 형식)
+    private void validateByType(InformationType type, String title, String value) {
+        // title: 이름이 있는 유형(질환 등)은 필수이고 공백만 있으면 안 됨
+        if (type.isTitleRequired() && (title == null || title.isBlank())) {
+            throw invalidInput();
+        }
+        // title: 이름이 없는 유형(생년월일·혈액형·주소·출입 방법)은 null이어야 함
+        if (!type.isTitleRequired() && title != null) {
+            throw invalidInput();
+        }
+
+        // 생년월일: YYYY-MM-DD 형식이고 실제 있는 날짜 (예: 2000-02-30 거부). 8자리 입력·표시 변환은 FE
+        if (type == InformationType.BIRTH_DATE) {
+            if (!value.matches("\\d{4}-\\d{2}-\\d{2}")) {
+                throw invalidInput();
+            }
+            try {
+                LocalDate.parse(value);
+            } catch (DateTimeParseException exception) {
+                throw invalidInput();
+            }
+        }
+
+        // 혈액형: A / B / O / AB 중 하나
+        if (type == InformationType.BLOOD_TYPE && !BLOOD_TYPES.contains(value)) {
+            throw invalidInput();
+        }
+    }
+
+    private BusinessException invalidInput() {
+        return new BusinessException(CommonErrorCode.INVALID_INPUT);
     }
 
     // 유형 하나 → 응답의 types[] 한 칸 (유형 표시 정보 + 그 유형의 항목들)

@@ -1,5 +1,6 @@
 package com.gyeot.domain.safetycard.repository;
 
+import com.gyeot.domain.safetycard.entity.InformationType;
 import com.gyeot.domain.safetycard.entity.SafetyInformation;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -15,4 +16,7 @@ public interface SafetyInformationRepository extends JpaRepository<SafetyInforma
 
     // 내 항목 전체를 작성순(ID 오름차순)으로 조회 (공개 항목 선택지 조회)
     List<SafetyInformation> findAllByOwnerIdOrderByIdAsc(Long ownerId);
+
+    // 이미 같은 유형의 항목이 있는지 확인 (1개만 등록하는 항목의 중복 작성 거부)
+    boolean existsByOwnerIdAndInformationType(Long ownerId, InformationType informationType);
 }

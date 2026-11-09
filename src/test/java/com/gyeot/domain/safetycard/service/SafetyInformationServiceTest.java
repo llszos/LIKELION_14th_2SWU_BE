@@ -1,15 +1,21 @@
 package com.gyeot.domain.safetycard.service;
 
 import com.gyeot.domain.access.query.SharingCountReader;
+import com.gyeot.domain.safetycard.dto.request.SafetyInformationCreateRequest;
 import com.gyeot.domain.safetycard.dto.response.CategoryItemsResponse;
 import com.gyeot.domain.safetycard.dto.response.CategoryItemsResponse.Item;
 import com.gyeot.domain.safetycard.dto.response.CategoryItemsResponse.TypeItems;
 import com.gyeot.domain.safetycard.dto.response.SafetyCardSummaryResponse;
 import com.gyeot.domain.safetycard.dto.response.SafetyCardSummaryResponse.CategorySummary;
+import com.gyeot.domain.safetycard.dto.response.SafetyInformationResponse;
 import com.gyeot.domain.safetycard.entity.InformationCategory;
 import com.gyeot.domain.safetycard.entity.InformationType;
 import com.gyeot.domain.safetycard.entity.SafetyInformation;
+import com.gyeot.domain.safetycard.exception.SafetyCardErrorCode;
 import com.gyeot.domain.safetycard.repository.SafetyInformationRepository;
+import com.gyeot.global.exception.BusinessException;
+import com.gyeot.global.exception.CommonErrorCode;
+import com.gyeot.global.exception.ErrorCode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -18,7 +24,11 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /** DB 없이 Repository를 Mock으로 바꿔 응답 구성 규칙만 확인합니다. */
@@ -97,6 +107,76 @@ class SafetyInformationServiceTest {
                 LocalDateTime.of(2026, 9, 25, 18, 0), // 생활: 주소
                 null);                               // 미리 남기는 말: 항목 없음
         assertThat(response.sharingCount()).isEqualTo(2L); // SharingCountReader 값을 그대로 사용
+    }
+
+    // ---- 항목 작성 ----
+
+    @Test
+    void 항목을_작성하면_저장하고_평문으로_응답한다() {
+        // save가 호출되면 DB가 ID를 붙여 준 것처럼 만들어 돌려줌
+        when(safetyInformationRepository.save(any(SafetyInformation.class))).thenAnswer(invocation -> {
+            SafetyInformation saved = invocation.getArgument(0);
+            ReflectionTestUtils.setField(saved, "id", 30L);
+            return saved;
+        });
+
+        SafetyInformationResponse response = service.create(USER_ID,
+                new SafetyInformationCreateRequest(InformationType.MEDICATION, "혈압약", "아침 식후 1정"));
+
+        assertThat(response.informationId()).isEqualTo(30L);
+        assertThat(response.typeName()).isEqualTo("복용약");
+        assertThat(response.title()).isEqualTo("혈압약");
+        assertThat(response.informationValue()).isEqualTo("아침 식후 1정");
+        assertThat(response.sensitive()).isTrue(); // 복용약은 민감정보
+    }
+
+    @Test
+    void 하나만_등록하는_항목이_이미_있으면_409다() {
+        when(safetyInformationRepository.existsByOwnerIdAndInformationType(USER_ID, InformationType.ADDRESS)).thenReturn(true);
+
+        assertError(new SafetyInformationCreateRequest(InformationType.ADDRESS, null, "서울시 성북구"),
+                SafetyCardErrorCode.SAFETY_INFO_ALREADY_EXISTS);
+        verify(safetyInformationRepository, never()).save(any()); // 저장하지 않음
+    }
+
+    @Test
+    void 여러_개_등록하는_항목은_중복_확인을_하지_않는다() {
+        when(safetyInformationRepository.save(any(SafetyInformation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.create(USER_ID, new SafetyInformationCreateRequest(InformationType.MEDICATION, "소화제", "필요할 때"));
+
+        verify(safetyInformationRepository, never()).existsByOwnerIdAndInformationType(any(), any());
+    }
+
+    @Test
+    void title이_필요한_유형에_title이_없거나_공백이면_400이다() {
+        assertError(new SafetyInformationCreateRequest(InformationType.DISEASE, null, "2024년 진단"), CommonErrorCode.INVALID_INPUT);
+        assertError(new SafetyInformationCreateRequest(InformationType.DISEASE, "  ", "2024년 진단"), CommonErrorCode.INVALID_INPUT);
+    }
+
+    @Test
+    void title이_없는_유형에_title을_보내면_400이다() {
+        assertError(new SafetyInformationCreateRequest(InformationType.ADDRESS, "우리 집", "서울시 성북구"), CommonErrorCode.INVALID_INPUT);
+    }
+
+    @Test
+    void 생년월일은_YYYY_MM_DD_형식의_실제_날짜만_받는다() {
+        assertError(new SafetyInformationCreateRequest(InformationType.BIRTH_DATE, null, "20001230"), CommonErrorCode.INVALID_INPUT);   // 8자리 그대로
+        assertError(new SafetyInformationCreateRequest(InformationType.BIRTH_DATE, null, "2000-02-30"), CommonErrorCode.INVALID_INPUT); // 없는 날짜
+    }
+
+    @Test
+    void 혈액형은_A_B_O_AB만_받는다() {
+        assertError(new SafetyInformationCreateRequest(InformationType.BLOOD_TYPE, null, "AB형"), CommonErrorCode.INVALID_INPUT); // 표시용 문구
+        assertError(new SafetyInformationCreateRequest(InformationType.BLOOD_TYPE, null, "C"), CommonErrorCode.INVALID_INPUT);
+    }
+
+    // 작성 요청이 주어진 에러 코드의 BusinessException으로 거부되는지 확인
+    private void assertError(SafetyInformationCreateRequest request, ErrorCode errorCode) {
+        assertThatThrownBy(() -> service.create(USER_ID, request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(exception -> ((BusinessException) exception).getErrorCode())
+                .isEqualTo(errorCode);
     }
 
     private SafetyInformation item(Long id, InformationType type, String title, String value, LocalDateTime updatedAt) {
