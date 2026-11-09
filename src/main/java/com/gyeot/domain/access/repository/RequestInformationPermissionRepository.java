@@ -2,9 +2,13 @@ package com.gyeot.domain.access.repository;
 
 import com.gyeot.domain.access.entity.PermissionStatus;
 import com.gyeot.domain.access.entity.RequestInformationPermission;
+import com.gyeot.domain.access.entity.RevokeReason;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import java.util.Collection;
+import java.util.List;
 
 /**
  * 요청별 정보 접근 권한(request_information_permissions)을 DB에 저장, 조회, 삭제합니다.
@@ -28,4 +32,40 @@ public interface RequestInformationPermissionRepository extends JpaRepository<Re
             """)
 
     long countSharings(@Param("ownerUserId") Long ownerUserId, @Param("status") PermissionStatus status);
+
+    /**
+     * 요청에 지금 공개 중인 항목 ID를 조회합니다. (F-03 요청 수정, 공개 항목 선택지 조회)
+     * 삭제된 항목은 권한의 information_id가 NULL이라 빠집니다.
+     */
+    @Query("""
+            select distinct p.informationId
+            from RequestInformationPermission p
+            where p.requestId = :requestId
+              and p.status in :statuses
+              and p.informationId is not null
+            order by p.informationId
+            """)
+    List<Long> findInformationIdsByRequestIdAndStatusIn(@Param("requestId") Long requestId,
+                                                        @Param("statuses") Collection<PermissionStatus> statuses);
+
+    /**
+     * 요청의 마지막 대상 지정에 공개했던 항목 ID를 조회합니다. (공개 항목 선택지 조회의 requestId)
+     * - 요청 수정(H-03-01-02): 마지막 지정이 지금 담당자라 공개 중(PENDING·ACTIVE)인 항목이 나옴
+     * - 다시 부탁하기(N-06): 이전 대상이 거절·마감돼 권한이 끝났어도 그 요청에 공개했던 항목이 나옴
+     * 정보 주인이 뺀 항목(excludedReasons: 공개 항목 제외, 직접 철회 등)과 삭제된 항목은 빠집니다.
+     * 대상 지정 ID는 새로 만들수록 커지므로 가장 큰 ID를 마지막 지정으로 봅니다.
+     */
+    @Query("""
+            select distinct p.informationId
+            from RequestInformationPermission p
+            where p.requestId = :requestId
+              and p.assignmentId = (select max(p2.assignmentId)
+                                    from RequestInformationPermission p2
+                                    where p2.requestId = :requestId)
+              and p.informationId is not null
+              and (p.revokeReason is null or p.revokeReason not in :excludedReasons)
+            order by p.informationId
+            """)
+    List<Long> findLastSharedInformationIds(@Param("requestId") Long requestId,
+                                            @Param("excludedReasons") Collection<RevokeReason> excludedReasons);
 }
