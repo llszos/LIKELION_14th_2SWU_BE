@@ -1,6 +1,7 @@
 package com.gyeot.domain.safetycard.controller;
 
 import com.gyeot.domain.safetycard.dto.response.CategoryItemsResponse;
+import com.gyeot.domain.safetycard.dto.response.SafetyCardSummaryResponse;
 import com.gyeot.domain.safetycard.entity.InformationCategory;
 import com.gyeot.domain.safetycard.service.SafetyInformationService;
 import com.gyeot.global.exception.GlobalExceptionHandler;
@@ -29,6 +30,15 @@ class SafetyInformationControllerTest {
         // Spring 전체를 띄우지 않고 이 Controller와 공통 예외 처리기만 연결
         mvc = MockMvcBuilders.standaloneSetup(new SafetyInformationController(service))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
+    }
+
+    @Test
+    void 안심카드_메인을_조회한다() throws Exception {
+        when(service.getSummary(1L)).thenReturn(new SafetyCardSummaryResponse(List.of(), 2L));
+
+        mvc.perform(get("/api/safety-information/summary").header("X-User-Id", 1L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.sharingCount").value(2)); // 공유 중 건수
     }
 
     @Test

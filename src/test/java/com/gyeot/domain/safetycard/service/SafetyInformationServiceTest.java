@@ -1,8 +1,11 @@
 package com.gyeot.domain.safetycard.service;
 
+import com.gyeot.domain.access.query.SharingCountReader;
 import com.gyeot.domain.safetycard.dto.response.CategoryItemsResponse;
 import com.gyeot.domain.safetycard.dto.response.CategoryItemsResponse.Item;
 import com.gyeot.domain.safetycard.dto.response.CategoryItemsResponse.TypeItems;
+import com.gyeot.domain.safetycard.dto.response.SafetyCardSummaryResponse;
+import com.gyeot.domain.safetycard.dto.response.SafetyCardSummaryResponse.CategorySummary;
 import com.gyeot.domain.safetycard.entity.InformationCategory;
 import com.gyeot.domain.safetycard.entity.InformationType;
 import com.gyeot.domain.safetycard.entity.SafetyInformation;
@@ -11,6 +14,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -23,19 +27,21 @@ class SafetyInformationServiceTest {
     private static final Long USER_ID = 1L;
 
     private SafetyInformationRepository safetyInformationRepository;
+    private SharingCountReader sharingCountReader;
     private SafetyInformationService service;
 
     @BeforeEach
     void setUp() {
         safetyInformationRepository = mock(SafetyInformationRepository.class);
-        service = new SafetyInformationService(safetyInformationRepository); // Spring 없이 직접 만들어 테스트
+        sharingCountReader = mock(SharingCountReader.class);
+        service = new SafetyInformationService(safetyInformationRepository, sharingCountReader); // Spring 없이 직접 만들어 테스트
 
-        // 내 항목: 건강 3개(질환 1, 복용약 2), 생활 1개
+        // 내 항목: 건강 3개(질환 1, 복용약 2), 생활 1개. 수정 시각은 메인 조회 테스트에서 사용
         when(safetyInformationRepository.findAllByOwnerIdOrderByIdAsc(USER_ID)).thenReturn(List.of(
-                item(11L, InformationType.DISEASE, "고혈압", "2024년 진단"),
-                item(12L, InformationType.MEDICATION, "혈압약", "아침 식후 1정"),
-                item(13L, InformationType.MEDICATION, "소화제", "필요할 때"),
-                item(20L, InformationType.ADDRESS, null, "서울시 노원구")));
+                item(11L, InformationType.DISEASE, "고혈압", "2024년 진단", LocalDateTime.of(2026, 9, 20, 10, 0)),
+                item(12L, InformationType.MEDICATION, "혈압약", "아침 식후 1정", LocalDateTime.of(2026, 10, 1, 9, 30)),
+                item(13L, InformationType.MEDICATION, "소화제", "필요할 때", LocalDateTime.of(2026, 9, 25, 8, 0)),
+                item(20L, InformationType.ADDRESS, null, "서울시 노원구", LocalDateTime.of(2026, 9, 25, 18, 0))));
     }
 
     @Test
@@ -77,9 +83,26 @@ class SafetyInformationServiceTest {
         assertThat(address.items().get(0).title()).isNull();
     }
 
-    private SafetyInformation item(Long id, InformationType type, String title, String value) {
+    @Test
+    void 메인은_분류_4개를_고정_순서로_내려주고_분류마다_가장_최근_수정_시각을_쓴다() {
+        when(sharingCountReader.countActiveSharings(USER_ID)).thenReturn(2L);
+
+        SafetyCardSummaryResponse response = service.getSummary(USER_ID);
+
+        assertThat(response.categories()).extracting(CategorySummary::category).containsExactly(
+                InformationCategory.BASIC, InformationCategory.HEALTH, InformationCategory.LIFE, InformationCategory.ADVANCE_MESSAGE);
+        assertThat(response.categories()).extracting(CategorySummary::lastUpdatedAt).containsExactly(
+                null,                                // 기본정보: 항목 없음
+                LocalDateTime.of(2026, 10, 1, 9, 30), // 건강: 3개 중 가장 최근(혈압약)
+                LocalDateTime.of(2026, 9, 25, 18, 0), // 생활: 주소
+                null);                               // 미리 남기는 말: 항목 없음
+        assertThat(response.sharingCount()).isEqualTo(2L); // SharingCountReader 값을 그대로 사용
+    }
+
+    private SafetyInformation item(Long id, InformationType type, String title, String value, LocalDateTime updatedAt) {
         SafetyInformation information = SafetyInformation.create(USER_ID, type, title, value);
-        ReflectionTestUtils.setField(information, "id", id); // DB 없이 테스트하므로 ID를 직접 넣음
+        ReflectionTestUtils.setField(information, "id", id);               // DB 없이 테스트하므로 ID를 직접 넣음
+        ReflectionTestUtils.setField(information, "updatedAt", updatedAt); // 원래는 저장할 때 자동으로 채워지는 값
         return information;
     }
 }

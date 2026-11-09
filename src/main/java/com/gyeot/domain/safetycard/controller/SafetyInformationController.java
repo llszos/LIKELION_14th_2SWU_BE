@@ -1,6 +1,7 @@
 package com.gyeot.domain.safetycard.controller;
 
 import com.gyeot.domain.safetycard.dto.response.CategoryItemsResponse;
+import com.gyeot.domain.safetycard.dto.response.SafetyCardSummaryResponse;
 import com.gyeot.domain.safetycard.entity.InformationCategory;
 import com.gyeot.domain.safetycard.service.SafetyInformationService;
 import com.gyeot.global.common.ApiResponse;
@@ -18,6 +19,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class SafetyInformationController {
 
     private final SafetyInformationService safetyInformationService; // 실제 조회·작성 로직
+
+    /** 안심카드 메인 조회: GET /api/safety-information/summary (화면 C-00) */
+    @GetMapping("/summary")
+    public ApiResponse<SafetyCardSummaryResponse> getSummary(
+            // TODO: #33(JWT 인증) 병합 후 @AuthenticationPrincipal AuthenticatedUser로 교체. 그전까지 임시 사용자 ID 헤더 사용
+            @RequestHeader("X-User-Id") Long userId) {
+        return ApiResponse.success(safetyInformationService.getSummary(userId)); // 200 + 공통 응답 형식으로 감쌈
+    }
 
     /**
      * 분류별 항목 조회: GET /api/safety-information?category=HEALTH
