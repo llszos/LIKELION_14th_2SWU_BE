@@ -38,6 +38,10 @@ public class PublicApiRequestMatcher implements RequestMatcher {
             return true;
         }
 
+        if (HttpMethod.GET.matches(method) && path.equals("/actuator/health")) {
+            return true;
+        }
+
         return HttpMethod.GET.matches(method)
                 && (path.equals("/api/invitations") || path.startsWith("/api/invitations/"));
     }
