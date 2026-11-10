@@ -1,7 +1,7 @@
 name: Deploy
 
 # develop의 CI가 성공하면 개발 서버(EC2)에 배포합니다.
-# 흐름: jar 빌드 → GHCR 이미지 푸시 → (OIDC) SSH 임시 허용 → EC2에서 compose pull/up → 헬스 체크 → SSH 허용 해제
+# 흐름: 최신 커밋 확인 → jar 빌드 → GHCR 이미지 푸시 → (OIDC) SSH 임시 허용 → EC2에서 compose pull/up → 헬스 체크 → SSH 허용 해제
 # 필요한 Secrets: EC2_HOST, EC2_USER, EC2_SSH_KEY, EC2_SG_ID, AWS_DEPLOY_ROLE_ARN
 on:
   workflow_run:
@@ -25,7 +25,13 @@ env:
   AWS_REGION: ap-northeast-2
 
 jobs:
-  deploy:
+
+  # --- 1단계: 이번에 배포할 커밋이 develop의 최신 커밋인지 확인 ---
+  # 이전 커밋의 CI가 늦게 끝나면, 새 버전이 배포된 뒤 옛 버전이 다시 배포될 수 있음
+  # concurrency로 배포가 한 번에 하나씩 실행되므로, 실행이 시작될 때 최신인지 보면 순서가 뒤바뀌지 않음
+  #  - 이 실행이 확인한 뒤에 새 커밋이 올라오면, 그 커밋의 배포가 이 실행 다음에 차례로 실행됨
+  check-latest:
+
     # push로 실행된 CI가 성공했을 때만 (PR CI는 제외)
     # 수동 실행은 develop에서만 (다른 브랜치 이미지가 latest로 올라가지 않게)
     if: >-
@@ -34,7 +40,51 @@ jobs:
       (github.event_name == 'workflow_run' &&
        github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'push')
-    runs-on: ubuntu-latest
+
+    runs-on: ubuntu-latest  # GitHub이 빌려주는 리눅스 가상 컴퓨터에서 실행 (곁 서버가 아님, gh CLI 기본 설치)
+
+    # job끼리는 서로 다른 가상 컴퓨터에서 실행되어 변수를 공유할 수 없으므로, 결과를 outputs로 내보냄
+    # deploy job은 needs.check-latest.outputs.is-latest로 이 값을 읽음
+    outputs:
+      is-latest: ${{ steps.compare.outputs.is-latest }}  # 아래 compare 단계가 정한 값 (true / false)
+
+    steps:
+      - name: Compare with latest develop commit  # Actions 화면에 보이는 단계 이름
+        id: compare                                # 위 outputs에서 이 단계를 가리키는 이름
+
+        env:
+          # GitHub이 실행마다 자동으로 만들어 주는 임시 토큰 (따로 등록하는 Secret 아님, 실행이 끝나면 만료)
+          # gh CLI가 GitHub API를 호출할 때 이 이름의 환경변수를 읽음
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+          # 이번에 배포하려는 커밋
+          #  - CI 완료로 시작: CI가 검사한 커밋(head_sha)
+          #  - 수동 실행: 지금 develop 커밋(github.sha)
+          #  - `||`는 앞 값이 비어 있으면 뒤 값을 쓴다는 뜻
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+        run: |
+          # 1. GitHub API로 develop 브랜치의 "지금" 최신 커밋을 조회하고, 커밋 번호(sha)만 꺼냄
+          #    github.repository는 llszos/LIKELION_14th_2SWU_BE로 바뀜
+          LATEST=$(gh api "repos/${{ github.repository }}/commits/develop" --jq .sha)
+
+          # 2. 배포하려는 커밋과 비교
+          #    결과는 $GITHUB_OUTPUT 파일에 "이름=값" 형태로 적어야 위 outputs에서 읽을 수 있음
+          if [ "$LATEST" = "$SHA" ]; then
+            echo "is-latest=true" >> "$GITHUB_OUTPUT"   # 최신 → deploy 실행
+          else
+            # 옛 커밋 → 배포를 건너뜀
+            # 실패(exit 1)로 끝내지 않아 실행은 성공으로 표시되고,
+            # ::notice:: 줄은 Actions 실행 화면 맨 위에 안내 상자로 보여서 건너뛴 이유를 알 수 있음
+            echo "::notice::배포 건너뜀: $SHA 는 develop 최신 커밋($LATEST)이 아닙니다."
+            echo "is-latest=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # --- 2단계: 최신 커밋일 때만 빌드·배포 ---
+  deploy:
+    needs: check-latest                                   # 1단계가 끝난 뒤 실행
+    if: needs.check-latest.outputs.is-latest == 'true'   # 최신 커밋일 때만
+    runs-on: ubuntu-latest  # GitHub이 빌려주는 리눅스 가상 컴퓨터에서 빌드 (서버 배포는 아래 SSH 단계에서)
     env:
       # CI가 검사한 커밋 그대로 배포 (수동 실행이면 현재 커밋)
       SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
