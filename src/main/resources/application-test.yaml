@@ -3,6 +3,22 @@ spring:
     hibernate:
       ddl-auto: create-drop
 
+gyeot:
+  security:
+    jwt:
+      # 공개된 테스트 전용 HMAC 키입니다. 로컬·운영 환경에서 사용하지 않습니다.
+      secret: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      issuer: gyeot-test
+      access-token-ttl: PT15M
+      refresh-token-ttl: P30D
+    cookie:
+      refresh-token-name: refresh_token
+      path: /api/auth
+      secure: false
+      same-site: Lax
+    cors:
+      allowed-origins: http://localhost:3000
+
 # 공개된 테스트 전용 안심카드 암호화 키입니다. 로컬·운영에서는 사용하지 않습니다.
 safety-info:
   encryption-key: zlR0XwlvmRcg3Fu46qZmy4VCb4y5yVx0oY+fXn8iez4=
