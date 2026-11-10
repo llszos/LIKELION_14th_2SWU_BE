@@ -37,7 +37,7 @@ public class Invitation extends BaseCreatedEntity {
 
     // 나의 사람 초대 또는 보호자 요청.
     @Enumerated(EnumType.STRING)
-    @Column(name = "invitation_type", nullable = false, length = 20)
+    @Column(name = "invitation_type", nullable = false, length = 20, columnDefinition = "VARCHAR(20)")  // MySQL ENUM 대신 VARCHAR, 길이는 length와 같게 (#36)
     private InvitationType invitationType;
 
     // 초대 링크 토큰의 해시값. 원문 토큰은 저장하지 않음.
@@ -50,7 +50,7 @@ public class Invitation extends BaseCreatedEntity {
 
     // 대기·수락·거절·만료·취소 상태.
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false, length = 20)
+    @Column(name = "status", nullable = false, length = 20, columnDefinition = "VARCHAR(20)")  // MySQL ENUM 대신 VARCHAR, 길이는 length와 같게 (#36)
     private InvitationStatus status;
 
     // 초대 링크 만료 시각.

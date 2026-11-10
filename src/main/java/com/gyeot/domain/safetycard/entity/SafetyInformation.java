@@ -41,7 +41,7 @@ public class SafetyInformation extends BaseEntity {
     private Long ownerId;
 
     @Enumerated(EnumType.STRING)                                      // Enum 이름(예: MEDICATION)을 문자열로 저장
-    @Column(name = "information_type", nullable = false, length = 40) // 어떤 항목인지 (생년월일, 복용약 등)
+    @Column(name = "information_type", nullable = false, length = 40, columnDefinition = "VARCHAR(40)") // 어떤 항목인지 (생년월일, 복용약 등)
     private InformationType informationType;
 
     @Column(name = "title", length = 150)  // 항목 이름 (예: 혈압약). 생년월일·혈액형·기타 메모처럼 이름이 없는 항목은 NULL

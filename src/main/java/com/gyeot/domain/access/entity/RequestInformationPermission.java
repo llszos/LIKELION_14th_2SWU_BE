@@ -47,11 +47,11 @@ public class RequestInformationPermission extends BaseCreatedEntity {
     private Long informationId;
 
     @Enumerated(EnumType.STRING)                                      // Enum 이름(예: MEDICATION)을 문자열로 저장
-    @Column(name = "information_type", nullable = false, length = 40) // 공유 당시 항목 유형. 항목이 삭제돼도 무엇을 공유했는지 남김
+    @Column(name = "information_type", nullable = false, length = 40, columnDefinition = "VARCHAR(40)") // 공유 당시 항목 유형. 항목이 삭제돼도 무엇을 공유했는지 남김
     private InformationType informationType;
 
     @Enumerated(EnumType.STRING)                              // Enum 이름(예: ACTIVE)을 문자열로 저장
-    @Column(name = "status", nullable = false, length = 20)   // 권한 상태 (PENDING, ACTIVE, REVOKED)
+    @Column(name = "status", nullable = false, length = 20, columnDefinition = "VARCHAR(20)")   // 권한 상태 (PENDING, ACTIVE, REVOKED)
     private PermissionStatus status;
 
     @Column(name = "granted_at")  // ACTIVE가 된 시각. PENDING일 때는 NULL
@@ -64,7 +64,7 @@ public class RequestInformationPermission extends BaseCreatedEntity {
     private LocalDateTime revokedAt;
 
     @Enumerated(EnumType.STRING)                        // Enum 이름(예: OWNER_REVOKED)을 문자열로 저장
-    @Column(name = "revoke_reason", length = 40)        // 끝난 이유. 끝나기 전에는 NULL
+    @Column(name = "revoke_reason", length = 40, columnDefinition = "VARCHAR(40)")        // 끝난 이유. 끝나기 전에는 NULL
     private RevokeReason revokeReason;
 
 
