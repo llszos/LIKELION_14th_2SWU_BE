@@ -105,6 +105,9 @@ public class Invitation extends BaseCreatedEntity {
         if (response != InvitationStatus.ACCEPTED && response != InvitationStatus.REJECTED) {
             throw new IllegalArgumentException("초대 응답은 수락 또는 거절만 가능합니다.");
         }
+        if (!respondedAt.isBefore(this.expiresAt)) {
+            throw new IllegalStateException("만료된 초대는 응답할 수 없습니다.");
+        }
 
         this.inviteeId = inviteeId;
         this.status = response;
