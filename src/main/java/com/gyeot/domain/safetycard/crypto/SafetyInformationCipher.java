@@ -31,7 +31,7 @@ public class SafetyInformationCipher {
     private final SecretKey key;                                 // 설정값에서 읽은 AES 키
     private final SecureRandom secureRandom = new SecureRandom(); // nonce 생성용 (예측할 수 없는 난수)
 
-    // 키는 설정값 safety-info.encryption-key (운영은 환경변수 SAFETY_INFO_ENCRYPTION_KEY)
+    // 키는 설정값 safety-info.encryption-key (로컬·운영은 환경변수 SAFETY_INFO_ENCRYPTION_KEY, 테스트는 application-test.yaml 고정 키)
     public SafetyInformationCipher(@Value("${safety-info.encryption-key}") String base64Key) {
         this.key = new SecretKeySpec(decodeKey(base64Key), "AES"); // 키 확인 후 AES 키 객체로 변환
     }

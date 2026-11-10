@@ -11,6 +11,7 @@ spring:
       hibernate:
         format_sql: true
 
-# 로컬 개발 전용 안심카드 암호화 키입니다. 운영·테스트에서는 사용하지 않습니다.
-safety-info:
-  encryption-key: ${SAFETY_INFO_ENCRYPTION_KEY:ZvqfM2q/dTM89/Q+v4OHYNmShqA/If1F754Ed3RnzhE=}
+# 안심카드 암호화 키(safety-info.encryption-key)는 로컬에도 기본값을 두지 않습니다.
+# 공개 저장소에 키가 있으면 그 키로 암호화한 데이터는 누구나 복호화할 수 있기 때문입니다.
+# application.yaml의 ${SAFETY_INFO_ENCRYPTION_KEY:} 설정을 그대로 사용하므로, 환경변수를 설정하지 않으면 서버 시작에 실패합니다.
+# 키 생성·설정 방법은 .env.example을 참고합니다.
