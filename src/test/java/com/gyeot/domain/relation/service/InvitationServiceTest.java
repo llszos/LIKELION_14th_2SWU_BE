@@ -6,6 +6,8 @@ import com.gyeot.domain.relation.entity.InvitationStatus;
 import com.gyeot.domain.relation.entity.InvitationType;
 import com.gyeot.domain.relation.exception.InvitationErrorCode;
 import com.gyeot.domain.relation.repository.InvitationRepository;
+import com.gyeot.domain.relation.repository.RelationshipRepository;
+import com.gyeot.domain.user.repository.UserRepository;
 import com.gyeot.global.exception.BusinessException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,7 +53,7 @@ class InvitationServiceTest {
                         savedInvitations.add(invitation);
                         yield invitation;
                     }
-                    case "findByIdAndInviterId" -> {
+                    case "findByIdAndInviterIdForUpdate" -> {
                         Long id = (Long) args[0];
                         Long inviterId = (Long) args[1];
                         if (cancellationTarget != null
@@ -69,7 +71,14 @@ class InvitationServiceTest {
         );
 
         Clock clock = Clock.fixed(Instant.parse("2026-11-09T03:00:00Z"), ZoneId.of("Asia/Seoul"));
-        invitationService = new InvitationService(repository, tokenGenerator, clock, "https://example.com/invitations");
+        invitationService = new InvitationService(
+                repository,
+                org.mockito.Mockito.mock(RelationshipRepository.class),
+                org.mockito.Mockito.mock(UserRepository.class),
+                tokenGenerator,
+                clock,
+                "https://example.com/invitations"
+        );
     }
 
     @Test
