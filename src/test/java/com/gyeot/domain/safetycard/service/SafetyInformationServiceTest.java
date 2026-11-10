@@ -12,6 +12,7 @@ import com.gyeot.domain.safetycard.entity.InformationCategory;
 import com.gyeot.domain.safetycard.entity.InformationType;
 import com.gyeot.domain.safetycard.entity.SafetyInformation;
 import com.gyeot.domain.safetycard.exception.SafetyCardErrorCode;
+import com.gyeot.domain.safetycard.repository.InformationTypeLastUpdated;
 import com.gyeot.domain.safetycard.repository.SafetyInformationRepository;
 import com.gyeot.global.exception.BusinessException;
 import com.gyeot.global.exception.CommonErrorCode;
@@ -35,6 +36,11 @@ import static org.mockito.Mockito.when;
 class SafetyInformationServiceTest {
 
     private static final Long USER_ID = 1L;
+    // 분류별 유형 목록 (InformationType 선언 순서, Service가 Repository에 넘기는 값과 같아야 함)
+    private static final List<InformationType> HEALTH_TYPES = List.of(
+            InformationType.DISEASE, InformationType.MEDICATION, InformationType.ALLERGY, InformationType.CAUTION);
+    private static final List<InformationType> LIFE_TYPES = List.of(
+            InformationType.ADDRESS, InformationType.ENTRY_METHOD, InformationType.PET);
 
     private SafetyInformationRepository safetyInformationRepository;
     private SharingCountReader sharingCountReader;
@@ -46,11 +52,12 @@ class SafetyInformationServiceTest {
         sharingCountReader = mock(SharingCountReader.class);
         service = new SafetyInformationService(safetyInformationRepository, sharingCountReader); // Spring 없이 직접 만들어 테스트
 
-        // 내 항목: 건강 3개(질환 1, 복용약 2), 생활 1개. 수정 시각은 메인 조회 테스트에서 사용
-        when(safetyInformationRepository.findAllByOwnerIdOrderByIdAsc(USER_ID)).thenReturn(List.of(
+        // 분류별 조회: 그 분류 유형의 항목만 DB에서 돌려준다고 가정 (건강 3개, 생활 1개)
+        when(safetyInformationRepository.findAllByOwnerIdAndInformationTypeInOrderByIdAsc(USER_ID, HEALTH_TYPES)).thenReturn(List.of(
                 item(11L, InformationType.DISEASE, "고혈압", "2024년 진단", LocalDateTime.of(2026, 9, 20, 10, 0)),
                 item(12L, InformationType.MEDICATION, "혈압약", "아침 식후 1정", LocalDateTime.of(2026, 10, 1, 9, 30)),
-                item(13L, InformationType.MEDICATION, "소화제", "필요할 때", LocalDateTime.of(2026, 9, 25, 8, 0)),
+                item(13L, InformationType.MEDICATION, "소화제", "필요할 때", LocalDateTime.of(2026, 9, 25, 8, 0))));
+        when(safetyInformationRepository.findAllByOwnerIdAndInformationTypeInOrderByIdAsc(USER_ID, LIFE_TYPES)).thenReturn(List.of(
                 item(20L, InformationType.ADDRESS, null, "서울시 노원구", LocalDateTime.of(2026, 9, 25, 18, 0))));
     }
 
@@ -74,11 +81,12 @@ class SafetyInformationServiceTest {
     }
 
     @Test
-    void 다른_분류의_항목은_섞이지_않는다() {
-        List<TypeItems> types = service.getCategoryItems(USER_ID, InformationCategory.HEALTH).types();
+    void 분류별_조회는_그_분류_유형의_항목만_DB에서_꺼낸다() {
+        service.getCategoryItems(USER_ID, InformationCategory.HEALTH);
 
-        assertThat(types).flatExtracting(TypeItems::items).extracting(Item::informationId)
-                .doesNotContain(20L); // 생활(주소) 항목
+        // 건강 유형으로만 조회하고, 내 항목 전체를 꺼내는 메서드는 쓰지 않음 (다른 분류 민감정보 복호화 방지)
+        verify(safetyInformationRepository).findAllByOwnerIdAndInformationTypeInOrderByIdAsc(USER_ID, HEALTH_TYPES);
+        verify(safetyInformationRepository, never()).findAllByOwnerIdOrderByIdAsc(any());
     }
 
     @Test
@@ -95,6 +103,11 @@ class SafetyInformationServiceTest {
 
     @Test
     void 메인은_분류_4개를_고정_순서로_내려주고_분류마다_가장_최근_수정_시각을_쓴다() {
+        // 유형별 최근 수정 시각만 돌려준다고 가정 (건강 유형 2개, 생활 유형 1개)
+        when(safetyInformationRepository.findLastUpdatedByType(USER_ID)).thenReturn(List.of(
+                new InformationTypeLastUpdated(InformationType.DISEASE, LocalDateTime.of(2026, 9, 20, 10, 0)),
+                new InformationTypeLastUpdated(InformationType.MEDICATION, LocalDateTime.of(2026, 10, 1, 9, 30)),
+                new InformationTypeLastUpdated(InformationType.ADDRESS, LocalDateTime.of(2026, 9, 25, 18, 0))));
         when(sharingCountReader.countActiveSharings(USER_ID)).thenReturn(2L);
 
         SafetyCardSummaryResponse response = service.getSummary(USER_ID);
@@ -103,10 +116,13 @@ class SafetyInformationServiceTest {
                 InformationCategory.BASIC, InformationCategory.HEALTH, InformationCategory.LIFE, InformationCategory.ADVANCE_MESSAGE);
         assertThat(response.categories()).extracting(CategorySummary::lastUpdatedAt).containsExactly(
                 null,                                // 기본정보: 항목 없음
-                LocalDateTime.of(2026, 10, 1, 9, 30), // 건강: 3개 중 가장 최근(혈압약)
+                LocalDateTime.of(2026, 10, 1, 9, 30), // 건강: 질환·복용약 중 더 최근(복용약)
                 LocalDateTime.of(2026, 9, 25, 18, 0), // 생활: 주소
                 null);                               // 미리 남기는 말: 항목 없음
         assertThat(response.sharingCount()).isEqualTo(2L); // SharingCountReader 값을 그대로 사용
+
+        // 항목 내용(암호화된 값)을 담은 엔티티는 꺼내지 않음 (복호화 없음)
+        verify(safetyInformationRepository, never()).findAllByOwnerIdOrderByIdAsc(any());
     }
 
     // ---- 항목 작성 ----

@@ -12,6 +12,7 @@ import com.gyeot.domain.safetycard.entity.InformationCategory;
 import com.gyeot.domain.safetycard.entity.InformationType;
 import com.gyeot.domain.safetycard.entity.SafetyInformation;
 import com.gyeot.domain.safetycard.exception.SafetyCardErrorCode;
+import com.gyeot.domain.safetycard.repository.InformationTypeLastUpdated;
 import com.gyeot.domain.safetycard.repository.SafetyInformationRepository;
 import com.gyeot.global.exception.BusinessException;
 import com.gyeot.global.exception.CommonErrorCode;
@@ -70,13 +71,13 @@ public class SafetyInformationService {
      */
     public SafetyCardSummaryResponse getSummary(Long userId) {
 
-        // 1. 내 항목을 분류별로 묶어, 분류마다 가장 최근 수정 시각만 남김
+        // 1. 유형별 최근 수정 시각만 조회해(항목 내용은 읽지 않아 복호화 없음), 분류마다 가장 최근 시각만 남김
         Map<InformationCategory, LocalDateTime> lastUpdatedByCategory = safetyInformationRepository
-                .findAllByOwnerIdOrderByIdAsc(userId).stream()
+                .findLastUpdatedByType(userId).stream()
                 .collect(Collectors.toMap(
-                        item -> item.getInformationType().getCategory(), // 키: 항목이 속한 분류
-                        SafetyInformation::getUpdatedAt,                 // 값: 항목의 수정 시각
-                        (a, b) -> a.isAfter(b) ? a : b));                // 같은 분류면 더 최근 시각을 남김
+                        row -> row.informationType().getCategory(), // 키: 유형이 속한 분류
+                        InformationTypeLastUpdated::updatedAt,      // 값: 그 유형의 최근 수정 시각
+                        (a, b) -> a.isAfter(b) ? a : b));           // 같은 분류의 유형이 여러 개면 더 최근 시각을 남김
 
         // 2. 분류 4개를 고정 순서로 채움 (항목이 없는 분류는 null)
         List<CategorySummary> categories = Arrays.stream(InformationCategory.values())
@@ -93,19 +94,22 @@ public class SafetyInformationService {
      */
     public CategoryItemsResponse getCategoryItems(Long userId, InformationCategory category) {
 
-        // 1. 내 항목을 작성순으로 가져와 유형별로 묶음 (한 사람의 항목 수가 적어 전체를 가져와 나눔)
+        // 1. 이 분류에 속한 유형 목록 (InformationType 선언 순서)
+        List<InformationType> categoryTypes = Arrays.stream(InformationType.values())
+                .filter(type -> type.getCategory() == category)
+                .toList();
+
+        // 2. 이 분류 유형의 내 항목만 작성순으로 조회해 유형별로 묶음 (다른 분류 항목은 꺼내지 않아 복호화하지 않음)
         Map<InformationType, List<SafetyInformation>> itemsByType = safetyInformationRepository
-                .findAllByOwnerIdOrderByIdAsc(userId).stream()
-                .filter(item -> item.getInformationType().getCategory() == category)
+                .findAllByOwnerIdAndInformationTypeInOrderByIdAsc(userId, categoryTypes).stream()
                 .collect(Collectors.groupingBy(SafetyInformation::getInformationType));
 
-        // 2. 분류 안 모든 유형을 선언 순서대로 돌며, 항목이 없으면 빈 배열로 채움
-        List<TypeItems> types = Arrays.stream(InformationType.values())
-                .filter(type -> type.getCategory() == category)
+        // 3. 분류 안 모든 유형을 돌며, 항목이 없으면 빈 배열로 채움
+        List<TypeItems> types = categoryTypes.stream()
                 .map(type -> toTypeItems(type, itemsByType.getOrDefault(type, List.of())))
                 .toList();
 
-        // 3. 분류 정보와 함께 응답으로 묶음
+        // 4. 분류 정보와 함께 응답으로 묶음
         return new CategoryItemsResponse(category, category.getDescription(), types);
     }
 
