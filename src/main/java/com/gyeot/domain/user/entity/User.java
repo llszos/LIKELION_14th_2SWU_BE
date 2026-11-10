@@ -87,4 +87,8 @@ public class User extends BaseEntity {
         this.accountStatus = AccountStatus.WITHDRAWN;
         this.withdrawnAt = withdrawnAt;
     }
+
+    public boolean isWithdrawn() {
+        return this.accountStatus == AccountStatus.WITHDRAWN;
+    }
 }
