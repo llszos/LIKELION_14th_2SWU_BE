@@ -55,7 +55,7 @@ public class CareRequestSharingReaderImpl implements CareRequestSharingReader {
                 .stream()
                 .collect(Collectors.toMap(a -> a.getCareRequest().getId(), Function.identity()));
 
-        // //3. 요청 + (있으면) 현재 담당자를 합쳐 결과를 만듭니다.
+        // 3. 요청 + (있으면) 현재 담당자를 합쳐 결과를 만듭니다.
         return requests.stream()
                 .collect(Collectors.toMap(CareRequest::getId,
                         request -> toInfo(request, assigneeByRequestId.get(request.getId()))));
