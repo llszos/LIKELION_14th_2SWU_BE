@@ -10,10 +10,12 @@ on:
     branches: [ develop ]
   workflow_dispatch:  # Actions 탭에서 수동 실행도 가능
 
+# GITHUB_TOKEN 권한: 기본은 읽기만 두고, 쓰기 권한은 실제로 쓰는 job에만 줌 (최소 권한)
+# job에 permissions를 적으면 이 값은 무시되고 job에 적은 권한만 적용됨 (적지 않은 권한은 none)
+#  - check-latest: 조회만 (커밋·CI 기록)
+#  - deploy: 이미지 푸시, AWS 임시 권한
 permissions:
   contents: read
-  packages: write   # GHCR 이미지 푸시
-  id-token: write   # AWS OIDC (액세스 키 없이 임시 권한)
 
 # 배포는 한 번에 하나만 실행 (임시 SSH 규칙이 서로 겹치지 않게)
 # 기본값은 대기 실행을 1개만 남기고, 새 실행이 오면 대기 중이던 실행을 취소함
@@ -49,6 +51,10 @@ jobs:
 
     runs-on: ubuntu-latest  # GitHub이 빌려주는 리눅스 가상 컴퓨터에서 실행 (곁 서버가 아님, gh CLI 기본 설치)
     timeout-minutes: 5      # API 조회 1번이라 오래 걸릴 일 없음, 멈추면 대기열이 막히지 않게 종료
+    # 조회만 하므로 읽기 권한만 (이미지 푸시·AWS 권한은 주지 않음)
+    permissions:
+      contents: read   # develop 최신 커밋 조회
+      actions: read    # 수동 실행 시 CI 실행 기록 조회 (적지 않으면 none이 되어 조회가 막힐 수 있음)
 
     # job끼리는 서로 다른 가상 컴퓨터에서 실행되어 변수를 공유할 수 없으므로, 결과를 outputs로 내보냄
     # deploy job은 needs.check-latest.outputs.deployable로 이 값을 읽음
@@ -112,6 +118,11 @@ jobs:
     # 기본 제한(6시간) 대신 20분: 빌드·이미지 푸시·배포 + 헬스 체크(최대 2분) 기준 여유 있게 잡은 값 (첫 배포 소요 시간 보고 조정)
     # 배포가 멈추면 뒤의 대기 실행(queue: max)이 전부 막히므로 짧게 끊음 (SSH 규칙이 남아도 다음 실행의 "Remove stale" 단계가 삭제)
     timeout-minutes: 20
+    # 빌드·푸시·배포에 필요한 권한만
+    permissions:
+      contents: read    # 코드 checkout
+      packages: write   # GHCR 이미지 푸시 (서버로 넘기는 GHCR_TOKEN도 이 권한으로 이미지를 받음)
+      id-token: write   # AWS OIDC (액세스 키 없이 임시 권한)
 
     env:
       # CI가 검사한 커밋 그대로 배포 (수동 실행이면 현재 커밋)
