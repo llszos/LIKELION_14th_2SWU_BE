@@ -101,7 +101,7 @@ IntelliJ에서는 `GyeotApplication` 실행 버튼으로 시작할 수 있습니
 | `DB_USERNAME` | DB 계정 | local은 기본값 사용 가능, prod는 필수 |
 | `DB_PASSWORD` | DB 비밀번호 | local은 application-local.yaml 기본값 사용 가능. 다른 값으로 DB를 만든 경우 직접 설정. prod는 필수 |
 | `JWT_SECRET` | JWT 서명 키 | #33 적용 후 필수. 아래 인증 환경변수 절 참고 |
-| `INVITATION_BASE_URL` | 초대 링크의 프론트 기본 경로 (`.../invitations`) | local은 `http://localhost:3000/invitations`, prod는 필수 |
+| `INVITATION_BASE_URL` | 초대 링크의 프론트 기본 경로 (`.../invitations`) | local은 `http://localhost:5173/invitations`, prod는 필수 |
 
 **`.env` 파일은 자동으로 로드되지 않습니다.** 파일을 복사하는 것만으로 설정이 적용되지 않으므로, 터미널 환경변수 또는 IntelliJ Run Configuration에서 주입합니다. `.env`·`application-secret.yaml`은 Git 제외 대상입니다.
 
