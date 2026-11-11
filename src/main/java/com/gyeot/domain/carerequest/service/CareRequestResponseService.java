@@ -74,6 +74,13 @@ public class CareRequestResponseService {
             return RespondResponse.of(request, assignment);
         }
 
+        // 어려움 → 확인 후 답변은 막음 (명세는 어려움에서 수락으로만 바꿀 수 있게 정함, F-06)
+        // 어려움을 받으면 요청자에게 담당자 없음 모달이 바로 뜨므로, 다시 응답 대기로 돌아가면 요청자가 헷갈릴 경우를 대비
+        if (assignment.getResponseStatus() == AssignmentResponseStatus.UNAVAILABLE
+                && response == AssignmentResponseStatus.CHECK_LATER) {
+            throw new BusinessException(REQUEST_RESPONSE_NOT_CHANGEABLE);
+        }
+
         // 3. 바뀌기 전 값 꺼내 두고, 상태를 변경합니다.
         AssignmentResponseStatus previousResponse = assignment.getResponseStatus();
         CareRequestStatus previousStatus = request.getStatus();
