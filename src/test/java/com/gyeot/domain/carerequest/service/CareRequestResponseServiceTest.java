@@ -159,6 +159,40 @@ public class CareRequestResponseServiceTest {
     }
 
     @Test
+    void 어려움에서_확인_후_답변으로는_바꿀_수_없다() {
+        CareRequest request = saveRequest(NOW.plusDays(1));
+        RequestAssignment assignment = saveAssignment(request);
+        service.respond(request.getId(), TARGET_ID, AssignmentResponseStatus.UNAVAILABLE);
+
+        assertError(() -> service.respond(request.getId(), TARGET_ID, AssignmentResponseStatus.CHECK_LATER),
+                CareRequestErrorCode.REQUEST_RESPONSE_NOT_CHANGEABLE);
+        assertThat(assignment.getResponseStatus()).isEqualTo(AssignmentResponseStatus.UNAVAILABLE); // 그대로
+    }
+
+    @Test
+    void 어려움에서_수락으로는_바꿀_수_있다() {
+        CareRequest request = saveRequest(NOW.plusDays(1));
+        saveAssignment(request);
+        service.respond(request.getId(), TARGET_ID, AssignmentResponseStatus.UNAVAILABLE);
+
+        RespondResponse result = service.respond(request.getId(), TARGET_ID, AssignmentResponseStatus.AVAILABLE);
+
+        assertThat(result.status()).isEqualTo(CareRequestStatus.ACCEPTED);
+    }
+
+    @Test
+    void 확인_후_답변에서_어려움으로는_바꿀_수_있다() {
+        CareRequest request = saveRequest(NOW.plusDays(1));
+        saveAssignment(request);
+        service.respond(request.getId(), TARGET_ID, AssignmentResponseStatus.CHECK_LATER);
+
+        RespondResponse result = service.respond(request.getId(), TARGET_ID, AssignmentResponseStatus.UNAVAILABLE);
+
+        assertThat(result.responseStatus()).isEqualTo(AssignmentResponseStatus.UNAVAILABLE);
+    }
+
+
+    @Test
     void 응답_기한이_지나도_시작_전이면_수락할_수_있다() {
         CareRequest request = saveRequest(NOW.plusHours(5));
         RequestAssignment assignment = assignmentRepository.save(
