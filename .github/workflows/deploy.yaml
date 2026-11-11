@@ -191,11 +191,12 @@ jobs:
           IMAGE_TAG: ${{ env.SHA }}
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APP_IMAGE: ${{ env.IMAGE }}   # 서버에서 오래된 앱 이미지를 정리할 때 사용
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: IMAGE_TAG,GHCR_USER,GHCR_TOKEN
+          envs: IMAGE_TAG,GHCR_USER,GHCR_TOKEN,APP_IMAGE
           # script_stop은 쓰지 않음 (이 액션에서 제거된 옵션). 실패 처리는 아래에서 명령마다 직접 함
           script: |
             cd ~/gyeot || exit 1
@@ -234,6 +235,7 @@ jobs:
             LAST_GOOD=$(cat .last_good_tag 2>/dev/null || true)
 
             if switch_to "$IMAGE_TAG"; then
+              
               # 성공한 경우에만 롤백 기준을 갱신. 임시 파일에 쓴 뒤 바꿔치기해서, 쓰다 실패해도 기존 기록은 그대로 둠
               # 기록에 실패하면 새 버전은 정상이므로 롤백하지 않고, 이 실행을 실패로 표시해 직접 확인하게 함
               if ! { printf '%s\n' "$IMAGE_TAG" > .last_good_tag.tmp \
@@ -244,8 +246,24 @@ jobs:
                 docker logout ghcr.io
                 exit 1
               fi
+              
               echo "health: UP ($IMAGE_TAG)"
-              docker image prune -f                # 쓰지 않는 이미지 정리 (디스크 확보)
+              
+              # 쓰지 않는 앱 이미지 정리 (디스크 확보)
+              # 배포 이미지는 SHA 태그가 붙어 있어 prune -f(태그 없는 이미지만 삭제)로는 지워지지 않음
+              # 이번 태그와 직전 성공 태그(수동으로 되돌릴 때 바로 쓰도록)만 남기고 삭제. 지운 이미지가 필요하면 GHCR에서 다시 받음
+              # 정리에 실패해도 배포 결과에는 영향이 없으므로 경고만 남김
+              # APP_IMAGE가 비어 있으면 docker images가 서버의 모든 이미지를 나열하므로 정리하지 않음
+              if [ -n "$APP_IMAGE" ]; then
+                for t in $(docker images "$APP_IMAGE" --format '{{.Tag}}'); do
+                  if [ "$t" = "$IMAGE_TAG" ] || [ "$t" = "$LAST_GOOD" ] || [ "$t" = "<none>" ]; then continue; fi
+                  docker rmi "$APP_IMAGE:$t" > /dev/null || echo "warn: 이미지 삭제 실패 ($APP_IMAGE:$t)"
+                done
+              else
+                echo "warn: APP_IMAGE 값이 없어 이미지 정리를 건너뜀"
+              fi
+              
+              docker image prune -f > /dev/null || echo "warn: 태그 없는 이미지 정리 실패"
               docker logout ghcr.io
               exit 0
             fi
