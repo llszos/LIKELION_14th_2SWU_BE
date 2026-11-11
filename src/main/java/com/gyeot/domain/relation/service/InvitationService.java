@@ -92,7 +92,7 @@ public class InvitationService {
     }
 
     /** 초대 링크로 들어온 화면에 발신자와 현재 처리 가능 여부를 돌려줍니다. */
-    @Transactional
+    @Transactional(readOnly = true)
     public InvitationDetailsResponse getInvitation(String token) {
         Invitation invitation = findByToken(token, false);
         if (invitation.getInvitationType() != InvitationType.MY_PERSON) {
@@ -102,17 +102,17 @@ public class InvitationService {
                 .orElseThrow(() -> new BusinessException(InvitationErrorCode.INVITATION_NOT_FOUND));
         LocalDateTime now = LocalDateTime.now(serviceClock);
         boolean expired = !now.isBefore(invitation.getExpiresAt());
-        if (expired && invitation.getStatus() == InvitationStatus.PENDING) {
-            invitation.expire();
-        }
+        InvitationStatus responseStatus = expired && invitation.getStatus() == InvitationStatus.PENDING
+                ? InvitationStatus.EXPIRED
+                : invitation.getStatus();
 
         return new InvitationDetailsResponse(
                 invitation.getId(),
                 invitation.getInvitationType(),
                 inviter.getName(),
-                invitation.getStatus(),
+                responseStatus,
                 invitation.getExpiresAt(),
-                invitation.getStatus() == InvitationStatus.PENDING
+                responseStatus == InvitationStatus.PENDING
         );
     }
 
@@ -122,13 +122,15 @@ public class InvitationService {
         Invitation invitation = findByToken(token, true);
         validateCanRespond(invitation, inviteeId);
         lockActiveUsers(invitation.getInviterId(), inviteeId);
+        LocalDateTime respondedAt = LocalDateTime.now(serviceClock);
+        validateNotExpired(invitation, respondedAt);
 
         if (relationshipRepository.existsBySourceUserIdAndTargetUserIdAndRelationshipTypeAndStatus(
                 invitation.getInviterId(), inviteeId, RelationshipType.MY_PERSON, RelationshipStatus.ACTIVE)) {
             throw new BusinessException(InvitationErrorCode.RELATIONSHIP_ALREADY_EXISTS);
         }
 
-        invitation.respond(inviteeId, InvitationStatus.ACCEPTED, LocalDateTime.now(serviceClock));
+        invitation.respond(inviteeId, InvitationStatus.ACCEPTED, respondedAt);
         relationshipRepository.save(Relationship.createMyPerson(invitation.getInviterId(), inviteeId, null));
     }
 
@@ -138,7 +140,9 @@ public class InvitationService {
         Invitation invitation = findByToken(token, true);
         validateCanRespond(invitation, inviteeId);
         lockActiveUsers(invitation.getInviterId(), inviteeId);
-        invitation.respond(inviteeId, InvitationStatus.REJECTED, LocalDateTime.now(serviceClock));
+        LocalDateTime respondedAt = LocalDateTime.now(serviceClock);
+        validateNotExpired(invitation, respondedAt);
+        invitation.respond(inviteeId, InvitationStatus.REJECTED, respondedAt);
     }
 
     /** 수락자가 원하면 별도 호출로 반대 방향의 나의 사람 관계를 추가합니다. */
@@ -156,6 +160,10 @@ public class InvitationService {
         }
 
         lockActiveUsers(userId, invitation.getInviterId());
+        if (!relationshipRepository.existsBySourceUserIdAndTargetUserIdAndRelationshipTypeAndStatus(
+                invitation.getInviterId(), userId, RelationshipType.MY_PERSON, RelationshipStatus.ACTIVE)) {
+            throw new BusinessException(InvitationErrorCode.INVITATION_NOT_ACCEPTED);
+        }
         if (relationshipRepository.existsBySourceUserIdAndTargetUserIdAndRelationshipTypeAndStatus(
                 userId, invitation.getInviterId(), RelationshipType.MY_PERSON, RelationshipStatus.ACTIVE)) {
             throw new BusinessException(InvitationErrorCode.RELATIONSHIP_ALREADY_EXISTS);
@@ -187,7 +195,10 @@ public class InvitationService {
         if (invitation.getStatus() != InvitationStatus.PENDING) {
             throw new BusinessException(InvitationErrorCode.INVITATION_NOT_PENDING);
         }
-        if (!LocalDateTime.now(serviceClock).isBefore(invitation.getExpiresAt())) {
+    }
+
+    private void validateNotExpired(Invitation invitation, LocalDateTime respondedAt) {
+        if (!respondedAt.isBefore(invitation.getExpiresAt())) {
             throw new BusinessException(InvitationErrorCode.INVITATION_EXPIRED);
         }
     }
