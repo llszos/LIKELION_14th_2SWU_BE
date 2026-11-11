@@ -51,6 +51,7 @@ jobs:
 
     runs-on: ubuntu-latest  # GitHub이 빌려주는 리눅스 가상 컴퓨터에서 실행 (곁 서버가 아님, gh CLI 기본 설치)
     timeout-minutes: 5      # API 조회 1번이라 오래 걸릴 일 없음, 멈추면 대기열이 막히지 않게 종료
+
     # 조회만 하므로 읽기 권한만 (이미지 푸시·AWS 권한은 주지 않음)
     permissions:
       contents: read   # develop 최신 커밋 조회
@@ -115,9 +116,10 @@ jobs:
     if: needs.check-latest.outputs.deployable == 'true'   # 최신이고 CI를 통과한 커밋일 때만
     runs-on: ubuntu-latest  # GitHub이 빌려주는 리눅스 가상 컴퓨터에서 빌드 (서버 배포는 아래 SSH 단계에서)
 
-    # 기본 제한(6시간) 대신 20분: 빌드·이미지 푸시·배포 + 헬스 체크(최대 2분) 기준 여유 있게 잡은 값 (첫 배포 소요 시간 보고 조정)
+    # 시간 예산 30분: 빌드·푸시 약 6분(추정) + SSH 18분 + 여유. 빌드가 길어지면 남은 SSH 시간도 줄어드므로 실측 후 조정
     # 배포가 멈추면 뒤의 대기 실행(queue: max)이 전부 막히므로 짧게 끊음 (SSH 규칙이 남아도 다음 실행의 "Remove stale" 단계가 삭제)
-    timeout-minutes: 20
+    timeout-minutes: 30
+
     # 빌드·푸시·배포에 필요한 권한만
     permissions:
       contents: read    # 코드 checkout
@@ -198,16 +200,24 @@ jobs:
       # 헬스 체크가 실패하면 마지막으로 성공한 버전으로 자동 롤백하고, 이 실행은 실패로 표시
       - name: Deploy to EC2
         uses: appleboy/ssh-action@v1.2.0
+
         env:
           DEPLOY_TAG: ${{ env.SHA }}   # 배포할 커밋 SHA. Compose가 읽는 IMAGE_TAG와 이름을 나눔 (서버 스크립트 첫 부분 설명)
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APP_IMAGE: ${{ env.IMAGE }}   # 서버에서 오래된 앱 이미지를 정리할 때 사용
+
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           envs: DEPLOY_TAG,GHCR_USER,GHCR_TOKEN,APP_IMAGE
+
+          # 시간 예산: 1회당 pull 185초 + app up 65초 + 조회 15초 x 3 + nginx 최대 65초 + health 약 130초 = 약 490초
+          # 배포·롤백 2회 약 16분 20초 + 로그인·실패 로그·로그아웃 여유로 SSH 18분. 각 timeout의 강제 종료 유예 5초 포함
+          # Docker CLI 종료가 데몬에 전달된 작업의 취소를 보장하지는 않음. 실제 복구 여부는 이미지·헬스 체크로 확인
+          command_timeout: 18m
+
           # script_stop은 쓰지 않음 (이 액션에서 제거된 옵션). 실패 처리는 아래에서 명령마다 직접 함
           script: |
             cd ~/gyeot || exit 1
@@ -217,7 +227,8 @@ jobs:
             unset IMAGE_TAG
             [ -n "$APP_IMAGE" ] || { echo "APP_IMAGE 값이 없음"; exit 1; }
 
-            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin || exit 1
+            command -v timeout >/dev/null 2>&1 || { echo "서버에 GNU timeout이 필요함"; exit 1; }
+            echo "$GHCR_TOKEN" | timeout -k 5s 30s docker login ghcr.io -u "$GHCR_USER" --password-stdin || exit 1
 
             # 지정한 태그로 app만 교체하고 정상인지 확인 (배포·롤백 공통)
             #  1. .env의 IMAGE_TAG를 바꾸고 이미지 받기 (롤백 때 지워진 이미지도 GHCR에서 다시 받음)
@@ -225,7 +236,7 @@ jobs:
             #  3. nginx는 app 주소(IP)를 켤 때 한 번만 찾으므로, app이 새로 만들어지면 reload로 다시 찾게 함
             #     켜져 있으면 reload (실패하면 설정 오류 등이므로 그대로 실패 처리)
             #     꺼져 있으면 새로 띄움 (새로 뜰 때 app 주소를 찾음)
-            #  4. 헬스 체크: nginx를 거쳐 최대 약 2분 대기 (nginx 연결 문제도 여기서 잡힘)
+            #  4. 실행 중인 이미지가 지정한 태그인지 확인 후, nginx를 거쳐 헬스 체크 최대 약 2분 (nginx 연결 문제도 여기서 잡힘)
             switch_to() {
               
               # .env의 IMAGE_TAG 줄이 정확히 하나 있어야 함. 없으면 sed가 아무것도 바꾸지 않고도 성공으로 끝나서,
@@ -236,21 +247,28 @@ jobs:
               # sed 성공이 값 변경을 뜻하지는 않으므로 실제로 바뀌었는지 확인
               grep -qx "IMAGE_TAG=$1" .env || { echo "IMAGE_TAG 변경 실패: $1"; return 1; }
 
-              docker compose pull app || return 1
-              docker compose up -d --no-deps app || return 1
+              # 받기·교체에도 시간 제한 (멈추면 롤백에 들어가기 전에 원격 실행 제한에 걸리므로)
+              timeout -k 5s 180s docker compose pull app || return 1
+              timeout -k 5s 60s docker compose up -d --no-deps app || return 1
               
               # 실제로 실행 중인 app 이미지가 이번 태그인지 확인 (다른 값으로 이미지가 골라져도 성공으로 넘어가지 않게)
-              RUNNING=$(docker inspect --format '{{.Config.Image}}' "$(docker compose ps -q app)") || return 1
+              APP_CONTAINER=$(timeout -k 5s 10s docker compose ps -q app) || return 1
+              [ -n "$APP_CONTAINER" ] || { echo "app 컨테이너를 찾지 못함"; return 1; }
+              RUNNING=$(timeout -k 5s 10s docker inspect --format '{{.Config.Image}}' "$APP_CONTAINER") || return 1
               [ "$RUNNING" = "$APP_IMAGE:$1" ] || { echo "실행 이미지 불일치: $RUNNING (기대: $APP_IMAGE:$1)"; return 1; }
               
-              if [ -n "$(docker compose ps --status running -q nginx)" ]; then
-                docker compose exec -T nginx nginx -s reload || return 1
+              NGINX_CONTAINER=$(timeout -k 5s 10s docker compose ps --status running -q nginx) || return 1
+              if [ -n "$NGINX_CONTAINER" ]; then
+                timeout -k 5s 30s docker compose exec -T nginx nginx -s reload || return 1
               else
-                docker compose up -d --no-deps nginx || return 1
+                timeout -k 5s 60s docker compose up -d --no-deps nginx || return 1
               fi
               
-              for i in $(seq 1 24); do
-                curl -fsS http://localhost/actuator/health | grep -q '"UP"' && return 0
+              # 횟수가 아니라 마감 시각(시작 후 120초)까지 반복. 마감 직전 요청(최대 5초)과 대기(5초)를 더해 최대 약 130초
+              # 요청마다 연결 2초·전체 5초 제한 (제한이 없으면 앱이 응답하지 않을 때 nginx 대기 시간만큼 요청 하나가 멈춤)
+              DEADLINE=$(( $(date +%s) + 120 ))
+              while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+                curl -fsS --connect-timeout 2 --max-time 5 http://localhost/actuator/health | grep -q '"UP"' && return 0
                 sleep 5
               done
               return 1
@@ -295,7 +313,7 @@ jobs:
             fi
 
             echo "deploy failed: $DEPLOY_TAG"
-            docker compose logs --tail 200 app
+            timeout -k 5s 10s docker compose logs --tail 200 app || echo "warn: 실패 로그 조회 실패 (롤백 계속)"
 
             # 마지막 성공 태그가 있고 이번 태그와 다를 때만 롤백
             if [ -n "$LAST_GOOD" ] && [ "$LAST_GOOD" != "$DEPLOY_TAG" ]; then
@@ -303,7 +321,7 @@ jobs:
                 echo "rolled back to $LAST_GOOD"
               else
                 echo "ROLLBACK FAILED: $LAST_GOOD (서버에서 직접 확인 필요)"
-                docker compose logs --tail 100 app
+                timeout -k 5s 10s docker compose logs --tail 100 app || echo "warn: 롤백 실패 로그 조회 실패"
               fi
             else
               echo "rollback skipped: 마지막 성공 태그 없음"
