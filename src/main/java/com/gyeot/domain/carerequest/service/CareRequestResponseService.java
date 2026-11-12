@@ -52,16 +52,19 @@ public class CareRequestResponseService {
     private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
 
-
     // === 요청 응답 (POST /api/care-requests/{requestId}/respond) ===
     public RespondResponse respond(Long requestId, Long userId, AssignmentResponseStatus response) {
         Objects.requireNonNull(response, "response는 필수입니다.");
-        LocalDateTime now = LocalDateTime.now(clock);
 
         // 1. 잠그고 조회하고, 관련자를 확인합니다.
         RequestAccess access = careRequestFinder.getAccessibleRequestForUpdate(requestId, userId);
+
+        // 현재 시각은 잠금을 얻은 뒤에 구합니다. 잠금을 기다리는 사이에 시작 시각이 지나도 그 사실로 검증하기 위해서입니다.
+        // 아래 검증, 상태 변경, 이력, 이벤트는 모두 이 값 하나를 씁니다.
+        LocalDateTime now = LocalDateTime.now(clock);
+
         if (access.isRequester()) {
-            throw new BusinessException(CommonErrorCode.FORBIDDEN); // 요청자는 자기 요청에 응답할 수 없음
+            throw new BusinessException(CommonErrorCode.FORBIDDEN); // 요청자는 자기 요청에 응답할 수 없음 (403)
         }
         CareRequest request = access.request();
         RequestAssignment assignment = access.myAssignment();
@@ -132,10 +135,9 @@ public class CareRequestResponseService {
 
     // === 수락 철회 (POST /api/care-requests/{requestId}/withdraw) ===
     public WithdrawResponse withdraw(Long requestId, Long userId) {
-        LocalDateTime now = LocalDateTime.now(clock);
-
         // 1. 잠그고 조회하고 관련자를 확인합니다.
         RequestAccess access = careRequestFinder.getAccessibleRequestForUpdate(requestId, userId);
+        LocalDateTime now = LocalDateTime.now(clock); // 잠금을 얻은 뒤의 시각 (respond와 같은 이유)
         CareRequest request = access.request();
         RequestAssignment assignment = access.myAssignment();
 
