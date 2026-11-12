@@ -3,7 +3,10 @@ package com.gyeot.domain.carerequest.repository;
 import com.gyeot.domain.carerequest.entity.RequestChangeProposal;
 import com.gyeot.domain.carerequest.enums.ProposalStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -19,4 +22,13 @@ public interface RequestChangeProposalRepository extends JpaRepository<RequestCh
 
     /** 요청의 가장 최근 수정안 (상태 무관, 요청 상세의 latestProposal) */
     Optional<RequestChangeProposal> findFirstByCareRequestIdOrderByIdDesc(Long requestId);
+
+    /**
+     * 내가 재확인해야 하는 수정안 (#67 홈의 응답이 필요한 요청)
+     * 재확인 대상 지정이 내 것이고 지정한 상태(PENDING)인 수정안을 요청, 지정과 함께 가져옵니다. (N+1 방지)
+     */
+    @Query("select p from RequestChangeProposal p join fetch p.careRequest join fetch p.assignment a "
+            + "where a.targetUserId = :userId and p.status = :status")
+    List<RequestChangeProposal> findAllForAssignee(@Param("userId") Long userId,
+                                                   @Param("status") ProposalStatus status);
 }
