@@ -46,7 +46,8 @@ import static org.assertj.core.api.Assertions.*;
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import({JpaAuditingConfig.class, SafetyInformationCipher.class, ClockConfiguration.class,
-        SituationEndService.class, SituationEndProcessor.class, SituationEndIntegrationTest.EventConfig.class})
+        SituationEndService.class, SituationEndProcessor.class, SituationExpirationService.class,
+        SituationEndIntegrationTest.EventConfig.class})
 @ActiveProfiles("test")
 @Testcontainers
 class SituationEndIntegrationTest {
@@ -60,10 +61,12 @@ class SituationEndIntegrationTest {
     @Autowired private SituationEndRepository repository;
     @Autowired private PlatformTransactionManager transactionManager;
     @Autowired private EventRecorder recorder;
+    @Autowired private SituationExpirationService expirationService;
 
     @BeforeEach
     void clearEvents() {
         recorder.events.clear();
+        recorder.failForId = null;
     }
 
     @Test
@@ -151,6 +154,86 @@ class SituationEndIntegrationTest {
         return situation;
     }
 
+    @Test
+    void 만료_후보는_ACTIVE이면서_오늘보다_이전인_상황만_포함한다() {
+        LocalDate today = LocalDate.of(2026, 11, 12);
+        Situation yesterday = Situation.create(10L, "돌봄", "어제", today.minusDays(10), today.minusDays(1));
+        Situation old = Situation.create(10L, "돌봄", "누적 만료", today.minusDays(10), today.minusDays(5));
+        Situation current = Situation.create(10L, "돌봄", "오늘", today.minusDays(10), today);
+        Situation future = Situation.create(10L, "돌봄", "미래", today, today.plusDays(1));
+        Situation ended = Situation.create(10L, "돌봄", "종료됨", today.minusDays(10), today.minusDays(1));
+        ended.end(today.atStartOfDay());
+        for (Situation situation : List.of(yesterday, old, current, future, ended)) {
+            entityManager.persist(situation);
+        }
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(repository.findExpiredIds(today, 0L, org.springframework.data.domain.PageRequest.of(0, 100))).containsExactlyInAnyOrder(yesterday.getId(), old.getId());
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void 한_대상_롤백_후에도_다른_대상은_종료하고_다음_실행에서_재시도한다() {
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        List<Long> ids = transaction.execute(status -> {
+            LocalDate today = LocalDate.now(java.time.ZoneId.of("Asia/Seoul"));
+            Situation first = Situation.create(10L, "돌봄", "실패 대상", today.minusDays(10), today.minusDays(1));
+            Situation second = Situation.create(10L, "돌봄", "성공 대상", today.minusDays(10), today.minusDays(2));
+            entityManager.persist(first);
+            entityManager.persist(second);
+            entityManager.flush();
+            return List.of(first.getId(), second.getId());
+        });
+        try {
+            recorder.failForId = ids.get(0);
+            var scheduler = new com.gyeot.domain.situation.scheduler.SituationExpirationScheduler(expirationService);
+            scheduler.expireSituations();
+            transaction.executeWithoutResult(status -> {
+                assertThat(entityManager.find(Situation.class, ids.get(0)).getStatus()).isEqualTo(SituationStatus.ACTIVE);
+                assertThat(entityManager.find(Situation.class, ids.get(1)).getStatus()).isEqualTo(SituationStatus.ENDED);
+            });
+            assertThat(recorder.events).hasSize(1);
+            recorder.failForId = null;
+            scheduler.expireSituations();
+            scheduler.expireSituations();
+            assertThat(recorder.events).hasSize(2);
+            transaction.executeWithoutResult(status -> {
+                for (Long id : ids) {
+                    Situation found = entityManager.find(Situation.class, id);
+                    assertThat(found.getStatus()).isEqualTo(SituationStatus.ENDED);
+                    assertThat(recorder.events).contains(new SituationEndedEvent(id, found.getEndedAt()));
+                }
+            });
+        } finally {
+            recorder.failForId = null;
+            transaction.executeWithoutResult(status -> {
+                for (Long id : ids) {
+                    entityManager.remove(entityManager.find(Situation.class, id));
+                }
+            });
+        }
+    }
+
+    @Test
+    void 만료_후보는_100개씩_ID_오름차순으로_누락없이_조회한다() {
+        LocalDate today = LocalDate.of(2026, 11, 12);
+        var expected = new java.util.ArrayList<Long>();
+        for (int i = 0; i < 105; i++) {
+            Situation situation = Situation.create(10L, "돌봄", "만료 후보",
+                    today.minusDays(10), today.minusDays(1));
+            entityManager.persist(situation);
+            expected.add(situation.getId());
+        }
+        entityManager.flush();
+        entityManager.clear();
+        var page = org.springframework.data.domain.PageRequest.of(0, 100);
+        var first = repository.findExpiredIds(today, 0L, page);
+        assertThat(first).containsExactlyElementsOf(expected.subList(0, 100));
+        var last = repository.findExpiredIds(today, first.getLast(), page);
+        assertThat(last).containsExactlyElementsOf(expected.subList(100, 105));
+        assertThat(repository.findExpiredIds(today, last.getLast(), page)).isEmpty();
+    }
+
     @TestConfiguration
     static class EventConfig {
         @Bean
@@ -161,9 +244,13 @@ class SituationEndIntegrationTest {
 
     static class EventRecorder {
         final ConcurrentLinkedQueue<SituationEndedEvent> events = new ConcurrentLinkedQueue<>();
+        volatile Long failForId;
 
         @EventListener
         public void onEnded(SituationEndedEvent event) {
+            if (event.situationId().equals(failForId)) {
+                throw new IllegalStateException("test listener failure");
+            }
             events.add(event);
         }
     }
