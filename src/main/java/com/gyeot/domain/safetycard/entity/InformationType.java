@@ -10,38 +10,37 @@ import lombok.RequiredArgsConstructor;
  * 분류는 항목에 이미 정해져 있으므로 DB에 따로 저장하지 않습니다. (예: MEDICATION → HEALTH)
  */
 
-@Getter                  // 아래 필드 값을 꺼내는 getter 생성 (예: getCategory(), getDescription(), isSensitive(), isMultiple())
-@RequiredArgsConstructor // 아래 final 필드 4개(category, description, sensitive, multiple)를 채우는 생성자 자동 생성. MEDICATION(...)처럼 쓰려면 필요
+@Getter                  // 아래 필드 값을 꺼내는 getter 생성 (예: getCategory(), getDescription(), isSensitive(), isMultiple(), isTitleRequired())
+@RequiredArgsConstructor // 아래 final 필드 5개(category, description, sensitive, multiple, titleRequired)를 채우는 생성자 자동 생성. MEDICATION(...)처럼 쓰려면 필요
 public enum InformationType {
 
-    // 괄호 안 값 순서: (분류, 한글 이름, 민감정보 여부, 여러 개 등록 가능 여부)
+    // 괄호 안 값 순서: (분류, 한글 이름, 민감정보 여부, 여러 개 등록 가능 여부, title 입력 여부)
 
     // 기본정보
-    BIRTH_DATE(InformationCategory.BASIC, "생년월일", false, false),
-    BLOOD_TYPE(InformationCategory.BASIC, "혈액형", false, false),
-    BASIC_MEMO(InformationCategory.BASIC, "기타 메모", false, false),
+    BIRTH_DATE(InformationCategory.BASIC, "생년월일", false, false, false),
+    BLOOD_TYPE(InformationCategory.BASIC, "혈액형", false, false, false),
 
     // 건강
-    DISEASE(InformationCategory.HEALTH, "질환", true, true),
-    MEDICATION(InformationCategory.HEALTH, "복용약", true, true),
-    ALLERGY(InformationCategory.HEALTH, "알레르기", true, true),
-    CAUTION(InformationCategory.HEALTH, "주의사항", false, true),
-    HEALTH_MEMO(InformationCategory.HEALTH, "기타 메모", false, false),
+    DISEASE(InformationCategory.HEALTH, "질환", true, true, true),
+    MEDICATION(InformationCategory.HEALTH, "복용약", true, true, true),
+    ALLERGY(InformationCategory.HEALTH, "알레르기", true, true, true),
+    CAUTION(InformationCategory.HEALTH, "주의사항", false, true, true),
 
-    // 생활
-    ADDRESS(InformationCategory.LIFE, "주소", true, true),
-    ENTRY_METHOD(InformationCategory.LIFE, "출입 방법", true, true),
-    PET(InformationCategory.LIFE, "반려동물", false, true),
-    LIFE_MEMO(InformationCategory.LIFE, "기타 메모", false, false),
+    // 생활 (주소·출입 방법은 디자인 C-04 '집 정보'에 '추가하기'가 없어 1개만 등록, 기획 답변 11/8)
+    ADDRESS(InformationCategory.LIFE, "주소", true, false, false),
+    ENTRY_METHOD(InformationCategory.LIFE, "출입 방법", true, false, false),
+    PET(InformationCategory.LIFE, "반려동물", false, true, true),
 
     // 미리 남기는 말
-    PREFERENCE_REQUEST(InformationCategory.ADVANCE_MESSAGE, "선호·부탁", false, true),
-    DOCUMENT_LOCATION(InformationCategory.ADVANCE_MESSAGE, "준비 문서 보관 위치", false, true),
-    ADVANCE_MEMO(InformationCategory.ADVANCE_MESSAGE, "기타 메모", false, false);
+    PREFERENCE_REQUEST(InformationCategory.ADVANCE_MESSAGE, "선호·부탁", false, true, true),
+    DOCUMENT_LOCATION(InformationCategory.ADVANCE_MESSAGE, "준비 문서 보관 위치", false, true, true);
+
+    // 분류별 기타 메모는 두지 않음 (기획 답변 11/8: 현재 화면 범위에서는 메모가 없는 편이 사용성이 좋음)
 
     private final InformationCategory category; // 이 항목이 속한 분류
     private final String description;           // 화면이나 문서에서 알아보기 쉬운 한글 이름
     private final boolean sensitive;            // 민감정보 여부 (질환·복용약·알레르기·주소·출입 방법)
-    private final boolean multiple;             // true면 여러 개 등록 가능, false면 1개만 등록 (생년월일·혈액형·분류별 기타 메모)
-    // boolean 필드는 Lombok이 getter 이름을 get이 아니라 is로 만듦 → isSensitive(), isMultiple()
+    private final boolean multiple;             // true면 여러 개 등록 가능, false면 1개만 등록 (생년월일·혈액형·주소·출입 방법)
+    private final boolean titleRequired;        // true면 title(항목 이름) 필수, false면 title 없이 내용만 저장 (생년월일·혈액형·주소·출입 방법)
+    // boolean 필드는 Lombok이 getter 이름을 get이 아니라 is로 만듦 → isSensitive(), isMultiple(), isTitleRequired()
 }

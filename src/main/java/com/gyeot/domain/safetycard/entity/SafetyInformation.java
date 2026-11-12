@@ -1,7 +1,9 @@
 package com.gyeot.domain.safetycard.entity;
 
+import com.gyeot.domain.safetycard.crypto.EncryptedStringConverter;
 import com.gyeot.global.common.entity.BaseEntity;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -19,6 +21,7 @@ import lombok.NoArgsConstructor;
  * 항목 1개 = 1행으로 저장합니다. (예: 복용약 2개면 2행)
  * 작성·수정·삭제는 정보 주인 본인만 할 수 있습니다.
  * 생성 일시·수정 일시는 BaseEntity가 자동으로 채웁니다.
+ * title·information_value는 DB에 암호화해 저장하고, 엔티티에서는 평문으로 다룹니다. (EncryptedStringConverter)
  */
 
 @Getter                                             // 조회용 getter만 생성 (값 변경은 아래 메서드로만)
@@ -44,9 +47,11 @@ public class SafetyInformation extends BaseEntity {
     @Column(name = "information_type", nullable = false, length = 40) // 어떤 항목인지 (생년월일, 복용약 등)
     private InformationType informationType;
 
-    @Column(name = "title", length = 150)  // 항목 이름 (예: 혈압약). 생년월일·혈액형·기타 메모처럼 이름이 없는 항목은 NULL
+    @Convert(converter = EncryptedStringConverter.class)  // 저장할 때 암호화, 조회할 때 복호화
+    @Column(name = "title", length = 1000)  // 항목 이름 (예: 혈압약). 입력은 최대 150자, 암호문이 더 길어서 1000 (ERD 4.10). 이름이 없는 항목은 NULL
     private String title;
 
+    @Convert(converter = EncryptedStringConverter.class)  // 저장할 때 암호화, 조회할 때 복호화
     @Column(name = "information_value", nullable = false, columnDefinition = "TEXT")  // 실제 항목 내용 (예: 아침 식후 1알)
     private String informationValue;
 
