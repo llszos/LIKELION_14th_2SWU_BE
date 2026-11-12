@@ -142,6 +142,52 @@ class PermissionWriterTest {
         verify(permissionRepository, never()).saveAll(any());
     }
 
+    // === 활성화 (수락) ===
+
+    @Test
+    void PENDING_권한만_활성화하고_항목마다_GRANTED_이력을_남긴다() {
+        RequestInformationPermission pending = pending(100L, 10L);
+        RequestInformationPermission alreadyActive = active(101L, 11L);
+        LocalDateTime activeGrantedAt = alreadyActive.getGrantedAt();
+        when(permissionRepository.findAllByAssignmentIdAndStatusIn(any(), any()))
+                .thenReturn(List.of(pending, alreadyActive));
+
+        List<RequestInformationPermission> activated = writer.activatePending(7L, OWNER_ID, 20L, NOW, null);
+
+        assertThat(activated).containsExactly(pending);
+        assertThat(pending.getStatus()).isEqualTo(PermissionStatus.ACTIVE);
+        assertThat(pending.getGrantedAt()).isEqualTo(NOW);
+        assertThat(pending.getExpiresAt()).isNull();
+        assertThat(alreadyActive.getGrantedAt()).isEqualTo(activeGrantedAt); // 이미 ACTIVE는 그대로
+
+        InformationAccessLog log = savedLogs().get(0);
+        assertThat(savedLogs()).hasSize(1);
+        assertThat(log.getPermissionId()).isEqualTo(100L);
+        assertThat(log.getOwnerUserId()).isEqualTo(OWNER_ID);
+        assertThat(log.getActorUserId()).isEqualTo(20L);           // 수락한 담당자
+        assertThat(log.getInformationId()).isEqualTo(10L);
+        assertThat(log.getEventType()).isEqualTo(AccessEventType.GRANTED);
+        assertThat(log.getOccurredAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void 기한이_있으면_활성화할_때_함께_저장한다() {
+        RequestInformationPermission pending = pending(100L, 10L);
+        when(permissionRepository.findAllByAssignmentIdAndStatusIn(any(), any())).thenReturn(List.of(pending));
+
+        writer.activatePending(7L, OWNER_ID, 20L, NOW, NOW.plusHours(24));
+
+        assertThat(pending.getExpiresAt()).isEqualTo(NOW.plusHours(24));
+    }
+
+    @Test
+    void 활성화할_PENDING이_없으면_이력도_남지_않는다() {
+        when(permissionRepository.findAllByAssignmentIdAndStatusIn(any(), any())).thenReturn(List.of(active(101L, 11L)));
+
+        assertThat(writer.activatePending(7L, OWNER_ID, 20L, NOW, null)).isEmpty();
+        assertThat(savedLogs()).isEmpty();
+    }
+
     // === 회수 공통 처리 ===
 
     @Test

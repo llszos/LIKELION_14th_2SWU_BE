@@ -43,9 +43,9 @@ public class PermissionWriter {
     // 아직 끝나지 않은 권한 (수락 전 + 수락 후)
     static final List<PermissionStatus> OPEN_STATUSES = List.of(PermissionStatus.PENDING, PermissionStatus.ACTIVE);
 
-    private final RequestInformationPermissionRepository permissionRepository;
-    private final InformationAccessLogRepository accessLogRepository;
-    private final SafetyInformationRepository safetyInformationRepository;
+    private final RequestInformationPermissionRepository permissionRepository; // 권한 조회·저장
+    private final InformationAccessLogRepository accessLogRepository;          // 부여·회수 이력 저장
+    private final SafetyInformationRepository safetyInformationRepository;     // 공개 항목 존재·주인·유형 확인
 
     /** 대상 지정 하나의 끝나지 않은 권한(PENDING·ACTIVE)을 조회합니다. */
     public List<RequestInformationPermission> findOpenPermissions(Long assignmentId) {
@@ -65,14 +65,17 @@ public class PermissionWriter {
      */
     public Map<Long, InformationType> loadOwnedItemTypes(Long ownerUserId, List<Long> informationIds) {
         if (informationIds == null || informationIds.isEmpty()) {
-            return Map.of();
+            return Map.of(); // 공개 항목 0개 요청 허용 (조회하지 않음)
         }
 
+        // null이나 같은 ID가 두 번 들어오면 잘못 보낸 것이므로 거부 (Set 크기가 원래 목록보다 작으면 중복)
         Set<Long> uniqueIds = new LinkedHashSet<>(informationIds);
         if (uniqueIds.contains(null) || uniqueIds.size() != informationIds.size()) {
             throw invalidSelection();
         }
 
+        // 한 번에 조회해, 개수가 모자라면(없거나 삭제됨) 또는 하나라도 주인이 다르면 전체 거부
+        // 일부만 빼고 만들면 요청자가 고른 것과 실제 공개 항목이 달라지므로 전부 아니면 거부
         List<SafetyInformation> found = safetyInformationRepository.findAllById(uniqueIds);
         boolean allOwned = found.size() == uniqueIds.size()
                 && found.stream().allMatch(information -> Objects.equals(information.getOwnerId(), ownerUserId));
@@ -80,6 +83,7 @@ public class PermissionWriter {
             throw invalidSelection();
         }
 
+        // 권한에 공유 당시 항목 유형을 저장하므로 항목 ID → 유형으로 돌려줌
         return found.stream().collect(Collectors.toMap(SafetyInformation::getId, SafetyInformation::getInformationType));
     }
 
@@ -94,12 +98,14 @@ public class PermissionWriter {
      */
     public List<RequestInformationPermission> createPending(Long requestId, Long assignmentId,
                                                             Long ownerUserId, List<Long> informationIds) {
-        Map<Long, InformationType> types = loadOwnedItemTypes(ownerUserId, informationIds);
+        Map<Long, InformationType> types = loadOwnedItemTypes(ownerUserId, informationIds); // 확인 실패 시 여기서 예외
         if (types.isEmpty()) {
-            return List.of();
+            return List.of(); // 공개 항목 0개
         }
 
+        // 이 지정에 이미 PENDING·ACTIVE로 있는 항목은 건너뜀 (같은 이벤트가 다시 와도 중복 생성 안 함)
         Set<Long> alreadyOpen = openInformationIds(assignmentId);
+        // 요청자가 고른 순서대로 항목마다 권한 1행 (권한은 지정·항목 단위)
         List<RequestInformationPermission> created = informationIds.stream()
                 .filter(informationId -> !alreadyOpen.contains(informationId))
                 .map(informationId -> RequestInformationPermission.createPending(
@@ -107,6 +113,37 @@ public class PermissionWriter {
                 .toList();
 
         return permissionRepository.saveAll(created);
+    }
+
+    /**
+     * 대상 지정의 공유 예정(PENDING) 권한을 모두 활성화(ACTIVE)하고 항목마다 GRANTED 이력을 남깁니다. (수락)
+     * - PENDING만 바꿉니다. 이미 ACTIVE인 권한은 그대로 두어, 같은 수락 이벤트가 다시 와도 이력이 늘거나 기한이 연장되지 않습니다.
+     * - granted_at은 이벤트 발생 시각입니다.
+     *
+     * @param ownerUserId 정보 주인 ID (요청자 ID, 이력의 owner_user_id)
+     * @param actorUserId 권한이 열리게 한 사람 (수락이면 담당자)
+     * @param expiresAt   급한 요청만 값이 있고, 일반 요청은 null (요청 종료 시각으로 판단)
+     * @return 이번에 활성화한 권한
+     */
+    public List<RequestInformationPermission> activatePending(Long assignmentId, Long ownerUserId, Long actorUserId,
+                                                              LocalDateTime grantedAt, LocalDateTime expiresAt) {
+        Objects.requireNonNull(ownerUserId, "ownerUserId는 필수입니다.");
+        Objects.requireNonNull(grantedAt, "grantedAt은 필수입니다.");
+
+        List<RequestInformationPermission> activated = new ArrayList<>();
+        List<InformationAccessLog> logs = new ArrayList<>();
+
+        for (RequestInformationPermission permission : findOpenPermissions(assignmentId)) {
+            if (permission.getStatus() != PermissionStatus.PENDING) {
+                continue; // 이미 ACTIVE면 그대로 (중복 수락 이벤트로 이력이 늘거나 기한이 연장되지 않게)
+            }
+            permission.activate(grantedAt, expiresAt); // 이 트랜잭션에서 조회한 엔티티라 변경 감지로 저장됨
+            activated.add(permission);
+            logs.add(grantedLog(permission, ownerUserId, actorUserId, grantedAt)); // 항목마다 GRANTED 1건
+        }
+
+        accessLogRepository.saveAll(logs); // 활성화할 게 없으면 빈 목록 저장 (쿼리 없음)
+        return activated;
     }
 
     /**
@@ -128,17 +165,20 @@ public class PermissionWriter {
         Objects.requireNonNull(ownerUserId, "ownerUserId는 필수입니다.");
         Objects.requireNonNull(revokedAt, "revokedAt은 필수입니다.");
 
+        // 공개 항목 제외는 정보 주인이 직접 뺀 것, 그 밖(요청 종료·지정 마감 등)은 시스템 처리라 수행자 없음
         Long actorUserId = reason == RevokeReason.SHARING_EXCLUDED ? ownerUserId : null;
         List<InformationAccessLog> logs = new ArrayList<>();
 
         for (RequestInformationPermission permission : permissions) {
+
             if (permission.getStatus() == PermissionStatus.REVOKED) {
-                continue;
+                continue; // 이미 끝난 권한은 처음 끝난 이유·시각을 그대로 둠 (같은 이벤트 재처리 대비)
             }
+
             boolean wasActive = permission.isActive(); // 바꾸기 전에 확인해야 이력 대상인지 알 수 있음
             permission.revoke(reason, revokedAt);
 
-            if (wasActive) {
+            if (wasActive) { // PENDING은 담당자가 본 적이 없어 접근 이력이 아님
                 logs.add(InformationAccessLog.create(permission.getId(), ownerUserId, actorUserId,
                         permission.getInformationId(), permission.getInformationType(),
                         AccessEventType.AUTO_REVOKED, revokedAt));
@@ -148,9 +188,18 @@ public class PermissionWriter {
         accessLogRepository.saveAll(logs);
     }
 
+    private InformationAccessLog grantedLog(RequestInformationPermission permission, Long ownerUserId,
+                                            Long actorUserId, LocalDateTime grantedAt) {
+
+        return InformationAccessLog.create(permission.getId(), ownerUserId, actorUserId,
+                permission.getInformationId(), permission.getInformationType(), AccessEventType.GRANTED, grantedAt);
+    }
+
     /** 지정에 이미 끝나지 않은 권한이 있는 항목 ID (중복 생성 방지) */
     private Set<Long> openInformationIds(Long assignmentId) {
-        Set<Long> ids = new HashSet<>();
+
+        Set<Long> ids = new HashSet<>(); // 포함 여부만 보면 되므로 Set
+
         for (RequestInformationPermission permission : findOpenPermissions(assignmentId)) {
             ids.add(permission.getInformationId());
         }

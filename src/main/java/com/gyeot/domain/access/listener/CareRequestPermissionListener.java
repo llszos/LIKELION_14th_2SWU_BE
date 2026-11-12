@@ -1,6 +1,7 @@
 package com.gyeot.domain.access.listener;
 
 import com.gyeot.domain.access.service.PermissionGrantService;
+import com.gyeot.domain.carerequest.event.CareRequestAcceptedEvent;
 import com.gyeot.domain.carerequest.event.CareRequestCreatedEvent;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.event.EventListener;
@@ -23,5 +24,11 @@ public class CareRequestPermissionListener {
     @EventListener
     public void onRequestCreated(CareRequestCreatedEvent event) {
         permissionGrantService.grantOnRequestCreated(event);
+    }
+
+    /** 수락 → 공유 예정 권한 활성화 + GRANTED 이력 */
+    @EventListener
+    public void onAccepted(CareRequestAcceptedEvent event) {
+        permissionGrantService.grantOnAccepted(event);
     }
 }
