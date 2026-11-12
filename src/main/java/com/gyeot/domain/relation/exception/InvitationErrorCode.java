@@ -19,7 +19,6 @@ public enum InvitationErrorCode implements ErrorCode {
     RELATIONSHIP_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 나의 사람으로 등록되어 있습니다."),
     GUARDIAN_RELATIONSHIP_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 서로의 보호자로 등록되어 있습니다."),
     GUARDIAN_LIMIT_REACHED(HttpStatus.CONFLICT, "보호자는 최대 3명까지 등록할 수 있어요."),
-    GUARDIAN_RELATIONSHIP_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 서로의 보호자로 등록되어 있습니다."),
     INVITATION_USER_NOT_AVAILABLE(HttpStatus.CONFLICT, "초대에 참여할 수 없는 계정입니다.");
 
     private final HttpStatus httpStatus;
