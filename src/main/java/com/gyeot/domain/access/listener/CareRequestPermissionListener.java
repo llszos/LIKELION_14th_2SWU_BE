@@ -2,6 +2,7 @@ package com.gyeot.domain.access.listener;
 
 import com.gyeot.domain.access.service.PermissionGrantService;
 import com.gyeot.domain.carerequest.event.CareRequestAcceptedEvent;
+import com.gyeot.domain.carerequest.event.CareRequestChangeConfirmedEvent;
 import com.gyeot.domain.carerequest.event.CareRequestCreatedEvent;
 import com.gyeot.domain.carerequest.event.CareRequestTargetChangedEvent;
 import lombok.RequiredArgsConstructor;
@@ -37,5 +38,11 @@ public class CareRequestPermissionListener {
     @EventListener
     public void onTargetChanged(CareRequestTargetChangedEvent event) {
         permissionGrantService.grantOnTargetChanged(event);
+    }
+
+    /** 수정 확정 → 공개 항목 추가와 제외 반영 */
+    @EventListener
+    public void onChangeConfirmed(CareRequestChangeConfirmedEvent event) {
+        permissionGrantService.grantOnChangeConfirmed(event);
     }
 }

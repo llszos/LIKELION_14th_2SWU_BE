@@ -142,6 +142,42 @@ class PermissionWriterTest {
         verify(permissionRepository, never()).saveAll(any());
     }
 
+    // === 바로 활성화된 권한 생성 (수락 후 추가) ===
+
+    @Test
+    void 수락_후_추가는_ACTIVE로_만들고_항목마다_GRANTED_이력을_남긴다() {
+        when(safetyInformationRepository.findAllById(any())).thenReturn(List.of(item(10L, OWNER_ID, InformationType.ALLERGY)));
+        when(permissionRepository.saveAll(any())).thenAnswer(invocation -> {
+            List<RequestInformationPermission> saved = invocation.getArgument(0);
+            saved.forEach(permission -> ReflectionTestUtils.setField(permission, "id", 200L)); // 저장 후 ID가 생긴 것처럼
+            return saved;
+        });
+
+        List<RequestInformationPermission> created =
+                writer.createActive(1L, 7L, OWNER_ID, 20L, List.of(10L), NOW, NOW.plusHours(24));
+
+        assertThat(created).singleElement().satisfies(permission -> {
+            assertThat(permission.getStatus()).isEqualTo(PermissionStatus.ACTIVE);
+            assertThat(permission.getGrantedAt()).isEqualTo(NOW);
+            assertThat(permission.getExpiresAt()).isEqualTo(NOW.plusHours(24));
+        });
+        assertThat(savedLogs()).singleElement().satisfies(log -> {
+            assertThat(log.getPermissionId()).isEqualTo(200L); // 저장된 권한 ID로 기록
+            assertThat(log.getActorUserId()).isEqualTo(20L);
+            assertThat(log.getEventType()).isEqualTo(AccessEventType.GRANTED);
+        });
+    }
+
+    @Test
+    void 수락_후_추가도_이미_끝나지_않은_권한이_있는_항목은_만들지_않는다() {
+        when(safetyInformationRepository.findAllById(any())).thenReturn(List.of(item(10L, OWNER_ID, InformationType.ALLERGY)));
+        when(permissionRepository.findAllByAssignmentIdAndStatusIn(any(), any())).thenReturn(List.of(active(100L, 10L)));
+        returnSavedPermissions();
+
+        assertThat(writer.createActive(1L, 7L, OWNER_ID, 20L, List.of(10L), NOW, null)).isEmpty();
+        assertThat(savedLogs()).isEmpty();
+    }
+
     // === 활성화 (수락) ===
 
     @Test
@@ -237,7 +273,7 @@ class PermissionWriterTest {
 
         writer.revokeByRequestEvent(List.of(revoked), RevokeReason.REQUEST_ENDED, OWNER_ID, NOW);
 
-        assertThat(revoked.getRevokeReason()).isEqualTo(RevokeReason.OWNER_REVOKED); // 처음 끝난 이유·시각 유지
+        assertThat(revoked.getRevokeReason()).isEqualTo(RevokeReason.OWNER_REVOKED); // 처음 끝난 이유와 시각 유지
         assertThat(revoked.getRevokedAt()).isEqualTo(earlier);
         assertThat(savedLogs()).isEmpty();
     }

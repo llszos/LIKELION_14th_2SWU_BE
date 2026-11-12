@@ -1,16 +1,24 @@
 package com.gyeot.domain.access.service;
 
+import com.gyeot.domain.access.entity.RequestInformationPermission;
 import com.gyeot.domain.access.entity.RevokeReason;
+import com.gyeot.domain.carerequest.enums.ChangeableField;
 import com.gyeot.domain.carerequest.enums.RequestType;
 import com.gyeot.domain.carerequest.event.CareRequestAcceptedEvent;
+import com.gyeot.domain.carerequest.event.CareRequestChangeConfirmedEvent;
 import com.gyeot.domain.carerequest.event.CareRequestCreatedEvent;
 import com.gyeot.domain.carerequest.event.CareRequestTargetChangedEvent;
+import com.gyeot.domain.carerequest.query.CareRequestSharingReader;
+import com.gyeot.domain.carerequest.query.CareRequestSharingReader.SharingRequestInfo;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 /**
  * C 요청 이벤트에 따라 안심카드 접근 권한을 만들고 활성화합니다. (F-03, F-09, ERD 9.2, #42)
@@ -30,6 +38,7 @@ public class PermissionGrantService {
     static final long URGENT_ACCESS_HOURS = 24; // 급한 요청 열람 기한: 수락 후 24시간 (F-13, ERD 4.11)
 
     private final PermissionWriter permissionWriter;
+    private final CareRequestSharingReader careRequestSharingReader; // 수락 후 추가 항목의 기한 계산 (요청 유형, 수락 시각)
 
     /**
      * 요청 생성: 최초 지정에 공개 항목마다 PENDING 권한을 만듭니다.
@@ -76,5 +85,75 @@ public class PermissionGrantService {
         // 2. 새 지정에 이번에 고른 항목으로 PENDING 생성 (새 대상자는 아직 수락 전)
         permissionWriter.createPending(event.requestId(), event.assignmentId(),
                 event.requesterId(), event.informationIds());
+    }
+
+    /**
+     * 수정 확정: 변경 후 전체 공개 항목 목록과 지금 공개 중인 항목을 비교해 반영합니다. (ERD 4.8)
+     * - 공개 항목을 바꾸지 않은 수정(일정, 장소만 변경)은 건너뜁니다.
+     * - 열린 지정이 없으면(대상자가 빠진 상태) 권한을 둘 곳이 없어 건너뜁니다.
+     * - 빠진 항목: SHARING_EXCLUDED로 회수 (ACTIVE였으면 정보 주인을 수행자로 AUTO_REVOKED 이력)
+     * - 추가된 항목: 수락 전 직접 수정(proposalId 없음)은 PENDING, 재확인 수락(proposalId 있음)은 ACTIVE + GRANTED
+     * - 유지된 항목: 그대로 둠 (권한과 이력 변화 없음)
+     * - 빈 목록: 공개 중인 항목 전부 회수
+     */
+    public void grantOnChangeConfirmed(CareRequestChangeConfirmedEvent event) {
+        if (!event.changedFields().contains(ChangeableField.INFORMATION_IDS)) {
+            return; // 공개 항목은 그대로인 수정
+        }
+        if (event.assignmentId() == null) {
+            return; // 열린 지정 없음 (이전 지정의 권한은 마감 때 이미 회수됨)
+        }
+
+        List<RequestInformationPermission> open = permissionWriter.findOpenPermissions(event.assignmentId());
+        Set<Long> afterIds = new HashSet<>(event.informationIds()); // 변경 후 전체 목록
+        Set<Long> openIds = new HashSet<>();
+        for (RequestInformationPermission permission : open) {
+            openIds.add(permission.getInformationId());
+        }
+
+        // 1. 빠진 항목 회수 (정보 주인이 뺀 것)
+        List<RequestInformationPermission> excluded = open.stream()
+                .filter(permission -> !afterIds.contains(permission.getInformationId()))
+                .toList();
+        permissionWriter.revokeByRequestEvent(excluded, RevokeReason.SHARING_EXCLUDED,
+                event.requesterId(), event.occurredAt());
+
+        // 2. 새로 들어온 항목만 생성 (요청자가 고른 순서 유지, 유지된 항목은 다시 확인하지 않음)
+        List<Long> added = event.informationIds().stream()
+                .filter(informationId -> !openIds.contains(informationId))
+                .toList();
+        if (added.isEmpty()) {
+            return;
+        }
+
+        boolean accepted = event.proposalId() != null; // 재확인은 수락한 담당자에게만 가므로 제안 ID가 있으면 수락 후
+        if (!accepted) {
+            permissionWriter.createPending(event.requestId(), event.assignmentId(), event.requesterId(), added);
+            return;
+        }
+
+        // 수락 후 추가: 바로 볼 수 있게 ACTIVE, 수행자는 재확인을 수락한 담당자, 부여 시각은 확정 시각
+        permissionWriter.createActive(event.requestId(), event.assignmentId(), event.requesterId(),
+                event.targetUserId(), added, event.occurredAt(), expiresAtOfAcceptedRequest(event.requestId()));
+    }
+
+    /**
+     * 수락 후 추가 항목에 줄 기한입니다.
+     * - 일반 요청: null (요청 종료 시각으로 판단)
+     * - 급한 요청: 최초 수락 시각 + 24시간. 수정 시각부터 다시 24시간을 주면 기한이 늘어나므로 수락 시각 기준입니다.
+     * 수정 확정 이벤트에는 요청 유형과 수락 시각이 없어 C의 공유용 요청 조회(CareRequestSharingReader)로 확인합니다.
+     * 기존 권한이 하나도 없는 경우(공개 0개로 보낸 뒤 수락 후 추가)도 같은 기준으로 계산됩니다.
+     */
+    private LocalDateTime expiresAtOfAcceptedRequest(Long requestId) {
+        SharingRequestInfo request = careRequestSharingReader.findById(requestId)
+                .orElseThrow(() -> new IllegalStateException("수정이 확정된 요청을 찾을 수 없습니다: " + requestId));
+        if (request.requestType() != RequestType.URGENT) {
+            return null;
+        }
+        // 재확인은 수락한 담당자에게만 가므로 현재 담당자의 수락 시각이 있어야 함
+        if (request.acceptedAt() == null) {
+            throw new IllegalStateException("재확인 수락인데 현재 담당자의 수락 시각이 없습니다: " + requestId);
+        }
+        return request.acceptedAt().plusHours(URGENT_ACCESS_HOURS);
     }
 }

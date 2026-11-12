@@ -28,7 +28,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 접근 권한을 바꾸는 작업의 공통 처리입니다. (F-09, ERD 4.11·4.12, #42·#43)
+ * 접근 권한을 바꾸는 작업의 공통 처리입니다. (F-09, ERD 4.11, 4.12, #42, #43)
  * 권한 부여(#42)와 회수(#43)가 같은 규칙으로 권한과 접근 이력을 다루도록 한곳에 모았습니다.
  *
  * - 호출하는 쪽의 트랜잭션 안에서만 실행합니다. (MANDATORY)
@@ -43,11 +43,11 @@ public class PermissionWriter {
     // 아직 끝나지 않은 권한 (수락 전 + 수락 후)
     static final List<PermissionStatus> OPEN_STATUSES = List.of(PermissionStatus.PENDING, PermissionStatus.ACTIVE);
 
-    private final RequestInformationPermissionRepository permissionRepository; // 권한 조회·저장
-    private final InformationAccessLogRepository accessLogRepository;          // 부여·회수 이력 저장
-    private final SafetyInformationRepository safetyInformationRepository;     // 공개 항목 존재·주인·유형 확인
+    private final RequestInformationPermissionRepository permissionRepository; // 권한 조회, 저장
+    private final InformationAccessLogRepository accessLogRepository;          // 부여, 회수 이력 저장
+    private final SafetyInformationRepository safetyInformationRepository;     // 공개 항목의 존재, 주인, 유형 확인
 
-    /** 대상 지정 하나의 끝나지 않은 권한(PENDING·ACTIVE)을 조회합니다. */
+    /** 대상 지정 하나의 끝나지 않은 권한(PENDING, ACTIVE)을 조회합니다. */
     public List<RequestInformationPermission> findOpenPermissions(Long assignmentId) {
         return permissionRepository.findAllByAssignmentIdAndStatusIn(assignmentId, OPEN_STATUSES);
     }
@@ -88,9 +88,9 @@ public class PermissionWriter {
     }
 
     /**
-     * 대상 지정에 공개 항목마다 공유 예정(PENDING) 권한을 만듭니다. (요청 생성·대상 변경·수락 전 수정 확정)
+     * 대상 지정에 공개 항목마다 공유 예정(PENDING) 권한을 만듭니다. (요청 생성, 대상 변경, 수락 전 수정 확정)
      * - 항목이 있고 정보 주인의 것인지 먼저 확인합니다. (loadOwnedItemTypes)
-     * - 같은 지정에 이미 끝나지 않은 권한(PENDING·ACTIVE)이 있는 항목은 만들지 않습니다.
+     * - 같은 지정에 이미 끝나지 않은 권한(PENDING, ACTIVE)이 있는 항목은 만들지 않습니다.
      *   같은 이벤트가 다시 와도 권한이 중복되지 않습니다. 회수된(REVOKED) 행은 보존하고 새 행을 만듭니다.
      * - 공개 항목이 0개면 아무것도 만들지 않습니다.
      *
@@ -103,9 +103,9 @@ public class PermissionWriter {
             return List.of(); // 공개 항목 0개
         }
 
-        // 이 지정에 이미 PENDING·ACTIVE로 있는 항목은 건너뜀 (같은 이벤트가 다시 와도 중복 생성 안 함)
+        // 이 지정에 이미 PENDING이나 ACTIVE로 있는 항목은 건너뜀 (같은 이벤트가 다시 와도 중복 생성 안 함)
         Set<Long> alreadyOpen = openInformationIds(assignmentId);
-        // 요청자가 고른 순서대로 항목마다 권한 1행 (권한은 지정·항목 단위)
+        // 요청자가 고른 순서대로 항목마다 권한 1행 (권한은 지정과 항목 단위)
         List<RequestInformationPermission> created = informationIds.stream()
                 .filter(informationId -> !alreadyOpen.contains(informationId))
                 .map(informationId -> RequestInformationPermission.createPending(
@@ -113,6 +113,38 @@ public class PermissionWriter {
                 .toList();
 
         return permissionRepository.saveAll(created);
+    }
+
+    /**
+     * 대상 지정에 공개 항목마다 바로 활성화된(ACTIVE) 권한을 만들고 GRANTED 이력을 남깁니다. (수락 후 수정 확정으로 항목 추가)
+     * - 항목 확인과 중복 방지 규칙은 createPending과 같습니다.
+     * - 회수됐던 항목을 다시 넣으면 기존 REVOKED 행은 그대로 두고 새 행을 만듭니다.
+     *
+     * @param ownerUserId 정보 주인 ID (요청자 ID)
+     * @param actorUserId 권한이 열리게 한 사람 (재확인을 수락한 담당자)
+     * @param expiresAt   급한 요청만 값이 있고, 일반 요청은 null
+     * @return 새로 만든 권한
+     */
+    public List<RequestInformationPermission> createActive(Long requestId, Long assignmentId, Long ownerUserId,
+                                                           Long actorUserId, List<Long> informationIds,
+                                                           LocalDateTime grantedAt, LocalDateTime expiresAt) {
+        Map<Long, InformationType> types = loadOwnedItemTypes(ownerUserId, informationIds); // 확인 실패 시 여기서 예외
+        if (types.isEmpty()) {
+            return List.of();
+        }
+
+        Set<Long> alreadyOpen = openInformationIds(assignmentId); // 이미 PENDING이나 ACTIVE인 항목은 건너뜀
+        List<RequestInformationPermission> created = permissionRepository.saveAll(informationIds.stream()
+                .filter(informationId -> !alreadyOpen.contains(informationId))
+                .map(informationId -> RequestInformationPermission.createActive(requestId, assignmentId,
+                        informationId, types.get(informationId), grantedAt, expiresAt))
+                .toList());
+
+        // 이력에 권한 ID가 들어가야 하므로 저장한 뒤에 만듦
+        accessLogRepository.saveAll(created.stream()
+                .map(permission -> grantedLog(permission, ownerUserId, actorUserId, grantedAt))
+                .toList());
+        return created;
     }
 
     /**
@@ -165,14 +197,14 @@ public class PermissionWriter {
         Objects.requireNonNull(ownerUserId, "ownerUserId는 필수입니다.");
         Objects.requireNonNull(revokedAt, "revokedAt은 필수입니다.");
 
-        // 공개 항목 제외는 정보 주인이 직접 뺀 것, 그 밖(요청 종료·지정 마감 등)은 시스템 처리라 수행자 없음
+        // 공개 항목 제외는 정보 주인이 직접 뺀 것, 그 밖(요청 종료, 지정 마감 등)은 시스템 처리라 수행자 없음
         Long actorUserId = reason == RevokeReason.SHARING_EXCLUDED ? ownerUserId : null;
         List<InformationAccessLog> logs = new ArrayList<>();
 
         for (RequestInformationPermission permission : permissions) {
 
             if (permission.getStatus() == PermissionStatus.REVOKED) {
-                continue; // 이미 끝난 권한은 처음 끝난 이유·시각을 그대로 둠 (같은 이벤트 재처리 대비)
+                continue; // 이미 끝난 권한은 처음 끝난 이유와 시각을 그대로 둠 (같은 이벤트 재처리 대비)
             }
 
             boolean wasActive = permission.isActive(); // 바꾸기 전에 확인해야 이력 대상인지 알 수 있음
@@ -189,7 +221,7 @@ public class PermissionWriter {
     }
 
     /**
-     * 대상 지정 하나의 끝나지 않은 권한(PENDING·ACTIVE)을 모두 끝냅니다. (대상 변경, #43 수락 철회·지정 마감)
+     * 대상 지정 하나의 끝나지 않은 권한(PENDING, ACTIVE)을 모두 끝냅니다. (대상 변경, #43 수락 철회와 지정 마감)
      * 처리 규칙은 revokeByRequestEvent와 같습니다.
      */
     public void revokeAssignment(Long assignmentId, RevokeReason reason, Long ownerUserId, LocalDateTime revokedAt) {
