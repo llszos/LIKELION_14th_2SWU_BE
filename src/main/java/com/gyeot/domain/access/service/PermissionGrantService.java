@@ -58,7 +58,6 @@ public class PermissionGrantService {
      * - 급한 요청(F-13)은 SHOULD 범위라 여기서는 기한 저장까지만 합니다. 24시간이 지난 권한의 자동 회수는 이번 범위가 아닙니다.
      */
     public void grantOnAccepted(CareRequestAcceptedEvent event) {
-
         // 급한 요청만 기한을 둠. 일반 요청은 null이고 요청 종료 시각(C의 endsAt)으로 판단
         LocalDateTime expiresAt = event.requestType() == RequestType.URGENT
                 ? event.occurredAt().plusHours(URGENT_ACCESS_HOURS)
@@ -77,7 +76,6 @@ public class PermissionGrantService {
      * - 같은 이벤트가 다시 와도 회수는 건너뛰고, 생성은 이미 있는 항목을 만들지 않아 결과가 같습니다.
      */
     public void grantOnTargetChanged(CareRequestTargetChangedEvent event) {
-
         // 1. 이전 지정 회수 (C가 이전 지정을 먼저 마감한 뒤 발행하므로 이 지정은 더 쓰이지 않음)
         permissionWriter.revokeAssignment(event.previousAssignmentId(), RevokeReason.ASSIGNMENT_CLOSED,
                 event.requesterId(), event.occurredAt());
@@ -100,13 +98,18 @@ public class PermissionGrantService {
         if (!event.changedFields().contains(ChangeableField.INFORMATION_IDS)) {
             return; // 공개 항목은 그대로인 수정
         }
+
         if (event.assignmentId() == null) {
             return; // 열린 지정 없음 (이전 지정의 권한은 마감 때 이미 회수됨)
         }
 
+        // 유지 항목을 포함한 전체 목록을 먼저 검증합니다. 실패하면 회수도 실행하지 않습니다.
+        permissionWriter.loadOwnedItemTypes(event.requesterId(), event.informationIds());
+
         List<RequestInformationPermission> open = permissionWriter.findOpenPermissions(event.assignmentId());
         Set<Long> afterIds = new HashSet<>(event.informationIds()); // 변경 후 전체 목록
         Set<Long> openIds = new HashSet<>();
+
         for (RequestInformationPermission permission : open) {
             openIds.add(permission.getInformationId());
         }
@@ -115,13 +118,15 @@ public class PermissionGrantService {
         List<RequestInformationPermission> excluded = open.stream()
                 .filter(permission -> !afterIds.contains(permission.getInformationId()))
                 .toList();
+
         permissionWriter.revokeByRequestEvent(excluded, RevokeReason.SHARING_EXCLUDED,
                 event.requesterId(), event.occurredAt());
 
-        // 2. 새로 들어온 항목만 생성 (요청자가 고른 순서 유지, 유지된 항목은 다시 확인하지 않음)
+        // 2. 새로 들어온 항목만 생성 (요청자가 고른 순서 유지, 전체 목록 검증은 위에서 완료)
         List<Long> added = event.informationIds().stream()
                 .filter(informationId -> !openIds.contains(informationId))
                 .toList();
+
         if (added.isEmpty()) {
             return;
         }

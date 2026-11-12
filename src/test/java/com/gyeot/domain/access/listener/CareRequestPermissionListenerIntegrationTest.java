@@ -226,6 +226,32 @@ class CareRequestPermissionListenerIntegrationTest {
         assertThat(permissionRepository.findAll()).isEmpty();
     }
 
+    @Test
+    void 유지_항목이_중복된_전체_목록은_회수_전에_거부한다() {
+        publish(created(List.of(allergyId, medicationId)));
+
+        // 알레르기가 두 번 들어온 목록: 추가 항목은 없지만 전체 목록 검증에서 거부
+        assertThatThrownBy(() -> publish(changeConfirmed(null, List.of(allergyId, allergyId))))
+                .isInstanceOf(BusinessException.class);
+
+        assertThat(permissionsOf(ASSIGNMENT_ID)).hasSize(2)
+                .allSatisfy(p -> assertThat(p.getStatus()).isEqualTo(PermissionStatus.PENDING));
+        assertThat(accessLogRepository.findAll()).isEmpty();
+    }
+
+    @Test
+    void 유지_항목이_삭제됐으면_추가_항목이_없어도_전체_수정을_거부한다() {
+        publish(created(List.of(allergyId, medicationId)));
+        safetyInformationRepository.deleteById(allergyId); // 유지하려는 항목이 그 사이 삭제됨
+
+        // 복용약만 빼는 수정: 추가 항목은 없지만 유지 항목(알레르기)이 없어 거부, 복용약 회수도 실행되지 않음
+        assertThatThrownBy(() -> publish(changeConfirmed(null, List.of(allergyId))))
+                .isInstanceOf(BusinessException.class);
+
+        assertThat(permissionsOf(ASSIGNMENT_ID)).hasSize(2)
+                .allSatisfy(p -> assertThat(p.getStatus()).isEqualTo(PermissionStatus.PENDING));
+    }
+
     // === 도우미 ===
 
     /** C처럼 트랜잭션 안에서 이벤트를 발행하고 커밋합니다. */
