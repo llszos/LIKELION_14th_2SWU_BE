@@ -41,3 +41,6 @@ out/
 *.env
 !.env.example
 application-secret.yaml
+
+### Mac ###
+.DS_Store

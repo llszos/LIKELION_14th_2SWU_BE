@@ -32,6 +32,17 @@ public interface CareRequestSharingReader {
     Map<Long, SharingRequestInfo> findAllByIds(Collection<Long> requestIds);
 
     /**
+     * 사용자가 이 요청의 대상으로 지정된 적이 있는지 확인합니다. (D 전달받은 정보 조회 이슈 #45)
+     * 접근 종료 안내(200 + accessible=false)를 보여 줄 사람과 무관한 사람(404)을 구분하는 데 사용합니다.
+     * - 지금 지정이든 마감된 과거 지정이든, 수락했든 안 했든 지정 행이 하나라도 있으면 true
+     * - 요청자 본인, 지정된 적 없는 사람, 없는 요청은 false
+     *
+     * findById의 assigneeId는 현재 담당자만 담고 취소, 만료되면 null이라 과거 대상을 알 수 없습니다.
+     * 또 공개 항목이 0개인 요청은 권한 행도 없어 D 데이터만으로는 확인할 수 없어서 따로 두었습니다.
+     */
+    boolean hasBeenAssigned(Long requestId, Long userId);
+
+    /**
      * 공유 판단용 요청 정보
      * - situationId: 급한 요청은 null
      * - startsAt, endsAt: 급한 요청은 null (일반 요청 접근 기한은 endsAt, 급한 요청은 D의 expires_at)
