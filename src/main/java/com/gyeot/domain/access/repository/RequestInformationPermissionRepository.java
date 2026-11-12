@@ -68,4 +68,12 @@ public interface RequestInformationPermissionRepository extends JpaRepository<Re
             """)
     List<Long> findLastSharedInformationIds(@Param("requestId") Long requestId,
                                             @Param("excludedReasons") Collection<RevokeReason> excludedReasons);
+
+    /**
+     * 대상 지정 하나의 권한 중 지정한 상태인 것을 조회합니다. (#42 권한 부여·회수)
+     * 권한은 (지정, 항목) 단위라, 수락·대상 변경·수정 확정 때 그 지정의 PENDING·ACTIVE 권한을 찾는 데 씁니다.
+     * 인덱스 idx_permissions_assignment_id_status를 사용합니다.
+     */
+    List<RequestInformationPermission> findAllByAssignmentIdAndStatusIn(Long assignmentId,
+                                                                        Collection<PermissionStatus> statuses);
 }
