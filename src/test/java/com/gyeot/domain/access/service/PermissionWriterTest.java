@@ -24,6 +24,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -91,6 +92,54 @@ class PermissionWriterTest {
         assertInvalidSelection(List.of(10L, 10L));
         assertInvalidSelection(Arrays.asList(10L, null));
         verify(safetyInformationRepository, never()).findAllById(any());
+    }
+
+    // === 공유 예정 권한 생성 ===
+
+    @Test
+    void 공개_항목마다_PENDING_권한을_만든다() {
+        when(safetyInformationRepository.findAllById(any())).thenReturn(List.of(
+                item(10L, OWNER_ID, InformationType.ALLERGY), item(11L, OWNER_ID, InformationType.PET)));
+        returnSavedPermissions();
+
+        List<RequestInformationPermission> created = writer.createPending(1L, 7L, OWNER_ID, List.of(10L, 11L));
+
+        assertThat(created).hasSize(2).allSatisfy(permission -> {
+            assertThat(permission.getRequestId()).isEqualTo(1L);
+            assertThat(permission.getAssignmentId()).isEqualTo(7L);
+            assertThat(permission.getStatus()).isEqualTo(PermissionStatus.PENDING);
+            assertThat(permission.getGrantedAt()).isNull();
+        });
+        assertThat(created).extracting(RequestInformationPermission::getInformationId, RequestInformationPermission::getInformationType)
+                .containsExactly(tuple(10L, InformationType.ALLERGY), tuple(11L, InformationType.PET));
+    }
+
+    @Test
+    void 공개_항목이_0개면_아무것도_만들지_않는다() {
+        assertThat(writer.createPending(1L, 7L, OWNER_ID, List.of())).isEmpty();
+        verify(permissionRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void 이미_끝나지_않은_권한이_있는_항목은_다시_만들지_않는다() {
+        when(safetyInformationRepository.findAllById(any())).thenReturn(List.of(
+                item(10L, OWNER_ID, InformationType.ALLERGY), item(11L, OWNER_ID, InformationType.PET)));
+        when(permissionRepository.findAllByAssignmentIdAndStatusIn(any(), any()))
+                .thenReturn(List.of(pending(100L, 10L)));    // 10번은 이미 있음 (같은 이벤트가 다시 온 경우)
+        returnSavedPermissions();
+
+        List<RequestInformationPermission> created = writer.createPending(1L, 7L, OWNER_ID, List.of(10L, 11L));
+
+        assertThat(created).extracting(RequestInformationPermission::getInformationId).containsExactly(11L);
+    }
+
+    @Test
+    void 항목_확인에_실패하면_권한을_만들지_않는다() {
+        when(safetyInformationRepository.findAllById(any())).thenReturn(List.of());
+
+        assertThatThrownBy(() -> writer.createPending(1L, 7L, OWNER_ID, List.of(10L)))
+                .isInstanceOf(BusinessException.class);
+        verify(permissionRepository, never()).saveAll(any());
     }
 
     // === 회수 공통 처리 ===
@@ -168,6 +217,11 @@ class PermissionWriterTest {
         assertThat(permission.getStatus()).isEqualTo(PermissionStatus.REVOKED);
         assertThat(permission.getRevokeReason()).isEqualTo(reason);
         assertThat(permission.getRevokedAt()).isEqualTo(NOW);
+    }
+
+    /** saveAll이 받은 목록을 그대로 돌려주게 함 (DB 없이 저장 결과 확인) */
+    private void returnSavedPermissions() {
+        when(permissionRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @SuppressWarnings("unchecked")

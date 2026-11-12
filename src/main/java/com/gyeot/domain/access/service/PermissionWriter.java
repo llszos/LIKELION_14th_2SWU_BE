@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -83,6 +84,32 @@ public class PermissionWriter {
     }
 
     /**
+     * 대상 지정에 공개 항목마다 공유 예정(PENDING) 권한을 만듭니다. (요청 생성·대상 변경·수락 전 수정 확정)
+     * - 항목이 있고 정보 주인의 것인지 먼저 확인합니다. (loadOwnedItemTypes)
+     * - 같은 지정에 이미 끝나지 않은 권한(PENDING·ACTIVE)이 있는 항목은 만들지 않습니다.
+     *   같은 이벤트가 다시 와도 권한이 중복되지 않습니다. 회수된(REVOKED) 행은 보존하고 새 행을 만듭니다.
+     * - 공개 항목이 0개면 아무것도 만들지 않습니다.
+     *
+     * @return 새로 만든 권한
+     */
+    public List<RequestInformationPermission> createPending(Long requestId, Long assignmentId,
+                                                            Long ownerUserId, List<Long> informationIds) {
+        Map<Long, InformationType> types = loadOwnedItemTypes(ownerUserId, informationIds);
+        if (types.isEmpty()) {
+            return List.of();
+        }
+
+        Set<Long> alreadyOpen = openInformationIds(assignmentId);
+        List<RequestInformationPermission> created = informationIds.stream()
+                .filter(informationId -> !alreadyOpen.contains(informationId))
+                .map(informationId -> RequestInformationPermission.createPending(
+                        requestId, assignmentId, informationId, types.get(informationId)))
+                .toList();
+
+        return permissionRepository.saveAll(created);
+    }
+
+    /**
      * C 요청 이벤트로 권한을 끝냅니다. (회수 공통 처리, #43에서 재사용)
      * - PENDING과 ACTIVE 모두 REVOKED로 바꾸고, revoked_at은 이벤트 발생 시각을 씁니다.
      * - ACTIVE였던 권한만 AUTO_REVOKED 이력을 남깁니다. PENDING은 담당자가 본 적이 없어 남기지 않습니다.
@@ -119,6 +146,15 @@ public class PermissionWriter {
         }
 
         accessLogRepository.saveAll(logs);
+    }
+
+    /** 지정에 이미 끝나지 않은 권한이 있는 항목 ID (중복 생성 방지) */
+    private Set<Long> openInformationIds(Long assignmentId) {
+        Set<Long> ids = new HashSet<>();
+        for (RequestInformationPermission permission : findOpenPermissions(assignmentId)) {
+            ids.add(permission.getInformationId());
+        }
+        return ids;
     }
 
     private BusinessException invalidSelection() {
