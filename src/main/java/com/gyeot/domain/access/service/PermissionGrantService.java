@@ -1,8 +1,10 @@
 package com.gyeot.domain.access.service;
 
+import com.gyeot.domain.access.entity.RevokeReason;
 import com.gyeot.domain.carerequest.enums.RequestType;
 import com.gyeot.domain.carerequest.event.CareRequestAcceptedEvent;
 import com.gyeot.domain.carerequest.event.CareRequestCreatedEvent;
+import com.gyeot.domain.carerequest.event.CareRequestTargetChangedEvent;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -56,5 +58,23 @@ public class PermissionGrantService {
         // 정보 주인 = 요청자, 수행자 = 수락한 담당자, 부여 시각 = 수락 시각
         permissionWriter.activatePending(event.assignmentId(), event.requesterId(), event.assigneeId(),
                 event.occurredAt(), expiresAt);
+    }
+
+    /**
+     * 대상 변경(다시 부탁하기): 이전 지정의 권한을 끝내고, 새 지정에 공유 예정 권한을 만듭니다. (ERD 9.2)
+     * - 이전 지정은 ASSIGNMENT_CLOSED로 회수합니다. 보통 수락 전(PENDING)이라 이력은 남지 않습니다.
+     * - 새 지정은 이벤트의 informationIds로 만듭니다. 다시 부탁하기 화면에서 공개 항목을 바꿀 수 있어,
+     *   이전 지정의 항목을 복사하지 않습니다.
+     * - 같은 이벤트가 다시 와도 회수는 건너뛰고, 생성은 이미 있는 항목을 만들지 않아 결과가 같습니다.
+     */
+    public void grantOnTargetChanged(CareRequestTargetChangedEvent event) {
+
+        // 1. 이전 지정 회수 (C가 이전 지정을 먼저 마감한 뒤 발행하므로 이 지정은 더 쓰이지 않음)
+        permissionWriter.revokeAssignment(event.previousAssignmentId(), RevokeReason.ASSIGNMENT_CLOSED,
+                event.requesterId(), event.occurredAt());
+
+        // 2. 새 지정에 이번에 고른 항목으로 PENDING 생성 (새 대상자는 아직 수락 전)
+        permissionWriter.createPending(event.requestId(), event.assignmentId(),
+                event.requesterId(), event.informationIds());
     }
 }

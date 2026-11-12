@@ -3,6 +3,7 @@ package com.gyeot.domain.access.listener;
 import com.gyeot.domain.access.service.PermissionGrantService;
 import com.gyeot.domain.carerequest.event.CareRequestAcceptedEvent;
 import com.gyeot.domain.carerequest.event.CareRequestCreatedEvent;
+import com.gyeot.domain.carerequest.event.CareRequestTargetChangedEvent;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
@@ -30,5 +31,11 @@ public class CareRequestPermissionListener {
     @EventListener
     public void onAccepted(CareRequestAcceptedEvent event) {
         permissionGrantService.grantOnAccepted(event);
+    }
+
+    /** 대상 변경(다시 부탁하기) → 이전 지정 권한 회수 + 새 지정 공유 예정 권한 생성 */
+    @EventListener
+    public void onTargetChanged(CareRequestTargetChangedEvent event) {
+        permissionGrantService.grantOnTargetChanged(event);
     }
 }

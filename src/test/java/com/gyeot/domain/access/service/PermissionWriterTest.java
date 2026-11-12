@@ -243,6 +243,21 @@ class PermissionWriterTest {
     }
 
     @Test
+    void 지정_단위_회수는_그_지정의_끝나지_않은_권한을_모두_끝낸다() {
+        RequestInformationPermission pending = pending(100L, 10L);
+        RequestInformationPermission active = active(101L, 11L);
+        when(permissionRepository.findAllByAssignmentIdAndStatusIn(any(), any())).thenReturn(List.of(pending, active));
+
+        writer.revokeAssignment(7L, RevokeReason.ASSIGNMENT_CLOSED, OWNER_ID, NOW);
+
+        assertRevoked(pending, RevokeReason.ASSIGNMENT_CLOSED);
+        assertRevoked(active, RevokeReason.ASSIGNMENT_CLOSED);
+        assertThat(savedLogs()).extracting(InformationAccessLog::getPermissionId).containsExactly(101L); // ACTIVE만 이력
+        verify(permissionRepository).findAllByAssignmentIdAndStatusIn(7L,
+                List.of(PermissionStatus.PENDING, PermissionStatus.ACTIVE));
+    }
+
+    @Test
     void 끝나지_않은_권한은_PENDING과_ACTIVE로_조회한다() {
         writer.findOpenPermissions(7L);
 

@@ -188,6 +188,14 @@ public class PermissionWriter {
         accessLogRepository.saveAll(logs);
     }
 
+    /**
+     * 대상 지정 하나의 끝나지 않은 권한(PENDING·ACTIVE)을 모두 끝냅니다. (대상 변경, #43 수락 철회·지정 마감)
+     * 처리 규칙은 revokeByRequestEvent와 같습니다.
+     */
+    public void revokeAssignment(Long assignmentId, RevokeReason reason, Long ownerUserId, LocalDateTime revokedAt) {
+        revokeByRequestEvent(findOpenPermissions(assignmentId), reason, ownerUserId, revokedAt);
+    }
+
     private InformationAccessLog grantedLog(RequestInformationPermission permission, Long ownerUserId,
                                             Long actorUserId, LocalDateTime grantedAt) {
 
