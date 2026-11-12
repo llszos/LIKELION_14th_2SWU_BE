@@ -12,6 +12,8 @@ public record InvitationDetailsResponse(
         String inviterName,
         InvitationStatus status,
         LocalDateTime expiresAt,
-        boolean canRespond
+        boolean canRespond,
+        String message,
+        Boolean guardianLimitReached
 ) {
 }

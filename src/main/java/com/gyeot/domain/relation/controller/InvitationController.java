@@ -21,30 +21,37 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 나의 사람 초대 링크 조회·생성·응답·취소 API입니다. */
+/** 나의 사람 초대와 보호자 요청 링크 조회·생성·응답·취소 API입니다. */
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/invitations")
-@Tag(name = "초대", description = "나의 사람 초대 링크 조회·생성·응답·취소 API")
+@Tag(name = "초대", description = "나의 사람 초대와 보호자 요청 링크 조회·생성·응답·취소 API")
 public class InvitationController {
 
     private final InvitationService invitationService;
 
     @GetMapping("/{token}")
-    @Operation(summary = "초대 링크 조회", description = "링크의 초대 유형, 발신자, 상태와 만료 여부를 조회합니다.")
-    public ApiResponse<InvitationDetailsResponse> getInvitation(@PathVariable String token) {
-        return ApiResponse.success(invitationService.getInvitation(token));
+    @Operation(summary = "초대 링크 조회", description = "링크의 초대 유형, 발신자, 상태, 만료 여부와 보호자 인원 제한을 조회합니다.")
+    public ApiResponse<InvitationDetailsResponse> getInvitation(
+            @PathVariable String token,
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser
+    ) {
+        Long viewerId = authenticatedUser == null ? null : authenticatedUser.userId();
+        return ApiResponse.success(invitationService.getInvitation(token, viewerId));
     }
 
     @PostMapping
-    @Operation(summary = "나의 사람 초대 링크 생성", description = "7일 동안 유효한 MY_PERSON 초대 링크를 만듭니다.")
+    @Operation(summary = "초대 링크 생성", description = "MY_PERSON 또는 GUARDIAN 유형의 7일 유효 링크를 만듭니다.")
     public ResponseEntity<ApiResponse<InvitationCreateResponse>> createInvitation(
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
             @Valid @RequestBody InvitationCreateRequest request
     ) {
         InvitationCreateResponse response = invitationService.createInvitation(
                 authenticatedUser.userId(),
-                request.invitationType()
+                request.invitationType(),
+                request.personalLabel(),
+                request.message(),
+                request.promiseConfirmed()
         );
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(response, "초대 링크가 생성되었습니다."));
@@ -61,7 +68,7 @@ public class InvitationController {
     }
 
     @PostMapping("/{token}/accept")
-    @Operation(summary = "나의 사람 초대 수락", description = "로그인 사용자와 발신자 사이에 발신자 방향의 나의 사람 관계를 등록합니다.")
+    @Operation(summary = "초대 수락", description = "초대 유형별 응답을 기록합니다. 보호자 관계 생성·전환은 후속 관계 처리 범위에서 수행합니다.")
     public ResponseEntity<ApiResponse<Void>> acceptInvitation(
             @PathVariable String token,
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser
@@ -71,7 +78,7 @@ public class InvitationController {
     }
 
     @PostMapping("/{token}/reject")
-    @Operation(summary = "나의 사람 초대 거절", description = "로그인 사용자를 응답자로 기록하고 초대를 거절합니다.")
+    @Operation(summary = "초대 거절", description = "로그인 사용자를 응답자로 기록하고 초대를 거절합니다.")
     public ResponseEntity<ApiResponse<Void>> rejectInvitation(
             @PathVariable String token,
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser

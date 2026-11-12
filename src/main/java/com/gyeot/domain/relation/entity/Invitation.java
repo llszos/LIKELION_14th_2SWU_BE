@@ -48,6 +48,10 @@ public class Invitation extends BaseCreatedEntity {
     @Column(name = "message", columnDefinition = "TEXT")
     private String message;
 
+    // 나의 사람 초대자가 상대에게 붙일 개인 관계 이름. 응답 화면에는 노출하지 않습니다.
+    @Column(name = "personal_label", length = 50)
+    private String personalLabel;
+
     // 대기·수락·거절·만료·취소 상태.
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
@@ -66,12 +70,14 @@ public class Invitation extends BaseCreatedEntity {
             InvitationType invitationType,
             String tokenHash,
             String message,
+            String personalLabel,
             LocalDateTime expiresAt
     ) {
         this.inviterId = inviterId;
         this.invitationType = invitationType;
         this.tokenHash = tokenHash;
         this.message = message;
+        this.personalLabel = personalLabel;
         this.expiresAt = expiresAt;
         this.status = InvitationStatus.PENDING;
     }
@@ -84,14 +90,31 @@ public class Invitation extends BaseCreatedEntity {
             String message,
             LocalDateTime expiresAt
     ) {
+        return create(inviterId, invitationType, tokenHash, message, null, expiresAt);
+    }
+
+    public static Invitation create(
+            Long inviterId,
+            InvitationType invitationType,
+            String tokenHash,
+            String message,
+            String personalLabel,
+            LocalDateTime expiresAt
+    ) {
         if (inviterId == null || invitationType == null || tokenHash == null || tokenHash.isBlank() || expiresAt == null) {
             throw new IllegalArgumentException("초대 발급자, 유형, 토큰 해시, 만료 시각은 필수입니다.");
         }
         if (invitationType == InvitationType.MY_PERSON && message != null) {
             throw new IllegalArgumentException("나의 사람 초대에는 편지를 저장하지 않습니다.");
         }
+        if (invitationType == InvitationType.GUARDIAN && personalLabel != null) {
+            throw new IllegalArgumentException("보호자 요청에는 개인 관계 이름을 저장하지 않습니다.");
+        }
+        if (personalLabel != null && (personalLabel.isBlank() || personalLabel.length() > 50)) {
+            throw new IllegalArgumentException("개인 관계 이름은 1자 이상 50자 이하로 입력해 주세요.");
+        }
 
-        return new Invitation(inviterId, invitationType, tokenHash, message, expiresAt);
+        return new Invitation(inviterId, invitationType, tokenHash, message, personalLabel, expiresAt);
     }
 
     // 초대를 수락하거나 거절함.
