@@ -3,6 +3,7 @@ package com.gyeot.domain.carerequest.repository;
 import com.gyeot.domain.carerequest.entity.RequestAssignment;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -30,4 +31,18 @@ public interface RequestAssignmentRepository extends JpaRepository<RequestAssign
      * 요청 관련자 확인(대상자, 담당자인지)에 사용합니다.
      */
     Optional<RequestAssignment> findByCareRequestIdAndTargetUserId(Long requestId, Long targetUserId);
+
+    /**
+     * 이 요청에 이 사용자가 지정된 적이 있는지를 (마감·미수락 포함) 확입
+     * 행을 가져오지 않고 있는지만 확인합니다.
+     */
+    boolean existsByCareRequestIdAndTargetUserId(Long requestId, Long targetUserId);
+
+    /**
+     * 여러 요청의 현재 담당자 지정을 한 번에 조회합니다. (D 공유 관리 카드)
+     * 현재 담당자 = 마감되지 않았고, 수락한 지정
+     * 요청당 열린 지정은 최대 1건이라 요청당 결과도 최대 1건입니다.
+     */
+    List<RequestAssignment> findAllByCareRequestIdInAndClosedAtIsNullAndAcceptedAtIsNotNull(
+            Collection<Long> requestIds);
 }
