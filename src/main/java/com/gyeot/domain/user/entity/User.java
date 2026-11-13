@@ -45,7 +45,7 @@ public class User extends BaseEntity {
 
     // Enum 이름을 문자열로 저장함.
     @Enumerated(EnumType.STRING)
-    @Column(name = "account_status", length = 20, nullable = false)
+    @Column(name = "account_status", length = 20, nullable = false, columnDefinition = "VARCHAR(20)")  // MySQL ENUM 대신 VARCHAR, 길이는 length와 같게 (#36)
     private AccountStatus accountStatus;
 
     // 탈퇴 처리 시각. 활성 계정이면 NULL.

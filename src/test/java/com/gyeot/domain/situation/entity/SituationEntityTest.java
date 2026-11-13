@@ -204,7 +204,9 @@ class SituationEntityTest {
             for (var field : type.getDeclaredFields()) {
                 Column column = field.getAnnotation(Column.class);
                 if (column != null) {
-                    assertEquals("", column.columnDefinition(), field.getName());
+                    // enum 컬럼만 MySQL ENUM 대신 VARCHAR(length)로 지정하고 (#36), 그 외 컬럼은 기본 타입 사용 (ID·시각 컬럼 타입 통일)
+                    String expected = field.getType().isEnum() ? "VARCHAR(" + column.length() + ")" : "";
+                    assertEquals(expected, column.columnDefinition(), field.getName());
                 }
                 if (field.getType().isEnum()) {
                     assertEquals(EnumType.STRING, field.getAnnotation(Enumerated.class).value());

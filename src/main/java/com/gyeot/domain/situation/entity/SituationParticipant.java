@@ -34,11 +34,11 @@ public class SituationParticipant {
     private Long userId;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "role", nullable = false, length = 20, updatable = false)
+    @Column(name = "role", nullable = false, length = 20, updatable = false, columnDefinition = "VARCHAR(20)")  // MySQL ENUM 대신 VARCHAR, 길이는 length와 같게 (#36)
     private SituationParticipantRole role;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false, length = 20)
+    @Column(name = "status", nullable = false, length = 20, columnDefinition = "VARCHAR(20)")  // MySQL ENUM 대신 VARCHAR, 길이는 length와 같게 (#36)
     private SituationParticipantStatus status;
 
     @Column(name = "joined_at", nullable = false, updatable = false)

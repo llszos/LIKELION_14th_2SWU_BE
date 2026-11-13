@@ -87,7 +87,7 @@ public class RequestChangeProposal extends BaseCreatedEntity {
 
     // 변경 제안 상태 (대기, 수락, 거절, 무효)
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false, length = 20)
+    @Column(name = "status", nullable = false, length = 20, columnDefinition = "VARCHAR(20)")  // MySQL ENUM 대신 VARCHAR, 길이는 length와 같게 (#36)
     private ProposalStatus status;
 
     /**
