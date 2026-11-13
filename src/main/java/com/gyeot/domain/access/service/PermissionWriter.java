@@ -31,6 +31,9 @@ import java.util.stream.Collectors;
  * 접근 권한을 바꾸는 작업의 공통 처리입니다. (F-09, ERD 4.11, 4.12, #42, #43)
  * 권한 부여(#42)와 회수(#43)가 같은 규칙으로 권한과 접근 이력을 다루도록 한곳에 모았습니다.
  *
+ * - 회수는 끝나는 범위에 따라 두 가지로 나뉩니다.
+ *   지정 하나만 끝나면 revokeAssignment(대상 변경, 수락 철회, 지정 마감),
+ *   요청 자체가 끝나면 revokeRequest(완료, 취소, 만료)를 씁니다. 둘 다 revokeByRequestEvent로 같은 규칙을 적용합니다.
  * - 호출하는 쪽의 트랜잭션 안에서만 실행합니다. (MANDATORY)
  *   C 요청 이벤트는 C가 요청 행을 잠근 트랜잭션 안에서 동기로 발행하므로, 같은 요청의 권한 변경은 순서대로 처리됩니다.
  * - 권한 변경과 접근 이력 저장은 같은 트랜잭션입니다. 하나라도 실패하면 발행한 C 작업까지 함께 되돌립니다.
@@ -64,6 +67,7 @@ public class PermissionWriter {
      * - 없는 ID, 다른 사람의 ID, null, 중복 ID가 있으면 전체를 거부합니다. (C 요청 API가 400을 그대로 반환)
      */
     public Map<Long, InformationType> loadOwnedItemTypes(Long ownerUserId, List<Long> informationIds) {
+
         if (informationIds == null || informationIds.isEmpty()) {
             return Map.of(); // 공개 항목 0개 요청 허용 (조회하지 않음)
         }
@@ -133,6 +137,7 @@ public class PermissionWriter {
      */
     public List<RequestInformationPermission> createPending(Long requestId, Long assignmentId,
                                                             Long ownerUserId, List<Long> informationIds) {
+
         Map<Long, InformationType> types = loadOwnedItemTypes(ownerUserId, informationIds); // 확인 실패 시 여기서 예외
         if (types.isEmpty()) {
             return List.of(); // 공개 항목 0개
@@ -140,6 +145,7 @@ public class PermissionWriter {
 
         // 이 지정에 이미 PENDING이나 ACTIVE로 있는 항목은 건너뜀 (같은 이벤트가 다시 와도 중복 생성 안 함)
         Set<Long> alreadyOpen = openInformationIds(assignmentId);
+
         // 요청자가 고른 순서대로 항목마다 권한 1행 (권한은 지정과 항목 단위)
         List<RequestInformationPermission> created = informationIds.stream()
                 .filter(informationId -> !alreadyOpen.contains(informationId))
@@ -164,6 +170,7 @@ public class PermissionWriter {
     public List<RequestInformationPermission> createActive(Long requestId, Long assignmentId, Long ownerUserId,
                                                            Long actorUserId, List<Long> informationIds,
                                                            LocalDateTime grantedAt, LocalDateTime expiresAt) {
+
         Map<Long, InformationType> types = loadOwnedItemTypes(ownerUserId, informationIds); // 확인 실패 시 여기서 예외
         if (types.isEmpty()) {
             return List.of();
@@ -265,6 +272,32 @@ public class PermissionWriter {
      */
     public void revokeAssignment(Long assignmentId, RevokeReason reason, Long ownerUserId, LocalDateTime revokedAt) {
         revokeByRequestEvent(findOpenPermissions(assignmentId), reason, ownerUserId, revokedAt);
+    }
+
+    /**
+     * 요청 하나의 끝나지 않은 권한(PENDING, ACTIVE)을 지정과 상관없이 모두 끝냅니다. (#43 완료, 취소, 만료)
+     *
+     * - 요청 자체가 끝나면 어느 지정의 권한이든 더 열려 있으면 안 되므로, 지정이 아닌 요청 기준으로 찾습니다.
+     * - 취소, 만료 이벤트는 열린 지정이 없을 때 assignmentId가 NULL이라 지정 기준으로는 찾을 수 없습니다.
+     * - 처리 규칙(이력, 수행자, 이미 끝난 권한 건너뛰기)은 revokeByRequestEvent와 같습니다.
+     *
+     * @param requestId   끝난 요청 ID
+     * @param reason      끝난 이유 (요청 종료라 보통 REQUEST_ENDED)
+     * @param ownerUserId 정보 주인 ID (요청자 ID, 이력의 owner_user_id)
+     * @param revokedAt   이벤트 발생 시각
+     */
+    public void revokeRequest(Long requestId, RevokeReason reason, Long ownerUserId, LocalDateTime revokedAt) {
+
+        // reason, ownerUserId, revokedAt은 revokeByRequestEvent에서 확인하므로 여기서는 requestId만 확인
+        Objects.requireNonNull(requestId, "requestId는 필수입니다.");
+
+        // 이전 대상(대상 변경 전 지정)의 권한도 함께 찾음
+        // 대상 변경 때 이미 회수했다면 REVOKED라 조회되지 않고, 남아 있는 것만 끝냄
+        List<RequestInformationPermission> openPermissions =
+                permissionRepository.findAllByRequestIdAndStatusIn(requestId, OPEN_STATUSES);
+
+        // 열린 권한이 없으면(이미 모두 회수됨, 같은 이벤트 재처리) 빈 목록이라 아무것도 바뀌지 않음
+        revokeByRequestEvent(openPermissions, reason, ownerUserId, revokedAt);
     }
 
     private InformationAccessLog grantedLog(RequestInformationPermission permission, Long ownerUserId,
