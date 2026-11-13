@@ -90,6 +90,29 @@ public interface RequestInformationPermissionRepository extends JpaRepository<Re
                                                                      Collection<PermissionStatus> statuses);
 
     /**
+     * 안심카드 항목 하나의 권한 중 지정한 상태인 것을 조회합니다. (#38 항목 삭제 시 회수)
+     *
+     * 한 항목은 여러 요청에 공개될 수 있어, 삭제할 때 그 항목이 걸린 모든 요청의 PENDING, ACTIVE 권한을 찾는 데 씁니다.
+     * 인덱스 idx_permissions_information_id_status를 사용합니다.
+     */
+    List<RequestInformationPermission> findAllByInformationIdAndStatusIn(Long informationId,
+                                                                         Collection<PermissionStatus> statuses);
+
+    /**
+     * 삭제되는 안심카드 항목을 가리키던 모든 권한의 information_id를 NULL로 바꿉니다. (#38, ERD 9.5 삭제 순서 4)
+     *
+     * - 열린 권한만이 아니라 이미 회수된 과거 권한까지 모두 바꿉니다. 원본이 없는 ID가 남지 않게 하기 위해서입니다.
+     * - information_type과 접근 이력은 그대로 두어, 무엇을 공유했는지는 계속 알 수 있습니다.
+     * - FK가 없어 DB가 대신 처리해 주지 않으므로 코드에서 바꿉니다.
+     * - flushAutomatically: 같은 트랜잭션에서 방금 회수한 권한(상태 변경)을 먼저 DB에 반영한 뒤 실행합니다.
+     *
+     * 반환값은 바뀐 행 수입니다.
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("update RequestInformationPermission p set p.informationId = null where p.informationId = :informationId")
+    int clearInformationId(@Param("informationId") Long informationId);
+
+    /**
      * 기준 시각보다 이전(<)에 끝난 권한을 한 번에 삭제합니다. (보존 기간 2년 정리, #44)
      * 지금 쓰는 권한(PENDING·ACTIVE)과 정확히 기준 시각에 끝난 권한은 남깁니다.
      * 삭제 전에 이 권한을 가리키는 이력의 permission_id를 먼저 NULL로 바꿔야 합니다.

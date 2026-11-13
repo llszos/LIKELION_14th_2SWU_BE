@@ -34,6 +34,7 @@ import java.util.stream.Collectors;
  * - 회수는 끝나는 범위에 따라 두 가지로 나뉩니다.
  *   지정 하나만 끝나면 revokeAssignment(대상 변경, 수락 철회, 지정 마감),
  *   요청 자체가 끝나면 revokeRequest(완료, 취소, 만료)를 씁니다. 둘 다 revokeByRequestEvent로 같은 규칙을 적용합니다.
+ *   안심카드 항목을 지우면 revokeItem으로 그 항목의 권한만 끝냅니다. (#38)
  * - 호출하는 쪽의 트랜잭션 안에서만 실행합니다. (MANDATORY)
  *   C 요청 이벤트는 C가 요청 행을 잠근 트랜잭션 안에서 동기로 발행하므로, 같은 요청의 권한 변경은 순서대로 처리됩니다.
  * - 권한 변경과 접근 이력 저장은 같은 트랜잭션입니다. 하나라도 실패하면 발행한 C 작업까지 함께 되돌립니다.
@@ -227,7 +228,8 @@ public class PermissionWriter {
      *
      * - PENDING과 ACTIVE 모두 REVOKED로 바꾸고, revoked_at은 이벤트 발생 시각을 씁니다.
      * - ACTIVE였던 권한만 AUTO_REVOKED 이력을 남깁니다. PENDING은 담당자가 본 적이 없어 남기지 않습니다.
-     * - 이력 수행자: 공개 항목 제외(SHARING_EXCLUDED)는 정보 주인이 뺀 것이라 정보 주인, 그 밖은 시스템 처리라 NULL
+     * - 이력 수행자: 공개 항목 제외(SHARING_EXCLUDED)와 항목 삭제(ITEM_DELETED)는 정보 주인이 직접 한 것이라 정보 주인,
+     *   그 밖은 시스템 처리라 NULL (D 요구사항명세 F-10, ERD 4.12)
      * - 이미 REVOKED인 권한은 건너뜁니다. (같은 이벤트가 다시 와도 결과와 이력이 같음)
      * - C 이벤트로 끝난 권한은 C가 알림을 보내므로 PermissionRevokedEvent를 발행하지 않습니다.
      *
@@ -242,8 +244,9 @@ public class PermissionWriter {
         Objects.requireNonNull(ownerUserId, "ownerUserId는 필수입니다.");
         Objects.requireNonNull(revokedAt, "revokedAt은 필수입니다.");
 
-        // 공개 항목 제외는 정보 주인이 직접 뺀 것, 그 밖(요청 종료, 지정 마감 등)은 시스템 처리라 수행자 없음
-        Long actorUserId = reason == RevokeReason.SHARING_EXCLUDED ? ownerUserId : null;
+        // 공개 항목 제외와 항목 삭제는 정보 주인이 직접 한 것, 그 밖(요청 종료, 지정 마감 등)은 시스템 처리라 수행자 없음
+        boolean ownerAction = reason == RevokeReason.SHARING_EXCLUDED || reason == RevokeReason.ITEM_DELETED;
+        Long actorUserId = ownerAction ? ownerUserId : null;
         List<InformationAccessLog> logs = new ArrayList<>();
 
         for (RequestInformationPermission permission : permissions) {
@@ -298,6 +301,53 @@ public class PermissionWriter {
 
         // 열린 권한이 없으면(이미 모두 회수됨, 같은 이벤트 재처리) 빈 목록이라 아무것도 바뀌지 않음
         revokeByRequestEvent(openPermissions, reason, ownerUserId, revokedAt);
+    }
+
+    /**
+     * 안심카드 항목 하나의 끝나지 않은 권한(PENDING, ACTIVE)을 모두 ITEM_DELETED로 끝냅니다. (#38 항목 삭제)
+     *
+     * - 그 항목이 공개된 모든 요청의 권한이 대상입니다.
+     * - 처리 규칙(이력, 이미 끝난 권한 건너뛰기)은 revokeByRequestEvent와 같고, 이력 수행자는 정보 주인입니다.
+     * - 회수 전에 ACTIVE였던 권한을 돌려줍니다. 담당자에게 알릴 PermissionRevokedEvent를 만드는 데 씁니다.
+     *   PENDING은 담당자가 본 적이 없어 알리지 않으므로 돌려주지 않습니다.
+     *
+     * @param informationId 삭제할 항목 ID
+     * @param ownerUserId   정보 주인 ID (이력의 owner_user_id와 수행자)
+     * @param revokedAt     삭제 시각
+     * @return 회수 전에 ACTIVE였던 권한 (회수 후 상태)
+     */
+    public List<RequestInformationPermission> revokeItem(Long informationId, Long ownerUserId, LocalDateTime revokedAt) {
+
+        // ownerUserId, revokedAt은 revokeByRequestEvent에서 확인하므로 여기서는 informationId만 확인
+        Objects.requireNonNull(informationId, "informationId는 필수입니다.");
+
+        // 이 항목이 공개된 모든 요청의 열린 권한 (이미 회수된 권한은 조회되지 않아 처음 끝난 이유가 유지됨)
+        List<RequestInformationPermission> openPermissions =
+                permissionRepository.findAllByInformationIdAndStatusIn(informationId, OPEN_STATUSES);
+
+        // 회수하면 모두 REVOKED가 되므로, 바꾸기 전에 ACTIVE였던 것을 먼저 골라 둠
+        List<RequestInformationPermission> wasActive = openPermissions.stream()
+                .filter(RequestInformationPermission::isActive)
+                .toList();
+
+        // 사유는 항목 삭제로 고정, 수행자는 정보 주인으로 기록됨 (revokeByRequestEvent의 수행자 규칙)
+        revokeByRequestEvent(openPermissions, RevokeReason.ITEM_DELETED, ownerUserId, revokedAt);
+
+        // 돌려주는 엔티티는 이미 REVOKED로 바뀐 상태 (요청 ID, 지정 ID만 쓰면 됨)
+        return wasActive;
+    }
+
+    /**
+     * 삭제되는 항목을 가리키던 모든 권한(이미 회수된 과거 권한 포함)의 information_id를 NULL로 바꿉니다. (#38, ERD 9.5)
+     *
+     * revokeItem 다음에 부릅니다. 방금 회수한 상태 변경을 먼저 DB에 반영한 뒤 바꿉니다. (저장소의 flushAutomatically)
+     *
+     * @return 바뀐 권한 행 수
+     */
+    public int clearInformationId(Long informationId) {
+        // null로 실행하면 where 조건이 어떤 행과도 맞지 않아 조용히 넘어가므로, 실수를 바로 드러내려고 막음
+        Objects.requireNonNull(informationId, "informationId는 필수입니다.");
+        return permissionRepository.clearInformationId(informationId);
     }
 
     private InformationAccessLog grantedLog(RequestInformationPermission permission, Long ownerUserId,
