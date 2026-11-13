@@ -227,7 +227,7 @@ class SafetyInformationServiceTest {
     @Test
     void 본인_항목이면_이름과_내용을_수정하고_반영_후_응답한다() {
         SafetyInformation medication = item(12L, InformationType.MEDICATION, "혈압약", "아침 식후 1정", LocalDateTime.of(2026, 10, 1, 9, 30));
-        when(safetyInformationRepository.findById(12L)).thenReturn(Optional.of(medication));
+        when(safetyInformationRepository.findByIdForUpdate(12L)).thenReturn(Optional.of(medication));
 
         SafetyInformationResponse response = service.update(USER_ID, 12L,
                 new SafetyInformationUpdateRequest("혈압약", "아침 저녁 식후 1정"));
@@ -241,7 +241,7 @@ class SafetyInformationServiceTest {
 
     @Test
     void 없는_항목은_수정하지_않고_404다() {
-        when(safetyInformationRepository.findById(99L)).thenReturn(Optional.empty());
+        when(safetyInformationRepository.findByIdForUpdate(99L)).thenReturn(Optional.empty());
 
         assertNotFound(() -> service.update(USER_ID, 99L, new SafetyInformationUpdateRequest("혈압약", "내용")));
         verify(safetyInformationRepository, never()).flush();
@@ -250,7 +250,7 @@ class SafetyInformationServiceTest {
     @Test
     void 다른_사람_항목은_수정하지_않고_없는_항목과_같은_404다() {
         SafetyInformation othersItem = othersItem(30L, InformationType.MEDICATION, "남의 약", "내용");
-        when(safetyInformationRepository.findById(30L)).thenReturn(Optional.of(othersItem));
+        when(safetyInformationRepository.findByIdForUpdate(30L)).thenReturn(Optional.of(othersItem));
 
         assertNotFound(() -> service.update(USER_ID, 30L, new SafetyInformationUpdateRequest("바꾼 이름", "바꾼 내용")));
         assertThat(othersItem.getTitle()).isEqualTo("남의 약"); // 내용이 바뀌지 않음
@@ -260,10 +260,10 @@ class SafetyInformationServiceTest {
     void 수정도_기존_항목_유형의_입력_규칙을_따른다() {
         // 주소(title 없는 유형)에 title을 보냄
         SafetyInformation address = item(20L, InformationType.ADDRESS, null, "서울시 노원구", LocalDateTime.of(2026, 9, 25, 18, 0));
-        when(safetyInformationRepository.findById(20L)).thenReturn(Optional.of(address));
+        when(safetyInformationRepository.findByIdForUpdate(20L)).thenReturn(Optional.of(address));
         // 생년월일에 미래 날짜를 보냄 (작성과 같은 규칙)
         SafetyInformation birthDate = item(21L, InformationType.BIRTH_DATE, null, "2000-12-30", LocalDateTime.of(2026, 9, 25, 18, 0));
-        when(safetyInformationRepository.findById(21L)).thenReturn(Optional.of(birthDate));
+        when(safetyInformationRepository.findByIdForUpdate(21L)).thenReturn(Optional.of(birthDate));
 
         assertInvalidInput(() -> service.update(USER_ID, 20L, new SafetyInformationUpdateRequest("우리 집", "서울시 성북구")));
         assertInvalidInput(() -> service.update(USER_ID, 21L, new SafetyInformationUpdateRequest(null, "2026-11-14")));
@@ -277,7 +277,7 @@ class SafetyInformationServiceTest {
     @Test
     void 본인_항목이면_권한을_먼저_정리하고_항목을_삭제한다() {
         SafetyInformation allergy = item(13L, InformationType.ALLERGY, "땅콩", "호흡 곤란", LocalDateTime.of(2026, 10, 1, 9, 30));
-        when(safetyInformationRepository.findById(13L)).thenReturn(Optional.of(allergy));
+        when(safetyInformationRepository.findByIdForUpdate(13L)).thenReturn(Optional.of(allergy));
 
         SafetyInformationDeleteResponse response = service.delete(USER_ID, 13L);
 
@@ -291,7 +291,7 @@ class SafetyInformationServiceTest {
 
     @Test
     void 없는_항목은_삭제하지_않고_권한도_건드리지_않는다() {
-        when(safetyInformationRepository.findById(99L)).thenReturn(Optional.empty());
+        when(safetyInformationRepository.findByIdForUpdate(99L)).thenReturn(Optional.empty());
 
         assertNotFound(() -> service.delete(USER_ID, 99L));
         verifyNoInteractions(permissionItemDeletionService);
@@ -301,7 +301,7 @@ class SafetyInformationServiceTest {
     @Test
     void 다른_사람_항목은_삭제하지_않고_권한도_건드리지_않는다() {
         SafetyInformation othersItem = othersItem(30L, InformationType.ALLERGY, "남의 알레르기", "내용");
-        when(safetyInformationRepository.findById(30L)).thenReturn(Optional.of(othersItem));
+        when(safetyInformationRepository.findByIdForUpdate(30L)).thenReturn(Optional.of(othersItem));
 
         assertNotFound(() -> service.delete(USER_ID, 30L));
         verifyNoInteractions(permissionItemDeletionService);

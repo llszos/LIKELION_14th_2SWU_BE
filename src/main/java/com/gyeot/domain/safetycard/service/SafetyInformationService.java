@@ -83,7 +83,8 @@ public class SafetyInformationService {
     @Transactional // 수정하므로 읽기 전용이 아닌 트랜잭션
     public SafetyInformationResponse update(Long userId, Long informationId, SafetyInformationUpdateRequest request) {
 
-        // 1. 본인 항목인지 확인 (없거나 남의 항목이면 404, 남의 항목이 있다는 것도 알려 주지 않음)
+        // 1. 본인 항목인지 확인하며 항목 행을 잠금 (없거나 남의 항목이면 404, 남의 항목이 있다는 것도 알려 주지 않음)
+        //    동시에 삭제되면 삭제가 끝날 때까지 기다린 뒤 404
         SafetyInformation information = getOwnedItem(userId, informationId);
 
         // 2. 기존 항목의 유형으로 입력 규칙 검사 (작성과 같은 규칙)
@@ -157,7 +158,8 @@ public class SafetyInformationService {
     @Transactional // 삭제하므로 읽기 전용이 아닌 트랜잭션 (access 영역의 MANDATORY 서비스가 이 트랜잭션에 참여)
     public SafetyInformationDeleteResponse delete(Long userId, Long informationId) {
 
-        // 1. 본인 항목인지 확인 (수정과 같은 기준, 없거나 남의 항목이면 404)
+        // 1. 본인 항목인지 확인하며 항목 행을 잠금 (수정과 같은 기준, 없거나 남의 항목이면 404)
+        //    이 잠금을 먼저 쥐어야, 같은 항목으로 권한을 만들거나 바꾸는 작업과 순서가 정해짐 (항목 행 → 권한 행)
         SafetyInformation information = getOwnedItem(userId, informationId);
 
         // 2. 권한 회수, 담당자 알림, information_id 정리 (회수 시각과 이력 시각은 삭제 시각으로 통일)
@@ -171,12 +173,17 @@ public class SafetyInformationService {
     }
 
     /**
-     * 본인 항목을 찾습니다. 없는 항목과 다른 사람의 항목을 구분하지 않고 404 SAFETY_INFO_NOT_FOUND로 거부합니다.
+     * 본인 항목을 잠금 조회로 찾습니다. 없는 항목과 다른 사람의 항목을 구분하지 않고 404 SAFETY_INFO_NOT_FOUND로 거부합니다. (항목 수정, 삭제)
      *
-     * 구분해서 알려 주면 다른 사람 항목 ID가 있는지 확인하는 데 쓰일 수 있어 같은 응답으로 묶었습니다. (항목 수정, 삭제)
+     * - 구분해서 알려 주면 다른 사람 항목 ID가 있는지 확인하는 데 쓰일 수 있어 같은 응답으로 묶었습니다.
+     *
+     * - 항목 행을 잠그고 읽습니다. (#38 항목 삭제와 권한 변경의 직렬화)
+     *   삭제: 권한을 만들거나 바꾸는 작업도 같은 항목 행을 먼저 잠그므로, 삭제가 끝날 때까지 기다리거나 삭제가 그 작업을 기다립니다.
+     *   수정: 동시에 삭제되면 잠금을 기다린 뒤 없는 항목으로 보여 404가 됩니다. (잠그지 않으면 이미 지워진 행을 수정하려다 저장 오류가 남)
+     * - 이 트랜잭션에서 그 항목을 처음 읽는 조회라, 잠금 조회 결과가 곧 최신 상태입니다.
      */
     private SafetyInformation getOwnedItem(Long userId, Long informationId) {
-        return safetyInformationRepository.findById(informationId)
+        return safetyInformationRepository.findByIdForUpdate(informationId)
                 .filter(information -> information.getOwnerId().equals(userId)) // 남의 항목은 없는 것으로 취급
                 .orElseThrow(() -> new BusinessException(SafetyCardErrorCode.SAFETY_INFO_NOT_FOUND));
     }

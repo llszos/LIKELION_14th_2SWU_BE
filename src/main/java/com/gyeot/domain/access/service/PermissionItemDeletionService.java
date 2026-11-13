@@ -22,6 +22,8 @@ import java.util.Objects;
  *
  * - 항목 삭제(SafetyInformationService.delete)의 트랜잭션 안에서만 실행합니다. (MANDATORY)
  *   권한 회수, 이력, information_id 정리, 항목 삭제가 하나라도 실패하면 모두 되돌립니다.
+ * - 호출하는 쪽이 삭제할 항목 행을 먼저 잠근 상태여야 합니다. (SafetyInformationService.getOwnedItem, #38 잠금 규칙)
+ *   그래서 이 항목으로 권한을 만들거나 바꾸는 다른 작업은 끼어들지 못하고, 아래에서 읽는 권한도 잠금 조회라 최신 상태입니다.
  * - 처리 순서 (ERD 9.5)
  *   1. 그 항목의 PENDING, ACTIVE 권한을 ITEM_DELETED로 회수하고, ACTIVE였던 권한만 AUTO_REVOKED 이력 (수행자: 정보 주인)
  *   2. ACTIVE였던 권한의 (요청, 담당자) 묶음마다 PermissionRevokedEvent 1건 발행 (담당자 알림, B)
