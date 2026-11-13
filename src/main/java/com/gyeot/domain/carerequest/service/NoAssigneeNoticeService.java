@@ -89,7 +89,7 @@ public class NoAssigneeNoticeService {
 
     private Item toItem(RequestAssignment latest, LocalDateTime now) {
         CareRequest request = latest.getCareRequest();
-        return new Item(request.getId(), request.getRequestType(), request.getHelpType(), request.getStartsAt(),
+        return new Item(request.getId(), request.getRequestType(), request.getHelpType(), request.getStartsAt(), request.getPlace(),
                 new Target(latest.getTargetUserId(), null), // TODO: #57 사용자 조회가 들어오면 이름을 채움
                 latest.currentNoAssigneeReason(now));
     }

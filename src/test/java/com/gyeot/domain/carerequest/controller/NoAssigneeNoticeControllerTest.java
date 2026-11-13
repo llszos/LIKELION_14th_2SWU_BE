@@ -63,13 +63,14 @@ public class NoAssigneeNoticeControllerTest {
     void 목록은_명세_모양대로_내려간다() throws Exception {
         when(service.getNotices(USER_ID)).thenReturn(new NoAssigneeNoticesResponse(List.of(
                 new Item(21L, RequestType.GENERAL, HelpType.HOSPITAL, LocalDateTime.of(2026, 11, 10, 14, 0),
-                        new Target(7L, null), NoAssigneeReason.UNAVAILABLE))));
+                        "○○병원", new Target(7L, null), NoAssigneeReason.UNAVAILABLE))));
 
         mvc.perform(get("/api/care-requests/no-assignee-notices"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items[0].requestId").value(21))
                 .andExpect(jsonPath("$.data.items[0].requestType").value("GENERAL"))
                 .andExpect(jsonPath("$.data.items[0].startsAt").value("2026-11-10T14:00:00"))
+                .andExpect(jsonPath("$.data.items[0].place").value("○○병원"))
                 .andExpect(jsonPath("$.data.items[0].target.userId").value(7))
                 .andExpect(jsonPath("$.data.items[0].reason").value("UNAVAILABLE"));
     }

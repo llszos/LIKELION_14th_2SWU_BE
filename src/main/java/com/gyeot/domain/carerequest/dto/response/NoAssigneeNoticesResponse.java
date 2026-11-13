@@ -20,6 +20,7 @@ public record NoAssigneeNoticesResponse(List<Item> items) {
     /**
      * 모달 하나
      * - startsAt: 급한 요청은 null
+     * - place: 장소. 모달 카드 "9/30 20:00 · 슈슈병원"에 표시 (도움 요청 생성·상세 조회의 place와 같은 값)
      * - target: 담당자가 없어진 대상 (모달 제목 "병원 동행 · 민재")
      * - reason: 담당자 없음 사유. FE는 모달 문구에 쓰고, 닫기 API에 그대로 보냄
      */
@@ -28,6 +29,7 @@ public record NoAssigneeNoticesResponse(List<Item> items) {
             RequestType requestType,
             HelpType helpType,
             LocalDateTime startsAt,
+            String place,
             Target target,
             NoAssigneeReason reason
     ) {

@@ -99,10 +99,10 @@ public class NoAssigneeNoticeServiceTest {
             flush();
 
             assertThat(notices())
-                    .extracting(Item::requestId, Item::reason, i -> i.target().userId())
+                    .extracting(Item::requestId, Item::reason, i -> i.target().userId(), Item::place)
                     .containsExactly(
-                            tuple(deadlinePassed.getId(), NoAssigneeReason.DEADLINE_PASSED, SEOYEON),
-                            tuple(unavailable.getId(), NoAssigneeReason.UNAVAILABLE, MINJAE));
+                            tuple(deadlinePassed.getId(), NoAssigneeReason.DEADLINE_PASSED, SEOYEON, "○○병원"),
+                            tuple(unavailable.getId(), NoAssigneeReason.UNAVAILABLE, MINJAE, "○○병원"));
         }
 
         @Test
