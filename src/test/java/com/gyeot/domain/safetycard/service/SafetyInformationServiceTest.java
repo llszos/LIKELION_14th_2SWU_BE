@@ -1,5 +1,6 @@
 package com.gyeot.domain.safetycard.service;
 
+import com.gyeot.domain.access.service.PermissionItemDeletionService;
 import com.gyeot.domain.access.query.SharingCountReader;
 import com.gyeot.domain.safetycard.dto.request.SafetyInformationCreateRequest;
 import com.gyeot.domain.safetycard.dto.response.CategoryItemsResponse;
@@ -51,13 +52,16 @@ class SafetyInformationServiceTest {
 
     private SafetyInformationRepository safetyInformationRepository;
     private SharingCountReader sharingCountReader;
+    private PermissionItemDeletionService permissionItemDeletionService;
     private SafetyInformationService service;
 
     @BeforeEach
     void setUp() {
         safetyInformationRepository = mock(SafetyInformationRepository.class);
         sharingCountReader = mock(SharingCountReader.class);
-        service = new SafetyInformationService(safetyInformationRepository, sharingCountReader, CLOCK); // Spring 없이 직접 만들어 테스트
+        permissionItemDeletionService = mock(PermissionItemDeletionService.class);
+        service = new SafetyInformationService(safetyInformationRepository, sharingCountReader,
+                permissionItemDeletionService, CLOCK); // Spring 없이 직접 만들어 테스트
 
         // 분류별 조회: 그 분류 유형의 항목만 DB에서 돌려준다고 가정 (건강 3개, 생활 1개)
         when(safetyInformationRepository.findAllByOwnerIdAndInformationTypeInOrderByIdAsc(USER_ID, HEALTH_TYPES)).thenReturn(List.of(

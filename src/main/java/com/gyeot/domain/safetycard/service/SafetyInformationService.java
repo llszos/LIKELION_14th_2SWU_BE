@@ -1,6 +1,7 @@
 package com.gyeot.domain.safetycard.service;
 
 import com.gyeot.domain.access.query.SharingCountReader;
+import com.gyeot.domain.access.service.PermissionItemDeletionService;
 import com.gyeot.domain.safetycard.dto.request.SafetyInformationCreateRequest;
 import com.gyeot.domain.safetycard.dto.request.SafetyInformationUpdateRequest;
 import com.gyeot.domain.safetycard.dto.response.CategoryItemsResponse;
@@ -8,6 +9,7 @@ import com.gyeot.domain.safetycard.dto.response.CategoryItemsResponse.Item;
 import com.gyeot.domain.safetycard.dto.response.CategoryItemsResponse.TypeItems;
 import com.gyeot.domain.safetycard.dto.response.SafetyCardSummaryResponse;
 import com.gyeot.domain.safetycard.dto.response.SafetyCardSummaryResponse.CategorySummary;
+import com.gyeot.domain.safetycard.dto.response.SafetyInformationDeleteResponse;
 import com.gyeot.domain.safetycard.dto.response.SafetyInformationResponse;
 import com.gyeot.domain.safetycard.entity.InformationCategory;
 import com.gyeot.domain.safetycard.entity.InformationType;
@@ -32,16 +34,17 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 정보 주인이 자기 안심카드 항목을 조회, 작성, 수정합니다. (F-02)
+ * 정보 주인이 자기 안심카드 항목을 조회, 작성, 수정, 삭제합니다. (F-02)
  * 항목 내용은 DB에 암호화돼 있지만, 엔티티를 꺼낼 때 Converter가 복호화해서 여기서는 평문으로 다룹니다.
  */
 @Service                        // Spring이 객체로 만들어 Controller에 넣어 줌
-@RequiredArgsConstructor        // 아래 final 필드(Repository, SharingCountReader, Clock)를 채우는 생성자 자동 생성
+@RequiredArgsConstructor        // 아래 final 필드(Repository, SharingCountReader, PermissionItemDeletionService, Clock)를 채우는 생성자 자동 생성
 @Transactional(readOnly = true) // 기본은 읽기 전용, 저장하는 메서드만 따로 @Transactional
 public class SafetyInformationService {
 
     private final SafetyInformationRepository safetyInformationRepository; // 안심카드 항목 조회·저장
     private final SharingCountReader sharingCountReader;                   // 공유 중 건수 (F-30 기준, access 영역)
+    private final PermissionItemDeletionService permissionItemDeletionService; // 항목 삭제 시 접근 권한 정리 (access 영역, #38)
     private final Clock clock;                                             // 오늘 날짜 기준 (서비스 시간대 Asia/Seoul, 테스트에서 고정 가능)
 
     private static final Set<String> BLOOD_TYPES = Set.of("A", "B", "O", "AB"); // 혈액형 허용 값 (표시 "AB형"은 FE가 변환)
@@ -141,6 +144,30 @@ public class SafetyInformationService {
 
         // 4. 분류 정보와 함께 응답으로 묶음
         return new CategoryItemsResponse(category, category.getDescription(), types);
+    }
+
+    /**
+     * 본인 안심카드 항목 1개를 삭제하고, 연결된 접근 권한을 즉시 회수합니다. (항목 삭제, ERD 9.5)
+     *
+     * - 없는 항목, 다른 사람의 항목, 이미 삭제된 항목이면 404 SAFETY_INFO_NOT_FOUND
+     * - 권한 회수, 회수 이력, 담당자 알림 이벤트, 권한의 information_id 정리, 항목 삭제를 한 트랜잭션에서 처리합니다.
+     *   하나라도 실패하면 모두 되돌려, 항목은 남았는데 권한만 회수되는 일이 없습니다.
+     * - 접근 이력은 지우지 않습니다. 접근 이력 화면에서는 "알레르기 (삭제된 항목)"처럼 유형 이름만 보입니다.
+     */
+    @Transactional // 삭제하므로 읽기 전용이 아닌 트랜잭션 (access 영역의 MANDATORY 서비스가 이 트랜잭션에 참여)
+    public SafetyInformationDeleteResponse delete(Long userId, Long informationId) {
+
+        // 1. 본인 항목인지 확인 (수정과 같은 기준, 없거나 남의 항목이면 404)
+        SafetyInformation information = getOwnedItem(userId, informationId);
+
+        // 2. 권한 회수, 담당자 알림, information_id 정리 (회수 시각과 이력 시각은 삭제 시각으로 통일)
+        LocalDateTime deletedAt = LocalDateTime.now(clock);
+        permissionItemDeletionService.revokeOnItemDeleted(userId, informationId, deletedAt);
+
+        // 3. 항목 행 삭제 (권한이 원본을 더 가리키지 않으므로 FK 없이도 남는 참조가 없음)
+        safetyInformationRepository.delete(information);
+
+        return new SafetyInformationDeleteResponse(informationId);
     }
 
     /**
