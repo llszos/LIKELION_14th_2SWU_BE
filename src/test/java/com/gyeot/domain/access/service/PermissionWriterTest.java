@@ -31,7 +31,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/** DB 없이 Repository를 Mock으로 바꿔 권한 공통 처리 규칙만 확인합니다. (#42 부여, #43 회수) */
+/** DB 없이 Repository를 Mock으로 바꿔 권한 공통 처리 규칙만 확인합니다. (#42 부여, #43 회수, #38 항목 삭제) */
 class PermissionWriterTest {
 
     private static final Long OWNER_ID = 1L;
@@ -356,6 +356,61 @@ class PermissionWriterTest {
                 .isInstanceOf(NullPointerException.class);
 
         verify(permissionRepository, never()).findAllByRequestIdAndStatusIn(any(), any());
+    }
+
+    // === 항목 삭제 회수 (#38) ===
+
+    @Test
+    void 항목_삭제는_정보_주인이_수행자로_남는다() {
+        // 공개 항목 제외와 같이 정보 주인이 직접 한 회수 (D 요구사항명세 F-10)
+        RequestInformationPermission active = active(100L, 10L);
+
+        writer.revokeByRequestEvent(List.of(active), RevokeReason.ITEM_DELETED, OWNER_ID, NOW);
+
+        assertThat(savedLogs()).singleElement()
+                .extracting(InformationAccessLog::getActorUserId).isEqualTo(OWNER_ID);
+    }
+
+    @Test
+    void 항목_단위_회수는_그_항목의_열린_권한을_모두_ITEM_DELETED로_끝내고_ACTIVE였던_것만_돌려준다() {
+        // 같은 항목(10번)이 요청 두 개에 공개됨: 하나는 수락 전(PENDING), 하나는 수락 후(ACTIVE)
+        RequestInformationPermission pending = pending(100L, 10L);
+        RequestInformationPermission active = active(101L, 10L);
+        when(permissionRepository.findAllByInformationIdAndStatusIn(any(), any())).thenReturn(List.of(pending, active));
+
+        List<RequestInformationPermission> wasActive = writer.revokeItem(10L, OWNER_ID, NOW);
+
+        assertRevoked(pending, RevokeReason.ITEM_DELETED);
+        assertRevoked(active, RevokeReason.ITEM_DELETED);
+        assertThat(wasActive).containsExactly(active);                                                 // 알림 대상은 ACTIVE였던 것만
+        assertThat(savedLogs()).extracting(InformationAccessLog::getPermissionId).containsExactly(101L); // 이력도 ACTIVE만
+        verify(permissionRepository).findAllByInformationIdAndStatusIn(10L,
+                List.of(PermissionStatus.PENDING, PermissionStatus.ACTIVE));
+    }
+
+    @Test
+    void 항목_단위_회수할_권한이_없으면_빈_목록을_돌려준다() {
+        // 공유한 적 없거나 모두 이미 회수된 항목
+        when(permissionRepository.findAllByInformationIdAndStatusIn(any(), any())).thenReturn(List.of());
+
+        assertThat(writer.revokeItem(10L, OWNER_ID, NOW)).isEmpty();
+        assertThat(savedLogs()).isEmpty();
+    }
+
+    @Test
+    void 항목_ID가_없으면_회수와_ID_정리를_하지_않는다() {
+        assertThatThrownBy(() -> writer.revokeItem(null, OWNER_ID, NOW)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> writer.clearInformationId(null)).isInstanceOf(NullPointerException.class);
+
+        verify(permissionRepository, never()).findAllByInformationIdAndStatusIn(any(), any());
+        verify(permissionRepository, never()).clearInformationId(any());
+    }
+
+    @Test
+    void 항목_ID_정리는_저장소에_그대로_맡기고_바뀐_행_수를_돌려준다() {
+        when(permissionRepository.clearInformationId(10L)).thenReturn(3);
+
+        assertThat(writer.clearInformationId(10L)).isEqualTo(3);
     }
 
     @Test
