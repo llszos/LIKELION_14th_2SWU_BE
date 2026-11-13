@@ -57,12 +57,12 @@ class PermissionWriterTest {
     void 빈_목록과_null은_조회하지_않고_빈_결과를_돌려준다() {
         assertThat(writer.loadOwnedItemTypes(OWNER_ID, List.of())).isEmpty();
         assertThat(writer.loadOwnedItemTypes(OWNER_ID, null)).isEmpty();
-        verify(safetyInformationRepository, never()).findAllById(any());
+        verify(safetyInformationRepository, never()).findAllByIdInForUpdate(any());
     }
 
     @Test
     void 모두_본인_항목이면_항목_ID별_유형을_돌려준다() {
-        when(safetyInformationRepository.findAllById(any())).thenReturn(List.of(
+        when(safetyInformationRepository.findAllByIdInForUpdate(any())).thenReturn(List.of(
                 item(10L, OWNER_ID, InformationType.ALLERGY), item(11L, OWNER_ID, InformationType.PET)));
 
         Map<Long, InformationType> types = writer.loadOwnedItemTypes(OWNER_ID, List.of(10L, 11L));
@@ -73,7 +73,7 @@ class PermissionWriterTest {
 
     @Test
     void 없는_항목이_있으면_전체를_거부한다() {
-        when(safetyInformationRepository.findAllById(any()))
+        when(safetyInformationRepository.findAllByIdInForUpdate(any()))
                 .thenReturn(List.of(item(10L, OWNER_ID, InformationType.ALLERGY)));
 
         assertInvalidSelection(List.of(10L, 99L));
@@ -81,7 +81,7 @@ class PermissionWriterTest {
 
     @Test
     void 다른_사람_항목이_있으면_전체를_거부한다() {
-        when(safetyInformationRepository.findAllById(any())).thenReturn(List.of(
+        when(safetyInformationRepository.findAllByIdInForUpdate(any())).thenReturn(List.of(
                 item(10L, OWNER_ID, InformationType.ALLERGY), item(20L, OTHER_ID, InformationType.ALLERGY)));
 
         assertInvalidSelection(List.of(10L, 20L));
@@ -91,7 +91,7 @@ class PermissionWriterTest {
     void 중복_ID나_null이_있으면_조회하지_않고_거부한다() {
         assertInvalidSelection(List.of(10L, 10L));
         assertInvalidSelection(Arrays.asList(10L, null));
-        verify(safetyInformationRepository, never()).findAllById(any());
+        verify(safetyInformationRepository, never()).findAllByIdInForUpdate(any());
     }
 
     // === 재확인 수락용 항목 거르기 ===
@@ -99,7 +99,7 @@ class PermissionWriterTest {
     @Test
     void 지금_있고_본인_것인_항목만_고른_순서대로_남긴다() {
         // 11번은 삭제됨(조회 안 됨), 20번은 다른 사람 것
-        when(safetyInformationRepository.findAllById(any())).thenReturn(List.of(
+        when(safetyInformationRepository.findAllByIdInForUpdate(any())).thenReturn(List.of(
                 item(12L, OWNER_ID, InformationType.PET), item(10L, OWNER_ID, InformationType.ALLERGY),
                 item(20L, OTHER_ID, InformationType.ALLERGY)));
 
@@ -108,7 +108,7 @@ class PermissionWriterTest {
 
     @Test
     void 거를_때_null과_중복은_빼고_예외를_던지지_않는다() {
-        when(safetyInformationRepository.findAllById(any())).thenReturn(List.of(item(10L, OWNER_ID, InformationType.ALLERGY)));
+        when(safetyInformationRepository.findAllByIdInForUpdate(any())).thenReturn(List.of(item(10L, OWNER_ID, InformationType.ALLERGY)));
 
         assertThat(writer.filterOwnedItemIds(OWNER_ID, Arrays.asList(10L, null, 10L))).containsExactly(10L);
     }
@@ -117,14 +117,14 @@ class PermissionWriterTest {
     void 거를_목록이_비어_있으면_조회하지_않는다() {
         assertThat(writer.filterOwnedItemIds(OWNER_ID, List.of())).isEmpty();
         assertThat(writer.filterOwnedItemIds(OWNER_ID, null)).isEmpty();
-        verify(safetyInformationRepository, never()).findAllById(any());
+        verify(safetyInformationRepository, never()).findAllByIdInForUpdate(any());
     }
 
     // === 공유 예정 권한 생성 ===
 
     @Test
     void 공개_항목마다_PENDING_권한을_만든다() {
-        when(safetyInformationRepository.findAllById(any())).thenReturn(List.of(
+        when(safetyInformationRepository.findAllByIdInForUpdate(any())).thenReturn(List.of(
                 item(10L, OWNER_ID, InformationType.ALLERGY), item(11L, OWNER_ID, InformationType.PET)));
         returnSavedPermissions();
 
@@ -148,7 +148,7 @@ class PermissionWriterTest {
 
     @Test
     void 이미_끝나지_않은_권한이_있는_항목은_다시_만들지_않는다() {
-        when(safetyInformationRepository.findAllById(any())).thenReturn(List.of(
+        when(safetyInformationRepository.findAllByIdInForUpdate(any())).thenReturn(List.of(
                 item(10L, OWNER_ID, InformationType.ALLERGY), item(11L, OWNER_ID, InformationType.PET)));
         when(permissionRepository.findAllByAssignmentIdAndStatusIn(any(), any()))
                 .thenReturn(List.of(pending(100L, 10L)));    // 10번은 이미 있음 (같은 이벤트가 다시 온 경우)
@@ -161,7 +161,7 @@ class PermissionWriterTest {
 
     @Test
     void 항목_확인에_실패하면_권한을_만들지_않는다() {
-        when(safetyInformationRepository.findAllById(any())).thenReturn(List.of());
+        when(safetyInformationRepository.findAllByIdInForUpdate(any())).thenReturn(List.of());
 
         assertThatThrownBy(() -> writer.createPending(1L, 7L, OWNER_ID, List.of(10L)))
                 .isInstanceOf(BusinessException.class);
@@ -172,7 +172,7 @@ class PermissionWriterTest {
 
     @Test
     void 수락_후_추가는_ACTIVE로_만들고_항목마다_GRANTED_이력을_남긴다() {
-        when(safetyInformationRepository.findAllById(any())).thenReturn(List.of(item(10L, OWNER_ID, InformationType.ALLERGY)));
+        when(safetyInformationRepository.findAllByIdInForUpdate(any())).thenReturn(List.of(item(10L, OWNER_ID, InformationType.ALLERGY)));
         when(permissionRepository.saveAll(any())).thenAnswer(invocation -> {
             List<RequestInformationPermission> saved = invocation.getArgument(0);
             saved.forEach(permission -> ReflectionTestUtils.setField(permission, "id", 200L)); // 저장 후 ID가 생긴 것처럼
@@ -196,7 +196,7 @@ class PermissionWriterTest {
 
     @Test
     void 수락_후_추가도_이미_끝나지_않은_권한이_있는_항목은_만들지_않는다() {
-        when(safetyInformationRepository.findAllById(any())).thenReturn(List.of(item(10L, OWNER_ID, InformationType.ALLERGY)));
+        when(safetyInformationRepository.findAllByIdInForUpdate(any())).thenReturn(List.of(item(10L, OWNER_ID, InformationType.ALLERGY)));
         when(permissionRepository.findAllByAssignmentIdAndStatusIn(any(), any())).thenReturn(List.of(active(100L, 10L)));
         returnSavedPermissions();
 

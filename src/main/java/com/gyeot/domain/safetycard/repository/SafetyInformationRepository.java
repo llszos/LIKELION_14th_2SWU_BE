@@ -45,8 +45,9 @@ public interface SafetyInformationRepository extends JpaRepository<SafetyInforma
     /**
      * 항목 여러 개를 잠금 조회하고, 결과를 ID 오름차순으로 돌려줍니다. (#38 항목 삭제와 권한 변경의 직렬화)
      *
-     * - 권한을 만들거나 바꾸는 작업은 관련 항목 행을 먼저 이 메서드로 잠급니다. 항목 삭제도 같은 항목 행을 잠그므로,
-     *   "항목 확인 → 권한 저장" 사이에 삭제가 끼어들거나 삭제 도중 권한이 바뀌지 않습니다.
+     * - 권한을 만들 때 항목의 존재와 소유를 확인하거나 거르는 데 씁니다. (PermissionWriter.loadOwnedItemTypes, filterOwnedItemIds)
+     *   잠금 순서는 그 전에 PermissionWriter.lockItems가 findByIdForUpdate로 하나씩 잠가 정하고,
+     *   여기서는 이미 확보한 항목을 최신 상태로 다시 확인합니다.
      * - DB에서는 잠금 읽기(FOR UPDATE)로 현재 상태를 확인합니다. 이미 삭제된 항목은 결과에 없습니다.
      *   이미 영속성 컨텍스트에 로딩한 항목의 상태가 자동으로 갱신되는 것은 아닙니다.
      * - 결과는 ID 오름차순입니다. 실제 잠금 획득 순서는 DB 실행 계획에 영향을 받으므로 ORDER BY만으로 보장하지 않습니다.
@@ -58,10 +59,11 @@ public interface SafetyInformationRepository extends JpaRepository<SafetyInforma
     List<SafetyInformation> findAllByIdInForUpdate(@Param("ids") Collection<Long> ids);
 
     /**
-     * 항목 하나를 잠금 조회합니다. (#38 항목 삭제)
+     * 항목 하나를 잠금 조회합니다. (#38 항목 삭제와 권한 변경의 직렬화)
      *
-     * 삭제할 항목을 이 트랜잭션에서 처음 읽을 때 씁니다. 잠근 뒤 권한을 정리하므로,
-     * 같은 항목으로 권한을 만들거나 바꾸는 작업은 삭제가 끝날 때까지 기다립니다.
+     * - 항목 삭제: 삭제할 항목을 이 트랜잭션에서 처음 읽을 때 씁니다. 잠근 뒤 권한을 정리하므로,
+     *   같은 항목으로 권한을 만들거나 바꾸는 작업은 삭제가 끝날 때까지 기다립니다.
+     * - 권한 변경: PermissionWriter.lockItems가 정렬한 항목 ID마다 이 메서드를 차례로 불러, 잠금 획득 순서를 코드로 정합니다.
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from SafetyInformation s where s.id = :id")
