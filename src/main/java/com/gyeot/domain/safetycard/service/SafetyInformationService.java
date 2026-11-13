@@ -153,7 +153,7 @@ public class SafetyInformationService {
      * - 없는 항목, 다른 사람의 항목, 이미 삭제된 항목이면 404 SAFETY_INFO_NOT_FOUND
      * - 권한 회수, 회수 이력, 담당자 알림 이벤트, 권한의 information_id 정리, 항목 삭제를 한 트랜잭션에서 처리합니다.
      *   하나라도 실패하면 모두 되돌려, 항목은 남았는데 권한만 회수되는 일이 없습니다.
-     * - 접근 이력은 지우지 않습니다. 접근 이력 화면에서는 "알레르기 (삭제된 항목)"처럼 유형 이름만 보입니다.
+     * - 접근 이력은 지우지 않습니다. 접근 이력 화면에서는 "알러지 (삭제된 항목)"처럼 유형 이름만 보입니다.
      */
     @Transactional // 삭제하므로 읽기 전용이 아닌 트랜잭션 (access 영역의 MANDATORY 서비스가 이 트랜잭션에 참여)
     public SafetyInformationDeleteResponse delete(Long userId, Long informationId) {

@@ -78,7 +78,7 @@ class SafetyInformationDeleteIntegrationTest {
     private Long allergyId; // 삭제할 항목
     private Long petId;     // 삭제하지 않는 다른 항목
 
-    // 알레르기 항목의 권한 3개와 반려동물 항목의 권한 1개
+    // 알러지 항목의 권한 3개와 반려동물 항목의 권한 1개
     private Long activeId;     // 요청 1번(지정 7번), 수락 후
     private Long pendingId;    // 요청 2번(지정 9번), 수락 전
     private Long oldRevokedId; // 요청 3번(지정 5번), 이미 직접 철회됨

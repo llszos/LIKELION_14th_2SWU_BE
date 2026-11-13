@@ -89,8 +89,8 @@ class SafetyInformationServiceTest {
         CategoryItemsResponse response = service.getCategoryItems(USER_ID, InformationCategory.HEALTH);
 
         assertThat(response.category()).isEqualTo(InformationCategory.HEALTH);
-        assertThat(response.categoryName()).isEqualTo("건강");
-        // 건강 유형 4개가 InformationType 선언 순서대로 (알레르기·주의사항은 항목이 없어도 포함)
+        assertThat(response.categoryName()).isEqualTo("건강 정보");
+        // 건강 유형 4개가 InformationType 선언 순서대로 (알러지, 주의사항은 항목이 없어도 포함)
         assertThat(response.types()).extracting(TypeItems::informationType).containsExactly(
                 InformationType.DISEASE, InformationType.MEDICATION, InformationType.ALLERGY, InformationType.CAUTION);
     }
@@ -100,7 +100,7 @@ class SafetyInformationServiceTest {
         List<TypeItems> types = service.getCategoryItems(USER_ID, InformationCategory.HEALTH).types();
 
         assertThat(types.get(1).items()).extracting(Item::informationId).containsExactly(12L, 13L); // 복용약 2개
-        assertThat(types.get(2).items()).isEmpty();                                                // 알레르기 없음
+        assertThat(types.get(2).items()).isEmpty();                                                // 알러지 없음
     }
 
     @Test
@@ -138,8 +138,8 @@ class SafetyInformationServiceTest {
         assertThat(response.categories()).extracting(CategorySummary::category).containsExactly(
                 InformationCategory.BASIC, InformationCategory.HEALTH, InformationCategory.LIFE, InformationCategory.ADVANCE_MESSAGE);
         assertThat(response.categories()).extracting(CategorySummary::lastUpdatedAt).containsExactly(
-                null,                                // 기본정보: 항목 없음
-                LocalDateTime.of(2026, 10, 1, 9, 30), // 건강: 질환·복용약 중 더 최근(복용약)
+                null,                                // 기본 정보: 항목 없음
+                LocalDateTime.of(2026, 10, 1, 9, 30), // 건강 정보: 질환, 복용약 중 더 최근(복용약)
                 LocalDateTime.of(2026, 9, 25, 18, 0), // 생활: 주소
                 null);                               // 미리 남기는 말: 항목 없음
         assertThat(response.sharingCount()).isEqualTo(2L); // SharingCountReader 값을 그대로 사용
@@ -300,7 +300,7 @@ class SafetyInformationServiceTest {
 
     @Test
     void 다른_사람_항목은_삭제하지_않고_권한도_건드리지_않는다() {
-        SafetyInformation othersItem = othersItem(30L, InformationType.ALLERGY, "남의 알레르기", "내용");
+        SafetyInformation othersItem = othersItem(30L, InformationType.ALLERGY, "남의 알러지", "내용");
         when(safetyInformationRepository.findByIdForUpdate(30L)).thenReturn(Optional.of(othersItem));
 
         assertNotFound(() -> service.delete(USER_ID, 30L));
