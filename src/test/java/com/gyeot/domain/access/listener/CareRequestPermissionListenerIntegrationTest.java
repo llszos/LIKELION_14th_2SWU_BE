@@ -387,6 +387,27 @@ class CareRequestPermissionListenerIntegrationTest {
     }
 
     @Test
+    void 지정_마감은_같은_요청의_다른_지정_권한을_건드리지_않는다() {
+        // 같은 요청(1번)에 지정 7번(알레르기)과 지정 8번(복용약)의 열린 권한이 함께 있음
+        // 실제로는 대상 변경 때 이전 지정을 회수하지만, 지정 기준으로만 찾는지 확인하려고 일부러 둘 다 열어 둠
+        publish(created(List.of(allergyId)));
+        publish(new CareRequestCreatedEvent(REQUEST_ID, OWNER_ID, RequestType.GENERAL,
+                NEXT_ASSIGNMENT_ID, NEXT_TARGET_ID, List.of(medicationId), CREATED_AT));
+
+        // 지정 7번만 마감 (관계 해제)
+        publish(new CareRequestAssignmentClosedEvent(REQUEST_ID, OWNER_ID, ASSIGNMENT_ID, TARGET_ID,
+                AssignmentCloseReason.RELATIONSHIP_ENDED, ENDED_AT));
+
+        // 마감된 지정만 회수되고, 같은 요청의 다른 지정은 그대로 (요청 전체 회수로 바뀌면 여기서 걸림)
+        assertThat(permissionsOf(ASSIGNMENT_ID)).singleElement().satisfies(permission -> {
+            assertThat(permission.getStatus()).isEqualTo(PermissionStatus.REVOKED);
+            assertThat(permission.getRevokeReason()).isEqualTo(RevokeReason.ASSIGNMENT_CLOSED);
+        });
+        assertThat(permissionsOf(NEXT_ASSIGNMENT_ID)).singleElement()
+                .extracting(RequestInformationPermission::getStatus).isEqualTo(PermissionStatus.PENDING);
+    }
+
+    @Test
     void 수락_철회면_그_지정의_권한이_ASSIGNMENT_CLOSED로_회수되고_회수_이력이_남는다() {
 
         publish(created(List.of(allergyId, medicationId)));
