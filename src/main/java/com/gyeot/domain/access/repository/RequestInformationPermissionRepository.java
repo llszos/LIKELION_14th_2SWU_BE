@@ -4,9 +4,11 @@ import com.gyeot.domain.access.entity.PermissionStatus;
 import com.gyeot.domain.access.entity.RequestInformationPermission;
 import com.gyeot.domain.access.entity.RevokeReason;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 
@@ -68,4 +70,16 @@ public interface RequestInformationPermissionRepository extends JpaRepository<Re
             """)
     List<Long> findLastSharedInformationIds(@Param("requestId") Long requestId,
                                             @Param("excludedReasons") Collection<RevokeReason> excludedReasons);
+
+    /**
+     * 기준 시각보다 이전(<)에 끝난 권한을 한 번에 삭제합니다. (보존 기간 2년 정리, #44)
+     * 지금 쓰는 권한(PENDING·ACTIVE)과 정확히 기준 시각에 끝난 권한은 남깁니다.
+     * 삭제 전에 이 권한을 가리키는 이력의 permission_id를 먼저 NULL로 바꿔야 합니다.
+     * (InformationAccessLogRepository.clearPermissionIdOfRevokedBefore, 같은 조건)
+     * 반환값은 삭제한 건수입니다.
+     */
+    @Modifying
+    @Query("delete from RequestInformationPermission p where p.status = :status and p.revokedAt < :cutoff")
+    int deleteAllRevokedBefore(@Param("status") PermissionStatus status,
+                               @Param("cutoff") LocalDateTime cutoff);
 }
