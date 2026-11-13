@@ -44,7 +44,7 @@ public class SafetyInformation extends BaseEntity {
     private Long ownerId;
 
     @Enumerated(EnumType.STRING)                                      // Enum 이름(예: MEDICATION)을 문자열로 저장
-    @Column(name = "information_type", nullable = false, length = 40) // 어떤 항목인지 (생년월일, 복용약 등)
+    @Column(name = "information_type", nullable = false, length = 40, columnDefinition = "VARCHAR(40)") // 어떤 항목인지 (생년월일, 복용약 등)
     private InformationType informationType;
 
     @Convert(converter = EncryptedStringConverter.class)  // 저장할 때 암호화, 조회할 때 복호화
