@@ -64,7 +64,7 @@ public class RequestChangeEvent {
 
     // 이벤트 유형
     @Enumerated(EnumType.STRING)
-    @Column(name = "event_type", nullable = false, length = 40, updatable = false)
+    @Column(name = "event_type", nullable = false, length = 40, updatable = false, columnDefinition = "VARCHAR(40)")  // MySQL ENUM 대신 VARCHAR, 길이는 length와 같게 (#36)
     private ChangeEventType eventType;
 
     // 변경 제안 ID (재확인 관련 이벤트만, 나머지는 NULL)

@@ -56,11 +56,11 @@ public class InformationAccessLog {
     private Long informationId;
 
     @Enumerated(EnumType.STRING)                                                          // Enum 이름(예: MEDICATION)을 문자열로 저장
-    @Column(name = "information_type", nullable = false, updatable = false, length = 40)  // 접근한 항목 유형. 항목이 삭제되면 화면에 이 이름만 보여줌
+    @Column(name = "information_type", nullable = false, updatable = false, length = 40, columnDefinition = "VARCHAR(40)")  // 접근한 항목 유형. 항목이 삭제되면 화면에 이 이름만 보여줌
     private InformationType informationType;
 
     @Enumerated(EnumType.STRING)                                                    // Enum 이름(예: VIEWED)을 문자열로 저장
-    @Column(name = "event_type", nullable = false, updatable = false, length = 40)  // 무슨 일이 있었는지 (GRANTED, VIEWED, AUTO_REVOKED, OWNER_REVOKED)
+    @Column(name = "event_type", nullable = false, updatable = false, length = 40, columnDefinition = "VARCHAR(40)")  // 무슨 일이 있었는지 (GRANTED, VIEWED, AUTO_REVOKED, OWNER_REVOKED)
     private AccessEventType eventType;
 
     @Column(name = "occurred_at", nullable = false, updatable = false)  // 사건이 일어난 시각. 2년 보관 기준

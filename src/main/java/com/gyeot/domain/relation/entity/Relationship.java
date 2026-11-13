@@ -46,7 +46,7 @@ public class Relationship extends BaseCreatedEntity {
 
     // 나의 사람 또는 보호자
     @Enumerated(EnumType.STRING)
-    @Column(name = "relationship_type", nullable = false, length = 20)
+    @Column(name = "relationship_type", nullable = false, length = 20, columnDefinition = "VARCHAR(20)")  // MySQL ENUM 대신 VARCHAR, 길이는 length와 같게 (#36)
     private RelationshipType relationshipType;
 
     // 사용자가 지정한 관계 표시명
@@ -55,7 +55,7 @@ public class Relationship extends BaseCreatedEntity {
 
     // 활성 또는 종료 상태
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false, length = 20)
+    @Column(name = "status", nullable = false, length = 20, columnDefinition = "VARCHAR(20)")  // MySQL ENUM 대신 VARCHAR, 길이는 length와 같게 (#36)
     private RelationshipStatus status;
 
     // 보호자 간 연락 순서. 활성 보호자만 사용자별 1~3을 사용하고 MY_PERSON은 NULL입니다.
