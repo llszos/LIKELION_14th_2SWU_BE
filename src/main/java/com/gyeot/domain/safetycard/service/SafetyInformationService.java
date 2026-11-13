@@ -2,6 +2,7 @@ package com.gyeot.domain.safetycard.service;
 
 import com.gyeot.domain.access.query.SharingCountReader;
 import com.gyeot.domain.safetycard.dto.request.SafetyInformationCreateRequest;
+import com.gyeot.domain.safetycard.dto.request.SafetyInformationUpdateRequest;
 import com.gyeot.domain.safetycard.dto.response.CategoryItemsResponse;
 import com.gyeot.domain.safetycard.dto.response.CategoryItemsResponse.Item;
 import com.gyeot.domain.safetycard.dto.response.CategoryItemsResponse.TypeItems;
@@ -30,7 +31,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 정보 주인이 자기 안심카드 항목을 조회·작성합니다. (F-02)
+ * 정보 주인이 자기 안심카드 항목을 조회, 작성, 수정합니다. (F-02)
  * 항목 내용은 DB에 암호화돼 있지만, 엔티티를 꺼낼 때 Converter가 복호화해서 여기서는 평문으로 다룹니다.
  */
 @Service                        // Spring이 객체로 만들어 Controller에 넣어 줌
@@ -64,6 +65,33 @@ public class SafetyInformationService {
                 SafetyInformation.create(userId, type, request.title(), request.informationValue()));
 
         return SafetyInformationResponse.from(saved);
+    }
+
+    /**
+     * 본인 안심카드 항목 1개의 이름과 내용을 수정합니다. (항목 수정)
+     *
+     * - 없는 항목이거나 다른 사람의 항목이면 404 SAFETY_INFO_NOT_FOUND
+     * - 입력 규칙은 작성과 같고, 유형은 바꿀 수 없어 기존 항목의 유형 기준으로 검사합니다.
+     * - 수정하면 updated_at이 바뀌고, 담당자 화면(전달받은 정보 조회)에는 '갱신됨'으로 표시됩니다. (updated_at > 권한 granted_at)
+     * - 공유 중인 항목이어도 권한은 그대로 두고, 담당자는 수정된 내용을 봅니다.
+     */
+    @Transactional // 수정하므로 읽기 전용이 아닌 트랜잭션
+    public SafetyInformationResponse update(Long userId, Long informationId, SafetyInformationUpdateRequest request) {
+
+        // 1. 본인 항목인지 확인 (없거나 남의 항목이면 404, 남의 항목이 있다는 것도 알려 주지 않음)
+        SafetyInformation information = getOwnedItem(userId, informationId);
+
+        // 2. 기존 항목의 유형으로 입력 규칙 검사 (작성과 같은 규칙)
+        validateByType(information.getInformationType(), request.title(), request.informationValue());
+
+        // 3. 변경 감지로 수정 (title, 내용은 Converter가 다시 암호화해서 저장)
+        information.update(request.title(), request.informationValue());
+
+        // 4. updated_at은 DB에 반영(flush)될 때 채워지므로, 먼저 반영해야 응답에 수정 후 시각이 담김
+        //    값이 그대로면 변경이 없어 updated_at도 바뀌지 않음 ('갱신됨' 표시 안 함)
+        safetyInformationRepository.flush();
+
+        return SafetyInformationResponse.from(information);
     }
 
     /**
@@ -111,6 +139,17 @@ public class SafetyInformationService {
 
         // 4. 분류 정보와 함께 응답으로 묶음
         return new CategoryItemsResponse(category, category.getDescription(), types);
+    }
+
+    /**
+     * 본인 항목을 찾습니다. 없는 항목과 다른 사람의 항목을 구분하지 않고 404 SAFETY_INFO_NOT_FOUND로 거부합니다.
+     *
+     * 구분해서 알려 주면 다른 사람 항목 ID가 있는지 확인하는 데 쓰일 수 있어 같은 응답으로 묶었습니다. (항목 수정, 삭제)
+     */
+    private SafetyInformation getOwnedItem(Long userId, Long informationId) {
+        return safetyInformationRepository.findById(informationId)
+                .filter(information -> information.getOwnerId().equals(userId)) // 남의 항목은 없는 것으로 취급
+                .orElseThrow(() -> new BusinessException(SafetyCardErrorCode.SAFETY_INFO_NOT_FOUND));
     }
 
     // 유형마다 다른 입력 규칙. 어기면 공통 에러 400 INVALID_INPUT (요구사항 명세 F-02 입력 형식)
