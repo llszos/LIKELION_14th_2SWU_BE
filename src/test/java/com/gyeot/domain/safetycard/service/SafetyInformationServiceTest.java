@@ -21,6 +21,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -34,6 +37,10 @@ import static org.mockito.Mockito.when;
 
 /** DB 없이 Repository를 Mock으로 바꿔 응답 구성 규칙만 확인합니다. */
 class SafetyInformationServiceTest {
+
+    // 오늘 = 2026-11-13 (생년월일 미래 날짜 판단 기준을 고정)
+    private static final Clock CLOCK =
+            Clock.fixed(Instant.parse("2026-11-13T03:00:00Z"), ZoneId.of("Asia/Seoul"));
 
     private static final Long USER_ID = 1L;
     // 분류별 유형 목록 (InformationType 선언 순서, Service가 Repository에 넘기는 값과 같아야 함)
@@ -50,7 +57,7 @@ class SafetyInformationServiceTest {
     void setUp() {
         safetyInformationRepository = mock(SafetyInformationRepository.class);
         sharingCountReader = mock(SharingCountReader.class);
-        service = new SafetyInformationService(safetyInformationRepository, sharingCountReader); // Spring 없이 직접 만들어 테스트
+        service = new SafetyInformationService(safetyInformationRepository, sharingCountReader, CLOCK); // Spring 없이 직접 만들어 테스트
 
         // 분류별 조회: 그 분류 유형의 항목만 DB에서 돌려준다고 가정 (건강 3개, 생활 1개)
         when(safetyInformationRepository.findAllByOwnerIdAndInformationTypeInOrderByIdAsc(USER_ID, HEALTH_TYPES)).thenReturn(List.of(
@@ -179,6 +186,18 @@ class SafetyInformationServiceTest {
     void 생년월일은_YYYY_MM_DD_형식의_실제_날짜만_받는다() {
         assertError(new SafetyInformationCreateRequest(InformationType.BIRTH_DATE, null, "20001230"), CommonErrorCode.INVALID_INPUT);   // 8자리 그대로
         assertError(new SafetyInformationCreateRequest(InformationType.BIRTH_DATE, null, "2000-02-30"), CommonErrorCode.INVALID_INPUT); // 없는 날짜
+    }
+
+    @Test
+    void 생년월일은_미래_날짜를_받지_않고_오늘까지는_받는다() {
+        // 오늘은 CLOCK 기준 2026-11-13
+        assertError(new SafetyInformationCreateRequest(InformationType.BIRTH_DATE, null, "2026-11-14"), CommonErrorCode.INVALID_INPUT); // 내일
+
+        when(safetyInformationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0)); // 저장 결과를 그대로 돌려줌
+        SafetyInformationResponse response = service.create(USER_ID,
+                new SafetyInformationCreateRequest(InformationType.BIRTH_DATE, null, "2026-11-13"));       // 오늘
+
+        assertThat(response.informationValue()).isEqualTo("2026-11-13");
     }
 
     @Test

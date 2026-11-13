@@ -21,6 +21,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
@@ -35,12 +36,13 @@ import java.util.stream.Collectors;
  * 항목 내용은 DB에 암호화돼 있지만, 엔티티를 꺼낼 때 Converter가 복호화해서 여기서는 평문으로 다룹니다.
  */
 @Service                        // Spring이 객체로 만들어 Controller에 넣어 줌
-@RequiredArgsConstructor        // 아래 final 필드(Repository, SharingCountReader)를 채우는 생성자 자동 생성
+@RequiredArgsConstructor        // 아래 final 필드(Repository, SharingCountReader, Clock)를 채우는 생성자 자동 생성
 @Transactional(readOnly = true) // 기본은 읽기 전용, 저장하는 메서드만 따로 @Transactional
 public class SafetyInformationService {
 
     private final SafetyInformationRepository safetyInformationRepository; // 안심카드 항목 조회·저장
     private final SharingCountReader sharingCountReader;                   // 공유 중 건수 (F-30 기준, access 영역)
+    private final Clock clock;                                             // 오늘 날짜 기준 (서비스 시간대 Asia/Seoul, 테스트에서 고정 가능)
 
     private static final Set<String> BLOOD_TYPES = Set.of("A", "B", "O", "AB"); // 혈액형 허용 값 (표시 "AB형"은 FE가 변환)
 
@@ -168,9 +170,15 @@ public class SafetyInformationService {
             if (!value.matches("\\d{4}-\\d{2}-\\d{2}")) {
                 throw invalidInput();
             }
+            LocalDate birthDate;
             try {
-                LocalDate.parse(value);
+                birthDate = LocalDate.parse(value);
             } catch (DateTimeParseException exception) {
+                throw invalidInput();
+            }
+
+            // 미래 날짜는 생년월일이 될 수 없음. 오늘은 허용 (FE도 같은 규칙으로 막지만, API 직접 호출에 대비해 서버에서도 확인)
+            if (birthDate.isAfter(LocalDate.now(clock))) {
                 throw invalidInput();
             }
         }
