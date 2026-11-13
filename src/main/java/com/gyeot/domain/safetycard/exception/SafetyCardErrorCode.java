@@ -6,7 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 
 /**
- * D 영역(안심카드·공유·접근 이력)의 에러 코드입니다. (노션 D 명세 'D 에러 코드')
+ * D 영역(안심카드·공유·접근 이력)의 에러 코드입니다. (노션 D 파트 API 명세 'D 에러 코드')
  * 입력값 형식 오류는 여기에 두지 않고 공통 코드 INVALID_INPUT(400)을 사용합니다.
  * 응답의 code에는 enum 이름(예: SAFETY_INFO_NOT_FOUND)이 그대로 내려갑니다.
  */
