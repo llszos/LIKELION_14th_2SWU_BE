@@ -3,7 +3,9 @@ package com.gyeot.domain.access.repository;
 import com.gyeot.domain.access.entity.PermissionStatus;
 import com.gyeot.domain.access.entity.RequestInformationPermission;
 import com.gyeot.domain.access.entity.RevokeReason;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -52,8 +54,8 @@ public interface RequestInformationPermissionRepository extends JpaRepository<Re
 
     /**
      * 요청의 마지막 대상 지정에 공개했던 항목 ID를 조회합니다. (공개 항목 선택지 조회의 requestId)
-     * - 요청 수정(H-03-01-02): 마지막 지정이 지금 담당자라 공개 중(PENDING·ACTIVE)인 항목이 나옴
-     * - 다시 부탁하기(N-06): 이전 대상이 거절·마감돼 권한이 끝났어도 그 요청에 공개했던 항목이 나옴
+     * - 요청 수정(H-03-01-02): 마지막 지정이 지금 담당자라 공개 중(PENDING, ACTIVE)인 항목이 나옴
+     * - 다시 부탁하기(N-06): 이전 대상이 거절되거나 마감돼 권한이 끝났어도 그 요청에 공개했던 항목이 나옴
      * 정보 주인이 뺀 항목(excludedReasons: 공개 항목 제외, 직접 철회 등)과 삭제된 항목은 빠집니다.
      * 대상 지정 ID는 새로 만들수록 커지므로 가장 큰 ID를 마지막 지정으로 봅니다.
      */
@@ -72,31 +74,80 @@ public interface RequestInformationPermissionRepository extends JpaRepository<Re
                                             @Param("excludedReasons") Collection<RevokeReason> excludedReasons);
 
     /**
-     * 대상 지정 하나의 권한 중 지정한 상태인 것을 조회합니다. (#42 권한 부여와 회수)
-     * 권한은 (지정, 항목) 단위라, 수락, 대상 변경, 수정 확정 때 그 지정의 PENDING, ACTIVE 권한을 찾는 데 씁니다.
-     * 인덱스 idx_permissions_assignment_id_status를 사용합니다.
+     * 대상 지정 하나의 열린 권한이 가리키는 항목 ID만 조회합니다. (#38 잠금 순서, 잠그기 전 단계)
+     *
+     * - 권한 엔티티를 읽지 않고 ID 값만 읽습니다. 잠그기 전에 엔티티를 읽으면 영속성 컨텍스트에 예전 상태가 남아,
+     *   잠근 뒤 다시 조회해도 그 객체가 갱신되지 않기 때문입니다.
+     * - 이 값은 잠글 항목을 정하는 데만 씁니다. 잠금 없는 조회라 최신이 아닐 수 있지만,
+     *   권한 상태는 항목을 잠근 뒤 잠금 조회로 다시 확보하므로 판단에 쓰지 않습니다.
      */
-    List<RequestInformationPermission> findAllByAssignmentIdAndStatusIn(Long assignmentId,
-                                                                        Collection<PermissionStatus> statuses);
+    @Query("""
+            select distinct p.informationId
+            from RequestInformationPermission p
+            where p.assignmentId = :assignmentId
+              and p.status in :statuses
+              and p.informationId is not null
+            """)
+    List<Long> findInformationIdsByAssignmentIdAndStatusIn(@Param("assignmentId") Long assignmentId,
+                                                           @Param("statuses") Collection<PermissionStatus> statuses);
 
     /**
-     * 요청 하나의 권한 중 지정한 상태인 것을 조회합니다. (#43 요청 종료 시 일괄 회수)
+     * 대상 지정 하나의 권한 중 지정한 상태인 것을 잠금 조회합니다. (#42 권한 부여와 회수, #38 잠금 적용)
      *
-     * 완료, 취소, 만료처럼 요청 자체가 끝나면 그 요청의 모든 지정(이전 대상 포함)의 PENDING, ACTIVE 권한을 찾는 데 씁니다.
-     * 취소, 만료 이벤트는 열린 지정이 없으면 assignmentId가 NULL이라, 지정이 아닌 요청 기준으로 찾습니다.
-     * 인덱스 idx_permissions_request_id_status를 사용합니다.
+     * - 권한은 (지정, 항목) 단위라, 수락, 대상 변경, 수정 확정 때 그 지정의 PENDING, ACTIVE 권한을 찾는 데 씁니다.
+     * - DB에서는 잠금 읽기(FOR UPDATE)로 현재 상태를 확인하고, 획득한 행 잠금을 트랜잭션 종료까지 유지합니다.
+     *   일반 조회는 REPEATABLE READ에서 이전 스냅샷을 볼 수 있습니다.
+     * - 권한 엔티티는 이 잠금 조회 전에 로딩하지 않습니다. 이미 로딩한 엔티티의 상태를 자동 갱신하는 용도가 아닙니다.
+     * - 결과는 ID 오름차순입니다. 실제 잠금 획득 순서는 DB 실행 계획에 영향을 받으므로 ORDER BY만으로 보장하지 않습니다.
+     * - 인덱스 idx_permissions_assignment_id_status를 사용합니다.
      */
-    List<RequestInformationPermission> findAllByRequestIdAndStatusIn(Long requestId,
-                                                                     Collection<PermissionStatus> statuses);
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select p
+            from RequestInformationPermission p
+            where p.assignmentId = :assignmentId
+              and p.status in :statuses
+            order by p.id
+            """)
+    List<RequestInformationPermission> findAllByAssignmentIdAndStatusIn(@Param("assignmentId") Long assignmentId,
+                                                                        @Param("statuses") Collection<PermissionStatus> statuses);
 
     /**
-     * 안심카드 항목 하나의 권한 중 지정한 상태인 것을 조회합니다. (#38 항목 삭제 시 회수)
+     * 요청 하나의 권한 중 지정한 상태인 것을 잠금 조회합니다. (#43 요청 종료 시 일괄 회수, #38 잠금 적용)
      *
-     * 한 항목은 여러 요청에 공개될 수 있어, 삭제할 때 그 항목이 걸린 모든 요청의 PENDING, ACTIVE 권한을 찾는 데 씁니다.
-     * 인덱스 idx_permissions_information_id_status를 사용합니다.
+     * - 완료, 취소, 만료처럼 요청 자체가 끝나면 그 요청의 모든 지정(이전 대상 포함)의 PENDING, ACTIVE 권한을 찾는 데 씁니다.
+     * - 취소, 만료 이벤트는 열린 지정이 없으면 assignmentId가 NULL이라, 지정이 아닌 요청 기준으로 찾습니다.
+     * - 선행 엔티티 로딩을 피해야 한다는 조건과 결과 정렬, 잠금 순서의 한계는 findAllByAssignmentIdAndStatusIn과 같습니다.
+     * - 인덱스 idx_permissions_request_id_status를 사용합니다.
      */
-    List<RequestInformationPermission> findAllByInformationIdAndStatusIn(Long informationId,
-                                                                         Collection<PermissionStatus> statuses);
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select p
+            from RequestInformationPermission p
+            where p.requestId = :requestId
+              and p.status in :statuses
+            order by p.id
+            """)
+    List<RequestInformationPermission> findAllByRequestIdAndStatusIn(@Param("requestId") Long requestId,
+                                                                     @Param("statuses") Collection<PermissionStatus> statuses);
+
+    /**
+     * 안심카드 항목 하나의 권한 중 지정한 상태인 것을 잠금 조회합니다. (#38 항목 삭제 시 회수)
+     *
+     * - 한 항목은 여러 요청에 공개될 수 있어, 삭제할 때 그 항목이 걸린 모든 요청의 PENDING, ACTIVE 권한을 찾는 데 씁니다.
+     * - 선행 엔티티 로딩을 피해야 한다는 조건과 결과 정렬, 잠금 순서의 한계는 findAllByAssignmentIdAndStatusIn과 같습니다.
+     * - 인덱스 idx_permissions_information_id_status를 사용합니다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select p
+            from RequestInformationPermission p
+            where p.informationId = :informationId
+              and p.status in :statuses
+            order by p.id
+            """)
+    List<RequestInformationPermission> findAllByInformationIdAndStatusIn(@Param("informationId") Long informationId,
+                                                                         @Param("statuses") Collection<PermissionStatus> statuses);
 
     /**
      * 삭제되는 안심카드 항목을 가리키던 모든 권한의 information_id를 NULL로 바꿉니다. (#38, ERD 9.5 삭제 순서 4)
@@ -114,7 +165,7 @@ public interface RequestInformationPermissionRepository extends JpaRepository<Re
 
     /**
      * 기준 시각보다 이전(<)에 끝난 권한을 한 번에 삭제합니다. (보존 기간 2년 정리, #44)
-     * 지금 쓰는 권한(PENDING·ACTIVE)과 정확히 기준 시각에 끝난 권한은 남깁니다.
+     * 지금 쓰는 권한(PENDING, ACTIVE)과 정확히 기준 시각에 끝난 권한은 남깁니다.
      * 삭제 전에 이 권한을 가리키는 이력의 permission_id를 먼저 NULL로 바꿔야 합니다.
      * (InformationAccessLogRepository.clearPermissionIdOfRevokedBefore, 같은 조건)
      * 반환값은 삭제한 건수입니다.
