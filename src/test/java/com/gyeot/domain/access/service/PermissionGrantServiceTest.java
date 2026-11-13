@@ -49,6 +49,9 @@ class PermissionGrantServiceTest {
         permissionWriter = mock(PermissionWriter.class);
         careRequestSharingReader = mock(CareRequestSharingReader.class);
         service = new PermissionGrantService(permissionWriter, careRequestSharingReader);
+
+        // 재확인 수락의 항목 거르기는 기본적으로 모두 통과 (거르는 경우는 해당 테스트에서 따로 지정)
+        when(permissionWriter.filterOwnedItemIds(any(), anyList())).thenAnswer(invocation -> invocation.getArgument(1));
     }
 
     @Test
@@ -117,6 +120,46 @@ class PermissionGrantServiceTest {
         verify(permissionWriter).createPending(1L, 7L, 10L, List.of(102L)); // 유지된 100은 다시 만들지 않음
         verify(permissionWriter, never()).createActive(any(), any(), any(), any(), anyList(), any(), any());
         verifyNoInteractions(careRequestSharingReader); // 수락 전은 기한이 필요 없어 조회하지 않음
+    }
+
+    @Test
+    void 수락_전_수정은_유지_항목까지_전체_목록을_확인하고_거르지_않는다() {
+        when(permissionWriter.findOpenPermissions(7L)).thenReturn(List.of(pending(500L, 100L)));
+
+        service.grantOnChangeConfirmed(new CareRequestChangeConfirmedEvent(
+                1L, 10L, null, 7L, 20L, Set.of(ChangeableField.INFORMATION_IDS), List.of(100L, 102L), NOW));
+
+        verify(permissionWriter).loadOwnedItemTypes(10L, List.of(100L, 102L)); // 문제가 있으면 여기서 전체 거부
+        verify(permissionWriter, never()).filterOwnedItemIds(any(), anyList());
+    }
+
+    @Test
+    void 재확인_수락은_대기_중_삭제된_항목을_빼고_남은_항목으로_반영한다() {
+        // 지금 공개 중: 100 / 제안: 100, 102, 103 → 대기 중 103 삭제 → 102만 추가
+        when(permissionWriter.findOpenPermissions(7L)).thenReturn(List.of(active(500L, 100L, null)));
+        when(permissionWriter.filterOwnedItemIds(10L, List.of(100L, 102L, 103L))).thenReturn(List.of(100L, 102L));
+        when(careRequestSharingReader.findById(1L)).thenReturn(Optional.of(requestInfo(RequestType.GENERAL, NOW.minusHours(3))));
+
+        service.grantOnChangeConfirmed(new CareRequestChangeConfirmedEvent(
+                1L, 10L, 30L, 7L, 20L, Set.of(ChangeableField.INFORMATION_IDS), List.of(100L, 102L, 103L), NOW));
+
+        verify(permissionWriter, never()).loadOwnedItemTypes(any(), anyList()); // 전체 거부 확인은 하지 않음
+        verify(permissionWriter).createActive(1L, 7L, 10L, 20L, List.of(102L), NOW, null);
+    }
+
+    @Test
+    void 재확인_수락에서_유지_항목이_삭제됐으면_그_항목만_회수된다() {
+        // 지금 공개 중: 100, 101 / 제안: 100, 101 그대로인데 대기 중 101 삭제 → 101은 반영 목록에서 빠져 회수
+        RequestInformationPermission kept = active(500L, 100L, null);
+        RequestInformationPermission deleted = active(501L, 101L, null);
+        when(permissionWriter.findOpenPermissions(7L)).thenReturn(List.of(kept, deleted));
+        when(permissionWriter.filterOwnedItemIds(10L, List.of(100L, 101L))).thenReturn(List.of(100L));
+
+        service.grantOnChangeConfirmed(new CareRequestChangeConfirmedEvent(
+                1L, 10L, 30L, 7L, 20L, Set.of(ChangeableField.INFORMATION_IDS), List.of(100L, 101L), NOW));
+
+        verify(permissionWriter).revokeByRequestEvent(List.of(deleted), RevokeReason.SHARING_EXCLUDED, 10L, NOW);
+        verify(permissionWriter, never()).createActive(any(), any(), any(), any(), anyList(), any(), any());
     }
 
     @Test

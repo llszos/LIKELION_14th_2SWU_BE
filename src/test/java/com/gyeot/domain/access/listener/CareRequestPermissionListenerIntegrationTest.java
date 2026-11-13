@@ -227,6 +227,44 @@ class CareRequestPermissionListenerIntegrationTest {
     }
 
     @Test
+    void 재확인_대기_중_삭제된_항목은_빼고_남은_항목으로_반영한다() {
+        // ERD 4.8: 담당자는 항목을 고칠 수 없으므로, 대기 중 삭제된 항목 때문에 재확인 수락이 막히면 안 됨
+        publish(created(List.of(allergyId)));
+        publish(accepted(RequestType.GENERAL));
+        when(careRequestSharingReader.findById(REQUEST_ID)).thenReturn(Optional.of(requestInfo(RequestType.GENERAL)));
+        safetyInformationRepository.deleteById(petId); // 복용약, 반려동물 추가를 제안한 뒤 반려동물 삭제
+
+        publish(changeConfirmed(30L, List.of(allergyId, medicationId, petId)));
+
+        assertThat(permissionsOf(ASSIGNMENT_ID))
+                .extracting(RequestInformationPermission::getInformationId, RequestInformationPermission::getStatus)
+                .containsExactlyInAnyOrder(tuple(allergyId, PermissionStatus.ACTIVE), tuple(medicationId, PermissionStatus.ACTIVE));
+    }
+
+    @Test
+    void 재확인_목록이_전부_삭제됐으면_기존_권한을_회수하고_새로_만들지_않는다() {
+        publish(created(List.of(allergyId)));
+        publish(accepted(RequestType.GENERAL));
+        // 유지할 알레르기와 추가할 복용약이 대기 중 모두 삭제된 상황입니다.
+        // 삭제 API의 권한 정리는 제외하고, 재확인 이벤트의 빈 반영 목록 처리를 검증합니다.
+        safetyInformationRepository.deleteById(allergyId);
+        safetyInformationRepository.deleteById(medicationId);
+
+        publish(changeConfirmed(30L, List.of(allergyId, medicationId)));
+
+        assertThat(permissionsOf(ASSIGNMENT_ID)).singleElement().satisfies(permission -> {
+            assertThat(permission.getInformationId()).isEqualTo(allergyId);
+            assertThat(permission.getStatus()).isEqualTo(PermissionStatus.REVOKED);
+            assertThat(permission.getRevokedAt()).isEqualTo(CHANGED_AT);
+        });
+        assertThat(accessLogRepository.findAll())
+                .extracting(InformationAccessLog::getInformationId, InformationAccessLog::getEventType)
+                .containsExactlyInAnyOrder(
+                        tuple(allergyId, AccessEventType.GRANTED),
+                        tuple(allergyId, AccessEventType.AUTO_REVOKED));
+    }
+
+    @Test
     void 유지_항목이_중복된_전체_목록은_회수_전에_거부한다() {
         publish(created(List.of(allergyId, medicationId)));
 
@@ -240,7 +278,7 @@ class CareRequestPermissionListenerIntegrationTest {
     }
 
     @Test
-    void 유지_항목이_삭제됐으면_추가_항목이_없어도_전체_수정을_거부한다() {
+    void 수락_전_수정에서_유지_항목이_삭제됐으면_추가_항목이_없어도_전체_수정을_거부한다() {
         publish(created(List.of(allergyId, medicationId)));
         safetyInformationRepository.deleteById(allergyId); // 유지하려는 항목이 그 사이 삭제됨
 

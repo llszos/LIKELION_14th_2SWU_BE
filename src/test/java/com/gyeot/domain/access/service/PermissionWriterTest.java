@@ -94,6 +94,32 @@ class PermissionWriterTest {
         verify(safetyInformationRepository, never()).findAllById(any());
     }
 
+    // === 재확인 수락용 항목 거르기 ===
+
+    @Test
+    void 지금_있고_본인_것인_항목만_고른_순서대로_남긴다() {
+        // 11번은 삭제됨(조회 안 됨), 20번은 다른 사람 것
+        when(safetyInformationRepository.findAllById(any())).thenReturn(List.of(
+                item(12L, OWNER_ID, InformationType.PET), item(10L, OWNER_ID, InformationType.ALLERGY),
+                item(20L, OTHER_ID, InformationType.ALLERGY)));
+
+        assertThat(writer.filterOwnedItemIds(OWNER_ID, List.of(12L, 11L, 20L, 10L))).containsExactly(12L, 10L);
+    }
+
+    @Test
+    void 거를_때_null과_중복은_빼고_예외를_던지지_않는다() {
+        when(safetyInformationRepository.findAllById(any())).thenReturn(List.of(item(10L, OWNER_ID, InformationType.ALLERGY)));
+
+        assertThat(writer.filterOwnedItemIds(OWNER_ID, Arrays.asList(10L, null, 10L))).containsExactly(10L);
+    }
+
+    @Test
+    void 거를_목록이_비어_있으면_조회하지_않는다() {
+        assertThat(writer.filterOwnedItemIds(OWNER_ID, List.of())).isEmpty();
+        assertThat(writer.filterOwnedItemIds(OWNER_ID, null)).isEmpty();
+        verify(safetyInformationRepository, never()).findAllById(any());
+    }
+
     // === 공유 예정 권한 생성 ===
 
     @Test
