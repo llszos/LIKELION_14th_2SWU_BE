@@ -104,6 +104,14 @@ public class Relationship extends BaseCreatedEntity {
         this.guardianPriority = guardianPriority;
     }
 
+    // 순서 목록 전체를 재배치할 때 트랜잭션 안에서 기존 값을 먼저 비웁니다.
+    public void clearGuardianPriorityForReorder() {
+        if (relationshipType != RelationshipType.GUARDIAN || status != RelationshipStatus.ACTIVE) {
+            throw new IllegalStateException("활성 보호자 관계의 순서만 변경할 수 있습니다.");
+        }
+        this.guardianPriority = null;
+    }
+
     // 관계를 종료합니다.
     public void end(LocalDateTime endedAt) {
         if (this.status == RelationshipStatus.ENDED) {
