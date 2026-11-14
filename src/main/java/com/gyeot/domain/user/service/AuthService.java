@@ -6,7 +6,12 @@ import com.gyeot.domain.user.dto.response.LoginResponse;
 import com.gyeot.domain.user.dto.response.SignupResponse;
 import com.gyeot.domain.user.entity.AccountStatus;
 import com.gyeot.domain.user.entity.User;
+import com.gyeot.domain.user.entity.UserConsent;
+import com.gyeot.domain.user.entity.UserConsentType;
 import com.gyeot.domain.user.repository.UserRepository;
+import com.gyeot.domain.user.repository.UserConsentRepository;
+import com.gyeot.global.exception.BusinessException;
+import com.gyeot.global.exception.CommonErrorCode;
 import com.gyeot.global.security.jwt.JwtProperties;
 import com.gyeot.global.security.jwt.JwtTokenProvider;
 import com.gyeot.global.security.auth.AuthErrorCode;
@@ -18,6 +23,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.LocalDateTime;
 
 /**
  * 회원가입·로그인 처리를 담당합니다.
@@ -26,25 +33,33 @@ import java.nio.charset.StandardCharsets;
 public class AuthService {
 
     private static final int BCRYPT_MAX_PASSWORD_BYTES = 72;
+    // 새 개인정보 제공 동의 문서가 확정되면 이 버전을 올립니다.
+    private static final String PRIVACY_POLICY_VERSION = "v1";
 
     private final UserRepository userRepository;
+    private final UserConsentRepository userConsentRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final JwtProperties jwtProperties;
     private final RefreshTokenService refreshTokenService;
+    private final Clock clock;
 
     public AuthService(
             UserRepository userRepository,
+            UserConsentRepository userConsentRepository,
             PasswordEncoder passwordEncoder,
             JwtTokenProvider jwtTokenProvider,
             JwtProperties jwtProperties,
-            RefreshTokenService refreshTokenService
+            RefreshTokenService refreshTokenService,
+            Clock clock
     ) {
         this.userRepository = userRepository;
+        this.userConsentRepository = userConsentRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtTokenProvider = jwtTokenProvider;
         this.jwtProperties = jwtProperties;
         this.refreshTokenService = refreshTokenService;
+        this.clock = clock;
     }
 
     /**
@@ -55,6 +70,9 @@ public class AuthService {
     @Transactional
     public SignupResponse signup(SignupRequest request) {
         validatePasswordLength(request.password());
+        if (!Boolean.TRUE.equals(request.privacyConsent())) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
 
         if (userRepository.existsByEmail(request.email())) {
             throw new AuthException(AuthErrorCode.EMAIL_ALREADY_REGISTERED);
@@ -70,6 +88,12 @@ public class AuthService {
         );
 
         User savedUser = userRepository.save(user);
+        userConsentRepository.save(UserConsent.record(
+                savedUser.getId(),
+                UserConsentType.PRIVACY_POLICY,
+                PRIVACY_POLICY_VERSION,
+                LocalDateTime.now(clock)
+        ));
 
         return new SignupResponse(savedUser.getId());
     }
