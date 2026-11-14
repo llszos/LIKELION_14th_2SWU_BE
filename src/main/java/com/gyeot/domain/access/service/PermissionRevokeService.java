@@ -25,6 +25,8 @@ import org.springframework.transaction.annotation.Transactional;
  * - 이력, 수행자, 이미 회수된 권한 건너뛰기 규칙은 PermissionWriter.revokeByRequestEvent와 같습니다.
  *   ACTIVE였던 권한만 AUTO_REVOKED 이력을 남기고, 수행자는 시스템 처리라 NULL입니다.
  * - C 이벤트로 회수된 경우는 C가 알림을 보내므로 PermissionRevokedEvent를 발행하지 않습니다.
+ * - 회수 전에 그 권한들의 항목 행부터 잠급니다. (PermissionWriter 클래스 설명의 잠금 규칙, #38)
+ *   같은 권한을 항목 삭제가 동시에 회수하면 사유가 덮어써지거나 이력이 두 번 남을 수 있어서입니다.
  */
 @Service
 @RequiredArgsConstructor
@@ -40,6 +42,9 @@ public class PermissionRevokeService {
      */
     public void revokeOnCompleted(CareRequestCompletedEvent event) {
 
+        // 회수할 권한의 항목 행을 먼저 잠금 (항목 삭제와 같은 권한을 동시에 바꾸지 않게, #38 잠금 규칙)
+        permissionWriter.lockItemsOfRequest(event.requestId());
+
         // 정보 주인 = 요청자, 회수 시각 = 완료 시각
         permissionWriter.revokeRequest(event.requestId(), RevokeReason.REQUEST_ENDED,
                 event.requesterId(), event.occurredAt());
@@ -53,6 +58,9 @@ public class PermissionRevokeService {
      */
     public void revokeOnCanceled(CareRequestCanceledEvent event) {
 
+        // 회수할 권한의 항목 행을 먼저 잠금 (항목 삭제와 같은 권한을 동시에 바꾸지 않게, #38 잠금 규칙)
+        permissionWriter.lockItemsOfRequest(event.requestId());
+
         // assignmentId는 쓰지 않음 (NULL일 수 있고, 요청이 끝나면 모든 지정의 권한을 끝내야 함)
         permissionWriter.revokeRequest(event.requestId(), RevokeReason.REQUEST_ENDED,
                 event.requesterId(), event.occurredAt());
@@ -65,6 +73,9 @@ public class PermissionRevokeService {
      */
     public void revokeOnExpired(CareRequestExpiredEvent event) {
 
+        // 회수할 권한의 항목 행을 먼저 잠금 (항목 삭제와 같은 권한을 동시에 바꾸지 않게, #38 잠금 규칙)
+        permissionWriter.lockItemsOfRequest(event.requestId());
+
         // 취소와 같은 이유로 assignmentId는 쓰지 않음
         permissionWriter.revokeRequest(event.requestId(), RevokeReason.REQUEST_ENDED,
                 event.requesterId(), event.occurredAt());
@@ -76,6 +87,9 @@ public class PermissionRevokeService {
      * 요청은 계속 열려 있어 다시 부탁하기로 다른 대상을 지정할 수 있으므로, 요청 전체가 아닌 그 지정만 회수합니다.
      */
     public void revokeOnAcceptanceWithdrawn(CareRequestAcceptanceWithdrawnEvent event) {
+
+        // 회수할 권한의 항목 행을 먼저 잠금 (항목 삭제와 같은 권한을 동시에 바꾸지 않게, #38 잠금 규칙)
+        permissionWriter.lockItemsOfAssignment(event.assignmentId(), null);
 
         // 정보 주인 = 요청자 (철회한 사람은 담당자지만 권한의 주인은 요청자)
         permissionWriter.revokeAssignment(event.assignmentId(), RevokeReason.ASSIGNMENT_CLOSED,
@@ -90,6 +104,9 @@ public class PermissionRevokeService {
      *   (CareRequestAssignmentClosedEvent가 생성 시 거부)
      */
     public void revokeOnAssignmentClosed(CareRequestAssignmentClosedEvent event) {
+
+        // 회수할 권한의 항목 행을 먼저 잠금 (항목 삭제와 같은 권한을 동시에 바꾸지 않게, #38 잠금 규칙)
+        permissionWriter.lockItemsOfAssignment(event.assignmentId(), null);
 
         // closeReason은 회수 사유를 나누는 데 쓰지 않음 (모두 지정 하나만 끝난 경우)
         permissionWriter.revokeAssignment(event.assignmentId(), RevokeReason.ASSIGNMENT_CLOSED,
