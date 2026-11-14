@@ -72,6 +72,24 @@ public interface RequestInformationPermissionRepository extends JpaRepository<Re
                                             @Param("excludedReasons") Collection<RevokeReason> excludedReasons);
 
     /**
+     * 대상 지정 하나의 권한 중 지정한 상태인 것을 조회합니다. (#42 권한 부여와 회수)
+     * 권한은 (지정, 항목) 단위라, 수락, 대상 변경, 수정 확정 때 그 지정의 PENDING, ACTIVE 권한을 찾는 데 씁니다.
+     * 인덱스 idx_permissions_assignment_id_status를 사용합니다.
+     */
+    List<RequestInformationPermission> findAllByAssignmentIdAndStatusIn(Long assignmentId,
+                                                                        Collection<PermissionStatus> statuses);
+
+    /**
+     * 요청 하나의 권한 중 지정한 상태인 것을 조회합니다. (#43 요청 종료 시 일괄 회수)
+     *
+     * 완료, 취소, 만료처럼 요청 자체가 끝나면 그 요청의 모든 지정(이전 대상 포함)의 PENDING, ACTIVE 권한을 찾는 데 씁니다.
+     * 취소, 만료 이벤트는 열린 지정이 없으면 assignmentId가 NULL이라, 지정이 아닌 요청 기준으로 찾습니다.
+     * 인덱스 idx_permissions_request_id_status를 사용합니다.
+     */
+    List<RequestInformationPermission> findAllByRequestIdAndStatusIn(Long requestId,
+                                                                     Collection<PermissionStatus> statuses);
+
+    /**
      * 기준 시각보다 이전(<)에 끝난 권한을 한 번에 삭제합니다. (보존 기간 2년 정리, #44)
      * 지금 쓰는 권한(PENDING·ACTIVE)과 정확히 기준 시각에 끝난 권한은 남깁니다.
      * 삭제 전에 이 권한을 가리키는 이력의 permission_id를 먼저 NULL로 바꿔야 합니다.
