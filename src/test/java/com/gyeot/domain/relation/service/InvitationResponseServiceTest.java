@@ -281,6 +281,32 @@ class InvitationResponseServiceTest {
         java.util.List<Relationship> newGuardians = guardianCaptor.getAllValues().getLast();
         assertEquals(2, newGuardians.size());
         assertTrue(newGuardians.stream().allMatch(guardian -> guardian.getGuardianPriority() == 3));
+        assertTrue(newGuardians.stream().allMatch(guardian -> guardian.getRelationshipType() == RelationshipType.GUARDIAN));
+        assertTrue(newGuardians.stream().anyMatch(guardian -> guardian.getSourceUserId().equals(INVITER_ID)
+                && guardian.getTargetUserId().equals(INVITEE_ID)));
+        assertTrue(newGuardians.stream().anyMatch(guardian -> guardian.getSourceUserId().equals(INVITEE_ID)
+                && guardian.getTargetUserId().equals(INVITER_ID)));
+    }
+
+    @Test
+    void 이미_서로_보호자면_보호자_초대_수락도_거부한다() {
+        invitation = guardianInvitation();
+        when(invitationRepository.findByTokenHashForUpdate(tokenGenerator.hash(TOKEN)))
+                .thenReturn(Optional.of(invitation));
+        when(relationshipRepository.findActiveBetweenUsers(INVITER_ID, INVITEE_ID, RelationshipStatus.ACTIVE))
+                .thenReturn(java.util.List.of(
+                        Relationship.createGuardian(INVITER_ID, INVITEE_ID, 1),
+                        Relationship.createGuardian(INVITEE_ID, INVITER_ID, 1)
+                ));
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.acceptInvitation(TOKEN, INVITEE_ID)
+        );
+
+        assertEquals(InvitationErrorCode.GUARDIAN_RELATIONSHIP_ALREADY_EXISTS, exception.getErrorCode());
+        assertEquals(InvitationStatus.PENDING, invitation.getStatus());
+        verify(relationshipRepository, never()).saveAllAndFlush(any());
     }
 
     @Test

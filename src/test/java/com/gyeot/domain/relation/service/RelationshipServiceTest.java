@@ -68,4 +68,21 @@ class RelationshipServiceTest {
 
         assertEquals(CommonErrorCode.INVALID_INPUT, exception.getErrorCode());
     }
+
+    @Test
+    void 중복_보호자나_다른_사용자의_ID가_포함된_순서_변경은_거부한다() {
+        Relationship first = Relationship.createGuardian(USER_ID, 2L, 1);
+        Relationship second = Relationship.createGuardian(USER_ID, 3L, 2);
+        when(relationshipRepository.findAllBySourceUserIdAndRelationshipTypeAndStatusOrderByGuardianPriorityAsc(
+                USER_ID, RelationshipType.GUARDIAN, RelationshipStatus.ACTIVE))
+                .thenReturn(List.of(first, second));
+
+        for (List<Long> invalidOrder : List.of(List.of(2L, 2L), List.of(2L, 99L))) {
+            BusinessException exception = assertThrows(
+                    BusinessException.class,
+                    () -> service.changeGuardianOrder(USER_ID, invalidOrder)
+            );
+            assertEquals(CommonErrorCode.INVALID_INPUT, exception.getErrorCode());
+        }
+    }
 }
