@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -32,11 +33,30 @@ import java.util.stream.Collectors;
  * 권한 부여(#42)와 회수(#43)가 같은 규칙으로 권한과 접근 이력을 다루도록 한곳에 모았습니다.
  *
  * - 회수는 끝나는 범위에 따라 두 가지로 나뉩니다.
- *   지정 하나만 끝나면 revokeAssignment(대상 변경, 수락 철회, 지정 마감),
+ *   지정 하나만 끝나면 revokeAssignment(수락 철회, 지정 마감),
  *   요청 자체가 끝나면 revokeRequest(완료, 취소, 만료)를 씁니다. 둘 다 revokeByRequestEvent로 같은 규칙을 적용합니다.
- * - 호출하는 쪽의 트랜잭션 안에서만 실행합니다. (MANDATORY)
- *   C 요청 이벤트는 C가 요청 행을 잠근 트랜잭션 안에서 동기로 발행하므로, 같은 요청의 권한 변경은 순서대로 처리됩니다.
- * - 권한 변경과 접근 이력 저장은 같은 트랜잭션입니다. 하나라도 실패하면 발행한 C 작업까지 함께 되돌립니다.
+ *   안심카드 항목을 지우면 revokeItem으로 그 항목의 권한만 끝냅니다. (#38)
+ *
+ * - 잠금 순서 (#38, 항목 삭제와 권한 변경의 경합 방지)
+ *   1. 작업 전체에 필요한 항목 ID를 모읍니다. 이때 권한 엔티티는 읽지 않습니다.
+ *   2. lockItems로 항목을 ID 오름차순으로 하나씩 잠급니다.
+ *   3. 권한을 잠금 조회한 뒤 상태를 판단합니다. 항목 검증과 필터링도 잠금 조회를 사용합니다.
+ *
+ *   서비스가 작업 전체의 잠금 대상을 정하고, 이 클래스가 잠금 메서드를 제공합니다.
+ *   메서드마다 대상을 나눠 잠그면 작업 전체의 잠금 순서가 엇갈릴 수 있습니다.
+ *
+ * - 권한 조회 방식 (#38 리뷰 반영)
+ *   대상 변경과 수정 확정: 권한 ID를 조회한 뒤 기본 키로 하나씩 잠급니다.
+ *   수락, C 이벤트 회수, 항목 삭제: 범위 잠금을 유지합니다.
+ *   생성 전 중복 확인: 잠그지 않는 항목 ID 조회를 사용합니다.
+ *
+ *   뒤이어 권한을 INSERT하는 경로에서 빈 범위의 갭 락으로 인한 교착 위험을 줄이려는 구분입니다.
+ *   기본 키 잠금 경로의 스냅샷 전제는 lockOpenPermissionsById 설명을 따릅니다.
+ *
+ * - 트랜잭션
+ *   MANDATORY로 호출 측 트랜잭션에 참여합니다.
+ *   C는 요청 행을 잠근 트랜잭션 안에서 이벤트를 동기로 발행해 같은 요청의 변경을 직렬화합니다.
+ *   권한 변경이나 이력 저장이 실패하면 발행 측 C 변경도 함께 롤백됩니다.
  */
 @Component
 @RequiredArgsConstructor
@@ -50,9 +70,117 @@ public class PermissionWriter {
     private final InformationAccessLogRepository accessLogRepository;          // 부여, 회수 이력 저장
     private final SafetyInformationRepository safetyInformationRepository;     // 공개 항목의 존재, 주인, 유형 확인
 
-    /** 대상 지정 하나의 끝나지 않은 권한(PENDING, ACTIVE)을 조회합니다. */
+    /**
+     * 대상 지정 하나의 끝나지 않은 권한(PENDING, ACTIVE)을 범위 잠금 조회합니다.
+     *
+     * - 수락(활성화)과 C 이벤트 회수처럼 같은 트랜잭션에서 권한을 새로 만들지 않는 경로에서 씁니다.
+     * - 권한이 없는 지정이면 빈 범위에 갭 락이 걸릴 수 있어, 뒤이어 INSERT하는 경로에서는 쓰지 않습니다.
+     *   그런 경로(대상 변경, 수정 확정)는 lockOpenPermissionsById를 씁니다. (#38 리뷰 반영)
+     */
     public List<RequestInformationPermission> findOpenPermissions(Long assignmentId) {
         return permissionRepository.findAllByAssignmentIdAndStatusIn(assignmentId, OPEN_STATUSES);
+    }
+
+    /**
+     * 대상 지정 하나의 끝나지 않은 권한(PENDING, ACTIVE)을 권한 ID로 하나씩 잠가 돌려줍니다. (#38 리뷰 반영)
+     *
+     * - 대상 변경과 수정 확정처럼 같은 트랜잭션에서 뒤이어 권한을 INSERT하는 경로에서 씁니다.
+     *   범위로 잠그면 빈 인덱스 범위에 갭 락이 걸려 다른 요청의 INSERT와 서로 기다리다 교착이 날 수 있어,
+     *   먼저 잠그지 않고 권한 ID만 읽은 뒤 기본 키로 하나씩 잠급니다.
+     * - 존재하는 권한을 기본 키로 조회하면 해당 행만 잠가 범위 조회의 갭 락을 줄입니다.
+     *   조회 전에 행이 삭제된 경우에는 갭 락이 생길 수 있습니다.
+     *
+     * - 전제: 이 지정에 권한이 새로 추가되는 일은 C 요청 행 잠금 안에서만 일어납니다.
+     *   호출 측은 요청 행 잠금 전에 일반 조회로 스냅샷을 만들지 않아야 합니다. 잠금 전에 만든 스냅샷에는
+     *   잠금을 기다리는 동안 커밋된 권한이 빠질 수 있고, 기본 키 잠금으로도 수집하지 못한 ID를 복구할 수 없습니다.
+     *   요청 행 잠금 후 스냅샷을 만들고, 잠금을 유지하는 동안 다른 트랜잭션이 이 지정에 권한을 추가하지 않는 것을 전제로 합니다.
+     * - ID를 모은 뒤 항목 삭제가 회수한 권한은 잠금 조회에서 최신 상태(REVOKED)로 보여 결과에서 뺍니다.
+     * - 항목 삭제와 C 이벤트 회수 경로는 이 방식이 아니라 범위 잠금(findOpenPermissions, 항목별 잠금 조회)을 유지합니다.
+     *   잠그지 않는 조회의 스냅샷에서 빠진 권한을 다시 찾지 못하는 문제를 피하려는 것입니다.
+     */
+    public List<RequestInformationPermission> lockOpenPermissionsById(Long assignmentId) {
+        Objects.requireNonNull(assignmentId, "assignmentId는 필수입니다.");
+
+        // 1. 잠그지 않고 권한 ID만 오름차순으로 읽음 (엔티티를 읽지 않아 예전 상태가 영속성 컨텍스트에 남지 않음)
+        List<Long> permissionIds = permissionRepository.findIdsByAssignmentIdAndStatusIn(assignmentId, OPEN_STATUSES);
+
+        // 2. 오름차순으로 하나씩 기본 키 잠금 (빈 목록이면 잠금 조회 없음)
+        List<RequestInformationPermission> locked = new ArrayList<>();
+        for (Long permissionId : permissionIds) {
+            permissionRepository.findByIdForUpdate(permissionId)
+                    // 3. 잠금 조회는 최신 상태를 읽으므로, 그 사이 회수된 권한은 여기서 걸러짐
+                    .filter(permission -> OPEN_STATUSES.contains(permission.getStatus()))
+                    .ifPresent(locked::add);
+        }
+        return locked;
+    }
+
+    /**
+     * 안심카드 항목 행을 잠급니다. (#38 잠금 규칙 2단계)
+     *
+     * - 작업 하나에 필요한 항목 ID를 모두 모아 한 번만 부릅니다. null과 중복은 빼고 ID 오름차순으로 정렬합니다.
+     * - 정렬한 ID마다 단건 잠금 조회를 차례로 실행합니다. IN 조회 한 번으로 잠그면 실제 잠금 획득 순서를
+     *   DB 실행 계획이 정해, 정렬한 순서대로 잠근다고 보장할 수 없기 때문입니다.
+     * - 이미 삭제된 항목은 잠글 행이 없어 그냥 넘어갑니다. 삭제 여부는 뒤의 항목 확인(loadOwnedItemTypes 등)에서 판단합니다.
+     * - 항목 삭제도 같은 항목 행을 먼저 잠그므로, 이 잠금을 쥔 동안에는 그 항목이 삭제되지 않습니다.
+     */
+    public void lockItems(Collection<Long> informationIds) {
+
+        if (informationIds == null || informationIds.isEmpty()) {
+            return; // 잠글 항목 없음 (공개 항목 0개, 열린 권한 없음)
+        }
+
+        // null 제외, 중복 제거, 오름차순 정렬 (같은 항목들을 잠그는 작업끼리 순서를 맞추려는 것)
+        List<Long> sortedIds = informationIds.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .sorted()
+                .toList();
+
+        if (sortedIds.isEmpty()) {
+            return;
+        }
+
+        // 오름차순으로 하나씩 잠금 (코드 순서 = 잠금 획득 순서)
+        // 결과는 쓰지 않음. 잠금을 거는 것이 목적이고, 존재와 소유 판단은 잠근 뒤 다시 조회해서 함
+        for (Long informationId : sortedIds) {
+            safetyInformationRepository.findByIdForUpdate(informationId);
+        }
+    }
+
+    /**
+     * 대상 지정의 열린 권한이 가리키는 항목과 함께 추가 항목까지 한 번에 잠급니다. (#38 잠금 규칙 1, 2단계)
+     *
+     * 수락, 지정 회수처럼 기존 권한만 바뀌면 추가 항목 없이, 대상 변경과 수정 확정처럼 새 항목도 공개하면
+     * 이벤트의 항목 ID를 함께 넘깁니다. 이전 지정과 새 지정을 한 작업에서 다루면 둘을 모두 넘깁니다.
+     *
+     * @param assignmentId          열린 권한을 볼 지정 (null이면 그 지정은 건너뜀)
+     * @param extraInformationIds   함께 잠글 항목 ID (null 가능)
+     */
+    public void lockItemsOfAssignment(Long assignmentId, Collection<Long> extraInformationIds) {
+        List<Long> ids = new ArrayList<>();
+
+        if (assignmentId != null) {
+            // 권한 엔티티가 아니라 항목 ID만 읽음 (잠그기 전에 엔티티를 읽으면 예전 상태가 영속성 컨텍스트에 남음)
+            ids.addAll(permissionRepository.findInformationIdsByAssignmentIdAndStatusIn(assignmentId, OPEN_STATUSES));
+        }
+        if (extraInformationIds != null) {
+            ids.addAll(extraInformationIds);
+        }
+
+        lockItems(ids);
+    }
+
+    /**
+     * 요청의 열린 권한이 가리키는 항목을 모두 잠급니다. (#38 잠금 규칙 1, 2단계, 요청 종료 시 회수)
+     *
+     * 지정과 상관없이 그 요청의 열린 권한 전체가 대상입니다. (revokeRequest와 같은 범위)
+     */
+    public void lockItemsOfRequest(Long requestId) {
+        Objects.requireNonNull(requestId, "requestId는 필수입니다.");
+
+        // 항목 ID만 읽음 (lockItemsOfAssignment와 같은 이유)
+        lockItems(permissionRepository.findInformationIdsByRequestIdAndStatusIn(requestId, OPEN_STATUSES));
     }
 
     /**
@@ -78,9 +206,11 @@ public class PermissionWriter {
             throw invalidSelection();
         }
 
-        // 한 번에 조회해, 개수가 모자라면(없거나 삭제됨) 또는 하나라도 주인이 다르면 전체 거부
+        // 한 번에 잠금 조회해, 개수가 모자라면(없거나 삭제됨) 또는 하나라도 주인이 다르면 전체 거부
         // 일부만 빼고 만들면 요청자가 고른 것과 실제 공개 항목이 달라지므로 전부 아니면 거부
-        List<SafetyInformation> found = safetyInformationRepository.findAllById(uniqueIds);
+        // 잠금 조회라 최신 상태를 보고, 서비스가 lockItems로 미리 잠갔다면 기다리지 않고 바로 돌려줌 (#38 잠금 규칙 3단계)
+        // 잠금 순서는 lockItems에서 이미 정해졌고, 여기서는 확보한 항목을 확인하는 용도
+        List<SafetyInformation> found = safetyInformationRepository.findAllByIdInForUpdate(uniqueIds);
         boolean allOwned = found.size() == uniqueIds.size()
                 && found.stream().allMatch(information -> Objects.equals(information.getOwnerId(), ownerUserId));
         if (!allOwned) {
@@ -114,9 +244,10 @@ public class PermissionWriter {
         Set<Long> uniqueIds = new LinkedHashSet<>(informationIds); // 순서 유지하며 중복 제거
         uniqueIds.remove(null); // 잘못 들어온 null은 조회 대상에서 뺌
 
-        // 한 번에 조회해 지금 있고 요청자 것인 항목 ID만 모음 (삭제된 항목은 조회되지 않음)
+        // 한 번에 잠금 조회해 지금 있고 요청자 것인 항목 ID만 모음 (삭제된 항목은 조회되지 않음)
+        // 일반 조회로 거른 뒤 잠그면 그 사이 삭제가 끼어들 수 있어, 거르는 조회 자체를 잠금 조회로 함 (#38 잠금 규칙 3단계)
         Set<Long> ownedIds = new HashSet<>();
-        for (SafetyInformation information : safetyInformationRepository.findAllById(uniqueIds)) {
+        for (SafetyInformation information : safetyInformationRepository.findAllByIdInForUpdate(uniqueIds)) {
             if (Objects.equals(information.getOwnerId(), ownerUserId)) {
                 ownedIds.add(information.getId());
             }
@@ -227,7 +358,8 @@ public class PermissionWriter {
      *
      * - PENDING과 ACTIVE 모두 REVOKED로 바꾸고, revoked_at은 이벤트 발생 시각을 씁니다.
      * - ACTIVE였던 권한만 AUTO_REVOKED 이력을 남깁니다. PENDING은 담당자가 본 적이 없어 남기지 않습니다.
-     * - 이력 수행자: 공개 항목 제외(SHARING_EXCLUDED)는 정보 주인이 뺀 것이라 정보 주인, 그 밖은 시스템 처리라 NULL
+     * - 이력 수행자: 공개 항목 제외(SHARING_EXCLUDED)와 항목 삭제(ITEM_DELETED)는 정보 주인이 직접 한 것이라 정보 주인,
+     *   그 밖은 시스템 처리라 NULL (D 요구사항명세 F-10, ERD 4.12)
      * - 이미 REVOKED인 권한은 건너뜁니다. (같은 이벤트가 다시 와도 결과와 이력이 같음)
      * - C 이벤트로 끝난 권한은 C가 알림을 보내므로 PermissionRevokedEvent를 발행하지 않습니다.
      *
@@ -242,8 +374,9 @@ public class PermissionWriter {
         Objects.requireNonNull(ownerUserId, "ownerUserId는 필수입니다.");
         Objects.requireNonNull(revokedAt, "revokedAt은 필수입니다.");
 
-        // 공개 항목 제외는 정보 주인이 직접 뺀 것, 그 밖(요청 종료, 지정 마감 등)은 시스템 처리라 수행자 없음
-        Long actorUserId = reason == RevokeReason.SHARING_EXCLUDED ? ownerUserId : null;
+        // 공개 항목 제외와 항목 삭제는 정보 주인이 직접 한 것, 그 밖(요청 종료, 지정 마감 등)은 시스템 처리라 수행자 없음
+        boolean ownerAction = reason == RevokeReason.SHARING_EXCLUDED || reason == RevokeReason.ITEM_DELETED;
+        Long actorUserId = ownerAction ? ownerUserId : null;
         List<InformationAccessLog> logs = new ArrayList<>();
 
         for (RequestInformationPermission permission : permissions) {
@@ -266,7 +399,10 @@ public class PermissionWriter {
     }
 
     /**
-     * 대상 지정 하나의 끝나지 않은 권한(PENDING, ACTIVE)을 모두 끝냅니다. (대상 변경, #43 수락 철회와 지정 마감)
+     * 대상 지정 하나의 끝나지 않은 권한(PENDING, ACTIVE)을 모두 끝냅니다. (#43 수락 철회와 지정 마감)
+     *
+     * 범위 잠금 조회(findOpenPermissions)를 써서, 뒤이어 INSERT하지 않는 경로에서만 씁니다.
+     * 대상 변경은 새 지정에 INSERT하므로 lockOpenPermissionsById로 잠근 뒤 revokeByRequestEvent를 부릅니다. (#38 리뷰 반영)
      *
      * 처리 규칙은 revokeByRequestEvent와 같습니다.
      */
@@ -300,6 +436,53 @@ public class PermissionWriter {
         revokeByRequestEvent(openPermissions, reason, ownerUserId, revokedAt);
     }
 
+    /**
+     * 안심카드 항목 하나의 끝나지 않은 권한(PENDING, ACTIVE)을 모두 ITEM_DELETED로 끝냅니다. (#38 항목 삭제)
+     *
+     * - 그 항목이 공개된 모든 요청의 권한이 대상입니다.
+     * - 처리 규칙(이력, 이미 끝난 권한 건너뛰기)은 revokeByRequestEvent와 같고, 이력 수행자는 정보 주인입니다.
+     * - 회수 전에 ACTIVE였던 권한을 돌려줍니다. 담당자에게 알릴 PermissionRevokedEvent를 만드는 데 씁니다.
+     *   PENDING은 담당자가 본 적이 없어 알리지 않으므로 돌려주지 않습니다.
+     *
+     * @param informationId 삭제할 항목 ID
+     * @param ownerUserId   정보 주인 ID (이력의 owner_user_id와 수행자)
+     * @param revokedAt     삭제 시각
+     * @return 회수 전에 ACTIVE였던 권한 (회수 후 상태)
+     */
+    public List<RequestInformationPermission> revokeItem(Long informationId, Long ownerUserId, LocalDateTime revokedAt) {
+
+        // ownerUserId, revokedAt은 revokeByRequestEvent에서 확인하므로 여기서는 informationId만 확인
+        Objects.requireNonNull(informationId, "informationId는 필수입니다.");
+
+        // 이 항목이 공개된 모든 요청의 열린 권한 (이미 회수된 권한은 조회되지 않아 처음 끝난 이유가 유지됨)
+        List<RequestInformationPermission> openPermissions =
+                permissionRepository.findAllByInformationIdAndStatusIn(informationId, OPEN_STATUSES);
+
+        // 회수하면 모두 REVOKED가 되므로, 바꾸기 전에 ACTIVE였던 것을 먼저 골라 둠
+        List<RequestInformationPermission> wasActive = openPermissions.stream()
+                .filter(RequestInformationPermission::isActive)
+                .toList();
+
+        // 사유는 항목 삭제로 고정, 수행자는 정보 주인으로 기록됨 (revokeByRequestEvent의 수행자 규칙)
+        revokeByRequestEvent(openPermissions, RevokeReason.ITEM_DELETED, ownerUserId, revokedAt);
+
+        // 돌려주는 엔티티는 이미 REVOKED로 바뀐 상태 (요청 ID, 지정 ID만 쓰면 됨)
+        return wasActive;
+    }
+
+    /**
+     * 삭제되는 항목을 가리키던 모든 권한(이미 회수된 과거 권한 포함)의 information_id를 NULL로 바꿉니다. (#38, ERD 9.5)
+     *
+     * revokeItem 다음에 부릅니다. 방금 회수한 상태 변경을 먼저 DB에 반영한 뒤 바꿉니다. (저장소의 flushAutomatically)
+     *
+     * @return 바뀐 권한 행 수
+     */
+    public int clearInformationId(Long informationId) {
+        // null로 실행하면 where 조건이 어떤 행과도 맞지 않아 조용히 넘어가므로, 실수를 바로 드러내려고 막음
+        Objects.requireNonNull(informationId, "informationId는 필수입니다.");
+        return permissionRepository.clearInformationId(informationId);
+    }
+
     private InformationAccessLog grantedLog(RequestInformationPermission permission, Long ownerUserId,
                                             Long actorUserId, LocalDateTime grantedAt) {
 
@@ -310,12 +493,12 @@ public class PermissionWriter {
     /** 지정에 이미 끝나지 않은 권한이 있는 항목 ID (중복 생성 방지) */
     private Set<Long> openInformationIds(Long assignmentId) {
 
-        Set<Long> ids = new HashSet<>(); // 포함 여부만 보면 되므로 Set
-
-        for (RequestInformationPermission permission : findOpenPermissions(assignmentId)) {
-            ids.add(permission.getInformationId());
-        }
-        return ids;
+        // 잠그지 않는 항목 ID 조회 (#38 리뷰 반영)
+        // 범위 잠금 조회를 쓰면 권한이 없는 새 지정에서 빈 범위에 갭 락이 걸리고,
+        // 바로 뒤 INSERT가 다른 요청의 INSERT와 서로 기다리다 교착이 날 수 있음
+        // - 같은 지정의 권한 추가는 C 요청 행 잠금 안에서만 일어나 다른 트랜잭션이 끼어들지 않음
+        // - 같은 트랜잭션에서 앞서 회수한 권한은 조회 전에 DB에 반영(flush)돼 REVOKED로 보여 제외됨
+        return new HashSet<>(permissionRepository.findInformationIdsByAssignmentIdAndStatusIn(assignmentId, OPEN_STATUSES));
     }
 
     private BusinessException invalidSelection() {

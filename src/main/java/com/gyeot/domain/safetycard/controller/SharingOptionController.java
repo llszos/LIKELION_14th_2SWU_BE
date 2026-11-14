@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 요청 작성·수정 때 공개할 안심카드 항목 선택지를 조회합니다. (F-03, 노션 D 명세 '공개 항목 선택지 조회') */
+/** 요청 작성·수정 때 공개할 안심카드 항목 선택지를 조회합니다. (F-03, 노션 D 파트 API 명세 '공개 항목 선택지 조회') */
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/safety-information")

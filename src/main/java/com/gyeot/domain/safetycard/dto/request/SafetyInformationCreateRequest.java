@@ -6,7 +6,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 /**
- * 항목 작성 요청입니다. (노션 D 명세 '항목 작성')
+ * 항목 작성 요청입니다. (노션 D 파트 API 명세 '항목 작성')
  * 여기서는 모든 유형에 공통인 규칙만 검사하고, 유형마다 다른 규칙(title 유무, 생년월일·혈액형 형식)은 Service에서 검사합니다.
  * 규칙을 어기면 공통 에러 400 INVALID_INPUT
  */
