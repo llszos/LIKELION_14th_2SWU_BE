@@ -45,7 +45,7 @@ public record SharedInformationResponse(
     ) {
 
         public SharedCategory {
-            items = List.copyOf(items);
+            items = List.copyOf(items); // 만든 뒤 목록이 바뀌지 않게 복사
         }
     }
 
