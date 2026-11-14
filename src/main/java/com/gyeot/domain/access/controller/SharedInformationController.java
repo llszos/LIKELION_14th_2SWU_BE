@@ -30,6 +30,7 @@ public class SharedInformationController {
      *   FE는 사용자가 '전달받은 정보'를 실제로 열었을 때만 호출합니다. (미리 불러오기 X)
      * - 이 요청의 담당자였지만 지금 볼 수 없으면 200 + accessible=false와 이유
      * - 이 요청과 무관한 사람은 404 SHARED_INFO_NOT_FOUND
+     * - 급한 요청은 이번 범위(MUST)에서 지원하지 않아 404 SHARED_INFO_NOT_FOUND (SHOULD에서 추가)
      */
     @GetMapping("/{requestId}/shared-information")
     public ApiResponse<SharedInformationResponse> getSharedInformation(

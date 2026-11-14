@@ -47,9 +47,12 @@ import java.util.stream.Collectors;
  * 3. 볼 수 있으면 ACTIVE 권한의 항목을 분류별로 묶어 내려주고, 내려준 항목마다 VIEWED 이력을 남깁니다.
  *
  * - 스케줄러가 늦어도 정보가 새지 않도록 권한이 ACTIVE라는 것만 믿지 않고 조회할 때마다 모두 확인합니다. (ERD 4.11, 8.3)
- * - 권한을 바꾸지 않는 조회라 잠그지 않습니다. 권한을 읽은 뒤 항목이 삭제되면 그 항목은 응답과 이력에서 빠집니다.
+ * - 접근 조건과 항목은 같은 트랜잭션의 첫 일반 DB 조회(hasBeenAssigned)에서 정해진 스냅샷을 기준으로 판단합니다.
+ *   조회 도중 다른 트랜잭션에서 삭제나 철회가 커밋돼도 이번 응답에는 반영되지 않을 수 있습니다.
+ *   다음 조회에서는 변경된 상태를 확인합니다. 조회가 수정과 삭제를 막지 않도록 행 잠금은 사용하지 않습니다.
+ *   이 기준은 같은 DB의 REPEATABLE READ에서 각 조회 계약이 같은 트랜잭션에 참여하는 것을 전제로 합니다.
  * - 이력을 저장하므로 GET이지만 쓰기 트랜잭션입니다. 이력 저장이 실패하면 응답도 실패합니다. (이력 없이 내용을 내려주지 않음)
- * - 급한 요청(F-13)은 SHOULD 범위라 수락 후 24시간 기한(expires_at)과 accessUntil 계산을 하지 않습니다. (일반 요청만 대상)
+ * - 이번 API는 일반 요청만 지원합니다. 급한 요청(F-13)은 SHOULD에서 추가하며, 지금은 404로 차단합니다.
  */
 @Service                  // Spring이 객체로 만들어 컨트롤러에 주입
 @RequiredArgsConstructor  // 아래 final 필드를 채우는 생성자 자동 생성
@@ -72,10 +75,16 @@ public class SharedInformationService {
             throw sharedInfoNotFound();
         }
         SharingRequestInfo request = careRequestSharingReader.findById(requestId)
-                .orElseThrow(this::sharedInfoNotFound); // 위 확인 직후 요청이 지워진 경우 (방어)
+                .orElseThrow(this::sharedInfoNotFound); // 지정 이력만 있고 요청 원본이 없는 경우도 같은 404 (방어)
+
+        // 이번 MUST 범위는 일반 요청만 지원. 급한 요청은 SHOULD에서 기한 검증과 함께 추가합니다.
+        // 기한 검사 없이 내용을 내주지 않도록 권한, 원본 내용 조회와 VIEWED 기록 전에 막습니다.
+        if (request.requestType() == RequestType.URGENT) {
+            throw sharedInfoNotFound();
+        }
 
         LocalDateTime now = LocalDateTime.now(clock); // 종료 시각 비교와 VIEWED 이력 시각에 같은 값을 씀
-        LocalDateTime accessUntil = request.endsAt(); // 일반 요청은 요청 종료 시각. 급한 요청은 null (SHOULD 범위)
+        LocalDateTime accessUntil = request.endsAt(); // 일반 요청의 접근 기한은 요청 종료 시각
 
         // 지금 담당자일 때만 이 지정의 권한을 읽음 (지난 담당자는 어차피 ASSIGNMENT_CLOSED라 읽을 필요 없음)
         boolean currentAssignee = isCurrentAssignee(request, userId);
@@ -103,7 +112,8 @@ public class SharedInformationService {
      * - 수락됨, 진행 중이어도 종료 시각이 지났으면 볼 수 없습니다. 스케줄러가 완료로 바꾸기 전(최대 1분)에도 막기 위함입니다.
      * - 그다음 지금 담당자인지, 관계와 상황 참여가 유효한지 확인합니다. C가 관계 해제와 상황 나가기 때 지정을 마감하지만,
      *   그 처리 전후에도 정보가 새지 않도록 여기서 다시 확인합니다.
-     * - 마지막으로 ACTIVE 권한이 하나도 없는데 정보 주인이 직접 철회한 권한이 있으면 OWNER_REVOKED입니다.
+     * - 마지막으로 ACTIVE 권한이 없고, 남은 항목의 최신 권한이 직접 철회 상태이면 OWNER_REVOKED입니다.
+     *   과거 철회 기록만으로 판단하면 다시 허용 후 모두 삭제하거나 제외한 경우까지 직접 철회로 오인합니다.
      *   공개 항목이 0개이거나, 항목 삭제와 공개 항목 제외로 모두 빠진 경우는 볼 수 있는 상태(빈 목록)로 둡니다. (명세)
      */
     private UnavailableReason findUnavailableReason(SharingRequestInfo request, Long userId, boolean currentAssignee,
@@ -136,14 +146,20 @@ public class SharedInformationService {
                 request.requesterId(), userId, RelationshipStatus.ACTIVE)) {
             return UnavailableReason.ASSIGNMENT_CLOSED;
         }
-        // 일반 요청은 상황 안에서 만들어지므로 담당자가 상황에 참여 중이어야 함 (급한 요청은 상황이 없음)
-        if (request.requestType() == RequestType.GENERAL && request.situationId() != null
-                && !situationParticipantReader.isActiveParticipant(request.situationId(), userId)) {
+        // 일반 요청은 상황과 ACTIVE 참여가 필수. 상황 ID가 없어도 검증을 건너뛰지 않고 차단합니다.
+        if (request.situationId() == null
+                || !situationParticipantReader.isActiveParticipant(request.situationId(), userId)) {
             return UnavailableReason.ASSIGNMENT_CLOSED;
         }
 
-        boolean anyActive = permissions.stream().anyMatch(RequestInformationPermission::isActive);   // 지금 볼 수 있는 권한이 있는지
-        boolean ownerRevoked = permissions.stream()                                                // 정보 주인이 카드를 직접 철회한 적이 있는지
+        // 삭제된 항목은 과거 권한까지 information_id가 NULL이므로 제외합니다.
+        // 같은 항목의 최신 행만 남겨, 재허용과 공개 제외 전의 오래된 철회 기록을 현재 상태로 보지 않습니다.
+        Map<Long, RequestInformationPermission> latestByInformationId = permissions.stream()
+                .filter(permission -> permission.getInformationId() != null)
+                .collect(Collectors.toMap(RequestInformationPermission::getInformationId, Function.identity(),
+                        (first, second) -> first.getId() > second.getId() ? first : second));
+        boolean anyActive = latestByInformationId.values().stream().anyMatch(RequestInformationPermission::isActive);
+        boolean ownerRevoked = latestByInformationId.values().stream()
                 .anyMatch(permission -> permission.getRevokeReason() == RevokeReason.OWNER_REVOKED);
         if (!anyActive && ownerRevoked) {
             return UnavailableReason.OWNER_REVOKED; // 다시 허용하면 새 ACTIVE 권한이 생겨 다시 볼 수 있음
@@ -179,7 +195,7 @@ public class SharedInformationService {
             return List.of(); // 공개 항목 0개, 또는 삭제와 제외로 모두 빠짐 → 볼 수 있지만 빈 목록 (이력 없음)
         }
 
-        // 원본 조회. 권한을 읽은 뒤 삭제된 항목은 결과에 없어 자연히 빠짐
+        // 같은 스냅샷의 원본을 조회. 스냅샷에 원본이 없는 항목은 빠지고, 조회 도중 커밋된 삭제는 다음 조회에 반영됩니다.
         List<SafetyInformation> items = safetyInformationRepository.findAllById(activeByInformationId.keySet()).stream()
                 .filter(item -> Objects.equals(item.getOwnerId(), request.requesterId())) // 정보 주인 = 요청자 (방어)
                 .sorted(Comparator.comparing(SafetyInformation::getId))                  // 작성순

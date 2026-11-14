@@ -17,7 +17,7 @@ import java.util.List;
 public record SharedInformationResponse(
         Long requestId,                       // 요청 ID
         boolean accessible,                   // 지금 볼 수 있는지
-        LocalDateTime accessUntil,            // 접근 기한 (일반 요청은 요청 종료 시각, 급한 요청은 SHOULD 범위라 null)
+        LocalDateTime accessUntil,            // 접근 기한 (요청 종료 시각. 급한 요청은 이번 범위에서 404라 이 응답이 없음)
         UnavailableReason unavailableReason,  // 볼 수 없는 이유. 볼 수 있으면 null
         List<SharedCategory> categories       // 분류별 항목 (기본, 건강, 생활, 미리 남기는 말 순서, 항목이 없는 분류는 뺌)
 ) {
