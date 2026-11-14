@@ -31,7 +31,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/** DB 없이 Repository를 Mock으로 바꿔 권한 공통 처리 규칙만 확인합니다. (#42) */
+/** DB 없이 Repository를 Mock으로 바꿔 권한 공통 처리 규칙만 확인합니다. (#42 부여, #43 회수) */
 class PermissionWriterTest {
 
     private static final Long OWNER_ID = 1L;
@@ -317,6 +317,45 @@ class PermissionWriterTest {
         assertThat(savedLogs()).extracting(InformationAccessLog::getPermissionId).containsExactly(101L); // ACTIVE만 이력
         verify(permissionRepository).findAllByAssignmentIdAndStatusIn(7L,
                 List.of(PermissionStatus.PENDING, PermissionStatus.ACTIVE));
+    }
+
+    @Test
+    void 요청_단위_회수는_지정과_상관없이_그_요청의_끝나지_않은_권한을_모두_끝낸다() {
+        // 대상 변경 전 지정(7번)에 남은 PENDING과 지금 지정(8번)의 ACTIVE가 같은 요청(1번)에 있음
+        RequestInformationPermission previousPending = pending(100L, 10L);
+        RequestInformationPermission currentActive = active(101L, 11L);
+        ReflectionTestUtils.setField(currentActive, "assignmentId", 8L);
+        when(permissionRepository.findAllByRequestIdAndStatusIn(any(), any()))
+                .thenReturn(List.of(previousPending, currentActive));
+
+        writer.revokeRequest(1L, RevokeReason.REQUEST_ENDED, OWNER_ID, NOW);
+
+        assertRevoked(previousPending, RevokeReason.REQUEST_ENDED);
+        assertRevoked(currentActive, RevokeReason.REQUEST_ENDED);
+        assertThat(savedLogs()).extracting(InformationAccessLog::getPermissionId).containsExactly(101L); // ACTIVE만 이력
+
+        // 요청 기준으로 PENDING, ACTIVE만 조회 (지정 기준 조회는 쓰지 않음)
+        verify(permissionRepository).findAllByRequestIdAndStatusIn(1L,
+                List.of(PermissionStatus.PENDING, PermissionStatus.ACTIVE));
+        verify(permissionRepository, never()).findAllByAssignmentIdAndStatusIn(any(), any());
+    }
+
+    @Test
+    void 요청_단위_회수할_권한이_없으면_아무것도_바뀌지_않는다() {
+        // 이미 모두 회수됐거나(같은 이벤트 재처리) 공개 항목이 0개인 요청
+        when(permissionRepository.findAllByRequestIdAndStatusIn(any(), any())).thenReturn(List.of());
+
+        writer.revokeRequest(1L, RevokeReason.REQUEST_ENDED, OWNER_ID, NOW);
+
+        assertThat(savedLogs()).isEmpty();
+    }
+
+    @Test
+    void 요청_ID가_없으면_요청_단위로_회수하지_않는다() {
+        assertThatThrownBy(() -> writer.revokeRequest(null, RevokeReason.REQUEST_ENDED, OWNER_ID, NOW))
+                .isInstanceOf(NullPointerException.class);
+
+        verify(permissionRepository, never()).findAllByRequestIdAndStatusIn(any(), any());
     }
 
     @Test
