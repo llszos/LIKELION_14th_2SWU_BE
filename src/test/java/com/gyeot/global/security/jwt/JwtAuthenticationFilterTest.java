@@ -4,11 +4,13 @@ import com.gyeot.domain.user.entity.AccountStatus;
 import com.gyeot.domain.user.repository.UserRepository;
 import com.gyeot.global.security.ApiAuthenticationEntryPoint;
 import com.gyeot.global.security.PublicApiRequestMatcher;
+import com.gyeot.global.security.auth.AuthenticatedUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.security.core.context.SecurityContextHolder;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.lang.reflect.Proxy;
@@ -49,6 +51,42 @@ class JwtAuthenticationFilterTest {
 
         assertEquals(200, response.getStatus());
         assertNotNull(chain.getRequest());
+    }
+
+    @Test
+    void ignoresInvalidAccessTokenOnPublicInvitationLookup() throws Exception {
+        MockHttpServletRequest request = request("GET", "/api/invitations/test-token");
+        request.addHeader("Authorization", "Bearer invalid-token");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
+
+        assertEquals(200, response.getStatus());
+        assertNotNull(chain.getRequest());
+    }
+
+    @Test
+    void authenticatesValidAccessTokenOnPublicInvitationLookup() throws Exception {
+        Long userId = 24L;
+        filter = new JwtAuthenticationFilter(
+                tokenProvider,
+                userRepository(true),
+                new PublicApiRequestMatcher(),
+                new ApiAuthenticationEntryPoint(jsonMapper));
+        MockHttpServletRequest request = request("GET", "/api/invitations/test-token");
+        request.addHeader("Authorization", "Bearer " + tokenProvider.createAccessToken(userId));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        try {
+            filter.doFilter(request, response, new MockFilterChain());
+
+            var authentication = SecurityContextHolder.getContext().getAuthentication();
+            assertNotNull(authentication);
+            assertEquals(userId, ((AuthenticatedUser) authentication.getPrincipal()).userId());
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
     }
 
     @Test
