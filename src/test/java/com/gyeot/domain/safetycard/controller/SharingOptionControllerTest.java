@@ -55,7 +55,7 @@ class SharingOptionControllerTest {
     void 로그인한_사용자_ID로_선택지를_조회한다() throws Exception {
         // 로그인 사용자(1번)의 ID가 Service에 그대로 넘어올 때만 응답을 돌려줌
         when(service.getSharingOptions(1L, HelpType.HOSPITAL, 5L)).thenReturn(new SharingOptionsResponse(
-                List.of(new CategoryOption(InformationCategory.BASIC, "기본정보", List.of()))));
+                List.of(new CategoryOption(InformationCategory.BASIC, "기본 정보", List.of()))));
 
         mvc.perform(get("/api/safety-information/sharing-options")
                         .param("helpType", "HOSPITAL")
@@ -63,7 +63,7 @@ class SharingOptionControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("success"))
                 .andExpect(jsonPath("$.data.categories[0].category").value("BASIC"))
-                .andExpect(jsonPath("$.data.categories[0].categoryName").value("기본정보"));
+                .andExpect(jsonPath("$.data.categories[0].categoryName").value("기본 정보"));
     }
 
     @Test
