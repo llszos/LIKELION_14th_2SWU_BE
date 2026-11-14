@@ -28,6 +28,9 @@ public class InvitationService {
 
     private static final long INVITATION_VALID_DAYS = 7;
     private static final long MAX_ACTIVE_GUARDIANS = 3;
+    private static final String INVITATION_DEFAULT_MESSAGE = "함께 해요";
+    private static final String AUTHENTICATION_REQUIRED = "AUTHENTICATION_REQUIRED";
+    private static final String SELF_INVITATION = "SELF_INVITATION";
 
     private final InvitationRepository invitationRepository;
     private final RelationshipRepository relationshipRepository;
@@ -151,18 +154,32 @@ public class InvitationService {
                 ? InvitationStatus.EXPIRED
                 : invitation.getStatus();
 
+        boolean guardianLimitReached = invitation.getInvitationType() == InvitationType.GUARDIAN
+                && viewerId != null
+                && countActiveGuardians(viewerId) >= MAX_ACTIVE_GUARDIANS;
+        boolean canAccept = false;
+        String unavailableReason = null;
+        if (responseStatus == InvitationStatus.PENDING) {
+            if (viewerId == null) {
+                unavailableReason = AUTHENTICATION_REQUIRED;
+            } else if (viewerId.equals(invitation.getInviterId())) {
+                unavailableReason = SELF_INVITATION;
+            } else if (guardianLimitReached) {
+                unavailableReason = InvitationErrorCode.GUARDIAN_LIMIT_REACHED.getCode();
+            } else {
+                canAccept = true;
+            }
+        }
+
         return new InvitationDetailsResponse(
-                invitation.getId(),
                 invitation.getInvitationType(),
-                inviter.getName(),
-                responseStatus,
-                invitation.getExpiresAt(),
-                responseStatus == InvitationStatus.PENDING
-                        && (viewerId == null || !viewerId.equals(invitation.getInviterId())),
+                new InvitationDetailsResponse.Inviter(inviter.getId(), inviter.getName()),
+                INVITATION_DEFAULT_MESSAGE,
                 invitation.getInvitationType() == InvitationType.GUARDIAN ? invitation.getMessage() : null,
-                invitation.getInvitationType() == InvitationType.GUARDIAN && viewerId != null
-                        ? countActiveGuardians(viewerId) >= MAX_ACTIVE_GUARDIANS
-                        : null
+                invitation.getExpiresAt(),
+                responseStatus,
+                canAccept,
+                unavailableReason
         );
     }
 
