@@ -23,6 +23,13 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
 
+	// 배포 헬스 체크 (/actuator/health)
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+
+	// DB 마이그레이션 (#47에서 V1 작성 후 활성화)
+	implementation 'org.springframework.boot:spring-boot-starter-flyway'
+	implementation 'org.flywaydb:flyway-mysql'
+
 	// API 문서 (Swagger UI)
 	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.1'
 
@@ -49,4 +56,9 @@ dependencies {
 tasks.named('test') {
 	useJUnitPlatform()
 	jvmArgs '-Duser.timezone=Asia/Seoul' // 테스트는 main()을 거치지 않아서 여기서 시간대를 따로 고정
+}
+
+// 실행용 jar(bootJar)만 만들고 plain jar는 만들지 않음 (Docker 이미지에 jar 하나만 복사)
+tasks.named('jar') {
+	enabled = false
 }

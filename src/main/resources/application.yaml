@@ -3,12 +3,23 @@ spring:
     name: gyeot
   profiles:
     default: local
+  flyway:
+    enabled: false  # #47에서 V1 작성 후 활성화
   jpa:
     open-in-view: false
     properties:
       hibernate:
         jdbc:
           time_zone: Asia/Seoul  # DB에 시각을 저장하고 읽을 때 기준 시간대
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health  # 배포 헬스 체크용, 다른 엔드포인트는 노출하지 않음
+  endpoint:
+    health:
+      show-details: never
 
 gyeot:
   invitation:
