@@ -2,6 +2,7 @@ package com.gyeot.domain.relation.service;
 
 import com.gyeot.domain.relation.dto.response.InvitationCreateResponse;
 import com.gyeot.domain.relation.dto.response.InvitationDetailsResponse;
+import com.gyeot.domain.relation.entity.EmergencyContact;
 import com.gyeot.domain.relation.entity.Invitation;
 import com.gyeot.domain.relation.entity.InvitationStatus;
 import com.gyeot.domain.relation.entity.InvitationType;
@@ -9,6 +10,7 @@ import com.gyeot.domain.relation.entity.Relationship;
 import com.gyeot.domain.relation.entity.RelationshipStatus;
 import com.gyeot.domain.relation.entity.RelationshipType;
 import com.gyeot.domain.relation.exception.InvitationErrorCode;
+import com.gyeot.domain.relation.repository.EmergencyContactRepository;
 import com.gyeot.domain.relation.repository.InvitationRepository;
 import com.gyeot.domain.relation.repository.RelationshipRepository;
 import com.gyeot.domain.user.entity.AccountStatus;
@@ -36,6 +38,7 @@ public class InvitationService {
 
     private final InvitationRepository invitationRepository;
     private final RelationshipRepository relationshipRepository;
+    private final EmergencyContactRepository emergencyContactRepository;
     private final UserRepository userRepository;
     private final InvitationTokenGenerator tokenGenerator;
     private final Clock serviceClock;
@@ -44,6 +47,7 @@ public class InvitationService {
     public InvitationService(
             InvitationRepository invitationRepository,
             RelationshipRepository relationshipRepository,
+            EmergencyContactRepository emergencyContactRepository,
             UserRepository userRepository,
             InvitationTokenGenerator tokenGenerator,
             Clock serviceClock,
@@ -51,6 +55,7 @@ public class InvitationService {
     ) {
         this.invitationRepository = invitationRepository;
         this.relationshipRepository = relationshipRepository;
+        this.emergencyContactRepository = emergencyContactRepository;
         this.userRepository = userRepository;
         this.tokenGenerator = tokenGenerator;
         this.serviceClock = serviceClock;
@@ -195,8 +200,13 @@ public class InvitationService {
         validateNotExpired(invitation, respondedAt);
 
         if (invitation.getInvitationType() == InvitationType.MY_PERSON) {
-            if (relationshipRepository.existsBySourceUserIdAndTargetUserIdAndRelationshipTypeAndStatus(
-                    invitation.getInviterId(), inviteeId, RelationshipType.MY_PERSON, RelationshipStatus.ACTIVE)) {
+            List<Relationship> currentPair = relationshipRepository.findActiveBetweenUsers(
+                    invitation.getInviterId(), inviteeId, RelationshipStatus.ACTIVE);
+            if (currentPair.stream().anyMatch(r -> r.getRelationshipType() == RelationshipType.GUARDIAN)) {
+                throw new BusinessException(InvitationErrorCode.GUARDIAN_RELATIONSHIP_ALREADY_EXISTS);
+            }
+            if (currentPair.stream().anyMatch(r -> r.getRelationshipType() == RelationshipType.MY_PERSON
+                    && r.getSourceUserId().equals(invitation.getInviterId()))) {
                 throw new BusinessException(InvitationErrorCode.RELATIONSHIP_ALREADY_EXISTS);
             }
             invitation.respond(inviteeId, InvitationStatus.ACCEPTED, respondedAt);
@@ -320,10 +330,12 @@ public class InvitationService {
         }
 
         // 보호자 관계가 생기면 두 방향의 기존 나의 사람 관계를 종료합니다.
+        // 관계 전환은 관계 해제가 아니므로 RelationshipEndedEvent를 발행하지 않습니다.
         currentPair.stream()
                 .filter(r -> r.getRelationshipType() == RelationshipType.MY_PERSON)
                 .forEach(r -> r.end(occurredAt));
         relationshipRepository.flush();
+        removeEmergencyContactsBetween(inviterId, inviteeId);
 
         List<Relationship> inviterGuardians = findActiveGuardians(inviterId);
         List<Relationship> inviteeGuardians = findActiveGuardians(inviteeId);
@@ -345,6 +357,40 @@ public class InvitationService {
                 Relationship.createGuardian(inviterId, inviteeId, inviterGuardians.size() + 1),
                 Relationship.createGuardian(inviteeId, inviterId, inviteeGuardians.size() + 1)
         ));
+    }
+
+    private void removeEmergencyContactsBetween(Long firstUserId, Long secondUserId) {
+        normalizeEmergencyContacts(firstUserId, secondUserId);
+        normalizeEmergencyContacts(secondUserId, firstUserId);
+    }
+
+    private void normalizeEmergencyContacts(Long userId, Long newlyRelatedUserId) {
+        List<EmergencyContact> contacts = emergencyContactRepository.findAllByUserIdOrderByPriorityAsc(userId);
+        List<EmergencyContact> removedContacts = contacts.stream()
+                .filter(contact -> contact.getContactUserId().equals(newlyRelatedUserId))
+                .toList();
+        if (removedContacts.isEmpty()) {
+            return;
+        }
+
+        emergencyContactRepository.deleteAll(removedContacts);
+        emergencyContactRepository.flush();
+
+        List<EmergencyContact> remainingContacts = contacts.stream()
+                .filter(contact -> !contact.getContactUserId().equals(newlyRelatedUserId))
+                .toList();
+        int temporaryPriorityStart = contacts.stream()
+                .mapToInt(EmergencyContact::getPriority)
+                .max()
+                .orElse(0) + remainingContacts.size() + 1;
+        for (int index = 0; index < remainingContacts.size(); index++) {
+            remainingContacts.get(index).changePriority(temporaryPriorityStart + index);
+        }
+        emergencyContactRepository.flush();
+        for (int index = 0; index < remainingContacts.size(); index++) {
+            remainingContacts.get(index).changePriority(index + 1);
+        }
+        emergencyContactRepository.flush();
     }
 
     private List<Relationship> findActiveGuardians(Long userId) {
