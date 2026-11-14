@@ -2,6 +2,7 @@ package com.gyeot.domain.user.dto.request;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 /**
@@ -20,7 +21,10 @@ public record SignupRequest(
 
         @NotBlank(message = "이름은 필수입니다.")
         @Size(max = 50, message = "이름은 50자 이하여야 합니다.")
-        String name
+        String name,
+
+        @NotNull(message = "개인정보 제공 동의는 필수입니다.")
+        Boolean privacyConsent
 
 ) {
     // record 기본 toString()으로 비밀번호가 노출되지 않도록 합니다.

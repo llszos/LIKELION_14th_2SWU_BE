@@ -53,7 +53,7 @@ public class AuthController {
     @SecurityRequirements
     @Operation(
             summary = "회원가입",
-            description = "이메일·비밀번호·이름으로 가입합니다. 가입 후 자동 로그인은 하지 않습니다."
+            description = "이메일·비밀번호·이름과 개인정보 제공 동의로 가입합니다. 가입 후 자동 로그인은 하지 않습니다."
     )
     public ResponseEntity<ApiResponse<SignupResponse>> signup(
             @Valid @RequestBody SignupRequest request

@@ -6,13 +6,17 @@ import com.gyeot.domain.user.dto.response.LoginResponse;
 import com.gyeot.domain.user.dto.response.SignupResponse;
 import com.gyeot.domain.user.entity.AccountStatus;
 import com.gyeot.domain.user.entity.User;
+import com.gyeot.domain.user.entity.UserConsent;
 import com.gyeot.domain.user.repository.UserRepository;
+import com.gyeot.domain.user.repository.UserConsentRepository;
 import com.gyeot.global.security.jwt.JwtProperties;
 import com.gyeot.global.security.jwt.JwtTokenProvider;
 import com.gyeot.global.security.auth.AuthException;
 import com.gyeot.global.security.auth.AuthErrorCode;
 import com.gyeot.global.security.refresh.service.IssuedRefreshToken;
 import com.gyeot.global.security.refresh.service.RefreshTokenService;
+import com.gyeot.global.exception.BusinessException;
+import com.gyeot.global.exception.CommonErrorCode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,6 +24,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Duration;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -31,6 +38,9 @@ class AuthServiceTest {
 
     @Mock
     private UserRepository userRepository;
+
+    @Mock
+    private UserConsentRepository userConsentRepository;
 
     @Mock
     private org.springframework.security.crypto.password.PasswordEncoder
@@ -51,17 +61,19 @@ class AuthServiceTest {
 
         authService = new AuthService(
                 userRepository,
+                userConsentRepository,
                 passwordEncoder,
                 jwtTokenProvider,
                 properties,
-                refreshTokenService
+                refreshTokenService,
+                Clock.fixed(Instant.parse("2026-11-14T03:00:00Z"), ZoneId.of("Asia/Seoul"))
         );
     }
 
     @Test
     void signupStoresEncodedPasswordAndReturnsUserId() {
         SignupRequest request =
-                new SignupRequest("user@example.com", "password", "사용자");
+                new SignupRequest("user@example.com", "password", "사용자", true);
 
         when(userRepository.existsByEmail(request.email())).thenReturn(false);
         when(passwordEncoder.encode(request.password()))
@@ -85,12 +97,13 @@ class AuthServiceTest {
         assertEquals(17L, response.userId());
         verify(passwordEncoder).encode(request.password());
         verify(userRepository).save(any(User.class));
+        verify(userConsentRepository).save(any(UserConsent.class));
     }
 
     @Test
     void signupRejectsDuplicateEmail() {
         SignupRequest request =
-                new SignupRequest("user@example.com", "password", "사용자");
+                new SignupRequest("user@example.com", "password", "사용자", true);
 
         when(userRepository.existsByEmail(request.email())).thenReturn(true);
 
@@ -104,10 +117,24 @@ class AuthServiceTest {
     }
 
     @Test
+    void signupRejectsMissingPrivacyConsent() {
+        SignupRequest request =
+                new SignupRequest("user@example.com", "password", "사용자", false);
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> authService.signup(request)
+        );
+
+        assertEquals(CommonErrorCode.INVALID_INPUT, exception.getErrorCode());
+        verifyNoInteractions(userRepository, userConsentRepository, passwordEncoder);
+    }
+
+    @Test
     void signupRejectsPasswordLongerThanSeventyTwoUtf8Bytes() {
         // 한글 '가'는 UTF-8 기준 3바이트이므로 25자는 75바이트입니다.
         SignupRequest request =
-                new SignupRequest("user@example.com", "가".repeat(25), "사용자");
+                new SignupRequest("user@example.com", "가".repeat(25), "사용자", true);
 
         AuthException exception = assertThrows(
                 AuthException.class,
