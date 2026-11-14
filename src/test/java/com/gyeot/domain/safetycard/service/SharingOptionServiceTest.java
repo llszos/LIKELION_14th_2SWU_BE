@@ -58,7 +58,7 @@ class SharingOptionServiceTest {
     void 새_요청은_도움_종류_기본_유형을_선택한다() {
         SharingOptionsResponse response = service.getSharingOptions(USER_ID, HelpType.HOSPITAL, null);
 
-        assertThat(selectedIds(response)).containsExactly(12L, 14L); // 복용약, 알레르기
+        assertThat(selectedIds(response)).containsExactly(12L, 14L); // 복용약, 알러지
         verify(permissionRepository, never()).findLastSharedInformationIds(any(), any());
     }
 
