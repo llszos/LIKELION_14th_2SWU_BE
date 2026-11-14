@@ -2,6 +2,8 @@ package com.gyeot.domain.carerequest.repository;
 
 import com.gyeot.domain.carerequest.entity.RequestAssignment;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
 import java.util.List;
@@ -45,4 +47,20 @@ public interface RequestAssignmentRepository extends JpaRepository<RequestAssign
      */
     List<RequestAssignment> findAllByCareRequestIdInAndClosedAtIsNullAndAcceptedAtIsNotNull(
             Collection<Long> requestIds);
+
+    // === #67 요약 조회 (B 화면) ===
+
+    /**
+     * 여러 요청의 지정 전체 (마감 여부 무관)
+     * 화면 상태 계산(가장 최근 지정), 기록상 담당자 계산에 씁니다. 요청 수와 상관없이 쿼리 1번입니다.
+     */
+    List<RequestAssignment> findAllByCareRequestIdIn(Collection<Long> requestIds);
+
+    /**
+     * 내가 지금 대상자·담당자인 지정 (마감되지 않은 지정) + 그 요청을 함께 가져옵니다. (홈)
+     * join fetch: 지정마다 요청을 따로 조회하지 않도록(N+1 방지) 한 번에 가져옵니다.
+     */
+    @Query("select a from RequestAssignment a join fetch a.careRequest "
+            + "where a.targetUserId = :userId and a.closedAt is null")
+    List<RequestAssignment> findOpenAssignmentsWithRequest(@Param("userId") Long userId);
 }
