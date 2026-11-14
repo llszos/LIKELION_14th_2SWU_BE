@@ -13,6 +13,7 @@ import org.springframework.data.repository.query.Param;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 요청별 정보 접근 권한(request_information_permissions)을 DB에 저장, 조회, 삭제합니다.
@@ -111,6 +112,39 @@ public interface RequestInformationPermissionRepository extends JpaRepository<Re
             """)
     List<RequestInformationPermission> findAllByAssignmentIdAndStatusIn(@Param("assignmentId") Long assignmentId,
                                                                         @Param("statuses") Collection<PermissionStatus> statuses);
+
+    /**
+     * 대상 지정 하나의 권한 중 지정한 상태인 것의 권한 ID만 오름차순으로 조회합니다. (#38 리뷰 반영, 기본 키 잠금 전 단계)
+     *
+     * - 잠그지 않는 조회입니다. 권한이 없는 지정을 범위로 잠그면 빈 인덱스 범위에 갭 락이 걸리고,
+     *   같은 트랜잭션이 그 뒤 권한을 INSERT하면 다른 요청의 INSERT와 서로 기다려 교착이 날 수 있어 범위 잠금을 피합니다.
+     * - 이 ID 목록으로 findByIdForUpdate를 하나씩 부릅니다. 존재하는 권한을 기본 키로 조회하면 해당 행만 잠가 범위 조회의 갭 락을 줄입니다.
+     *   조회 전에 행이 삭제된 경우에는 갭 락이 생길 수 있습니다. (예: 보존 기간이 지난 권한 삭제, #44)
+     * - 잠그지 않는 조회라 REPEATABLE READ에서 이전 스냅샷을 볼 수 있습니다. 그래서 대상 변경과 수정 확정처럼
+     *   C 요청 행 잠금 안에서만 이 지정에 권한이 추가되는 경로에서만 씁니다. (항목 삭제, 회수 경로는 범위 잠금 유지)
+     * - 엔티티가 아니라 ID만 읽어, 잠그기 전에 예전 상태가 영속성 컨텍스트에 남지 않게 합니다.
+     */
+    @Query("""
+            select p.id
+            from RequestInformationPermission p
+            where p.assignmentId = :assignmentId
+              and p.status in :statuses
+            order by p.id
+            """)
+    List<Long> findIdsByAssignmentIdAndStatusIn(@Param("assignmentId") Long assignmentId,
+                                                @Param("statuses") Collection<PermissionStatus> statuses);
+
+    /**
+     * 권한 하나를 기본 키로 잠금 조회합니다. (#38 리뷰 반영)
+     *
+     * - 존재하는 권한을 기본 키로 조회하면 해당 행만 잠가 범위 조회의 갭 락을 줄입니다.
+     *   조회 전에 행이 삭제된 경우에는 갭 락이 생길 수 있습니다. (예: 보존 기간이 지난 권한 삭제, #44)
+     * - 잠금 조회라 최신 커밋 상태를 읽습니다. ID를 모은 뒤 다른 트랜잭션(항목 삭제 등)이 회수했다면 REVOKED로 보입니다.
+     * - 여러 개를 잠글 때는 호출하는 쪽이 ID 오름차순으로 하나씩 부릅니다. IN 조회 한 번으로는 잠금 순서를 보장할 수 없습니다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from RequestInformationPermission p where p.id = :id")
+    Optional<RequestInformationPermission> findByIdForUpdate(@Param("id") Long id);
 
     /**
      * 요청 하나의 권한 중 지정한 상태인 것을 잠금 조회합니다. (#43 요청 종료 시 일괄 회수, #38 잠금 적용)
