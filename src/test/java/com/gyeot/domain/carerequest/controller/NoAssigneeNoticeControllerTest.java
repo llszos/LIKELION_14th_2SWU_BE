@@ -9,6 +9,7 @@ import com.gyeot.domain.carerequest.enums.RequestType;
 import com.gyeot.domain.carerequest.exception.CareRequestErrorCode;
 import com.gyeot.domain.carerequest.service.NoAssigneeNoticeService;
 import com.gyeot.global.exception.BusinessException;
+import com.gyeot.global.exception.CommonErrorCode;
 import com.gyeot.global.exception.GlobalExceptionHandler;
 import com.gyeot.global.security.auth.AuthenticatedUser;
 import org.junit.jupiter.api.AfterEach;
@@ -112,7 +113,19 @@ public class NoAssigneeNoticeControllerTest {
     }
 
     @Test
-    void 내_요청이_아니면_404다() throws Exception {
+    void 대상자_담당자가_닫으면_403이다() throws Exception {
+        doThrow(new BusinessException(CommonErrorCode.FORBIDDEN))
+                .when(service).dismiss(21L, USER_ID, NoAssigneeReason.UNAVAILABLE);
+
+        mvc.perform(post("/api/care-requests/21/no-assignee-notice/dismiss")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\": \"UNAVAILABLE\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
+    @Test
+    void 관련_없는_요청이면_404다() throws Exception {
         doThrow(new BusinessException(CareRequestErrorCode.REQUEST_NOT_FOUND))
                 .when(service).dismiss(21L, USER_ID, NoAssigneeReason.UNAVAILABLE);
 

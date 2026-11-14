@@ -13,6 +13,8 @@ import com.gyeot.domain.carerequest.repository.RequestAssignmentRepository;
 import com.gyeot.domain.safetycard.crypto.SafetyInformationCipher;
 import com.gyeot.global.config.JpaAuditingConfig;
 import com.gyeot.global.exception.BusinessException;
+import com.gyeot.global.exception.CommonErrorCode;
+import com.gyeot.global.exception.ErrorCode;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -215,11 +217,27 @@ public class NoAssigneeNoticeServiceTest {
         }
 
         @Test
-        void 요청자가_아니면_404다() {
+        void 대상자가_닫으면_403이다() {
             CareRequest request = unavailableRequest();
 
-            assertNotFound(request.getId(), MINJAE);   // 대상자도 404 (명세: 내가 보낸 요청이 아닌 경우)
-            assertNotFound(request.getId(), STRANGER);
+            // 대상자는 요청을 볼 수 있는 사람이라 404가 아니라 403 (API 공통 규칙 2)
+            assertFailsWith(request.getId(), MINJAE, CommonErrorCode.FORBIDDEN);
+        }
+
+        @Test
+        void 담당자가_닫으면_403이다() {
+            CareRequest request = request(NOW.plusDays(1));
+            accept(request, assign(request, MINJAE, 1, NOW.plusHours(12)));
+            flush();
+
+            assertFailsWith(request.getId(), MINJAE, CommonErrorCode.FORBIDDEN);
+        }
+
+        @Test
+        void 관련_없는_사람이_닫으면_404다() {
+            CareRequest request = unavailableRequest();
+
+            assertFailsWith(request.getId(), STRANGER, CareRequestErrorCode.REQUEST_NOT_FOUND);
         }
 
         private CareRequest unavailableRequest() {
@@ -229,11 +247,11 @@ public class NoAssigneeNoticeServiceTest {
             return request;
         }
 
-        private void assertNotFound(Long requestId, Long userId) {
+        private void assertFailsWith(Long requestId, Long userId, ErrorCode expected) {
             assertThatThrownBy(() -> service.dismiss(requestId, userId, NoAssigneeReason.UNAVAILABLE))
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).getErrorCode())
-                    .isEqualTo(CareRequestErrorCode.REQUEST_NOT_FOUND);
+                    .isEqualTo(expected);
         }
     }
 

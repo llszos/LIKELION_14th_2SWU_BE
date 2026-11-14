@@ -9,6 +9,7 @@ import com.gyeot.domain.carerequest.enums.CareRequestStatus;
 import com.gyeot.domain.carerequest.enums.NoAssigneeReason;
 import com.gyeot.domain.carerequest.repository.RequestAssignmentRepository;
 import com.gyeot.global.exception.BusinessException;
+import com.gyeot.global.exception.CommonErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,8 +21,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
-
-import static com.gyeot.domain.carerequest.exception.CareRequestErrorCode.REQUEST_NOT_FOUND;
 
 /**
  * 담당자 없음 안내(모달 M-01) 목록 조회와 닫기를 담당합니다. (#74, F-14)
@@ -109,8 +108,13 @@ public class NoAssigneeNoticeService {
 
         RequestAccess access = careRequestFinder.getAccessibleRequestForUpdate(requestId, userId);
         LocalDateTime now = LocalDateTime.now(clock); // 잠금을 얻은 뒤의 시각 (#70 리뷰와 같은 규칙)
+
+        /**
+         * 관련 없는 사람은 위 Finder에서 이미 404.
+         * 여기까지 온 대상자·담당자는 요청을 볼 수 있으므로 403 (API 공통 규칙 2)
+         */
         if (!access.isRequester()) {
-            throw new BusinessException(REQUEST_NOT_FOUND); // 내가 보낸 요청이 아니면 404 (대상자·담당자 포함)
+            throw new BusinessException(CommonErrorCode.FORBIDDEN); // 요청자만 닫을 수 있음
         }
 
         CareRequest request = access.request();
