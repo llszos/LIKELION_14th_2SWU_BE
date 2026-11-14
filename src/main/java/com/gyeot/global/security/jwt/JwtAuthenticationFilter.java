@@ -55,10 +55,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         String header = request.getHeader("Authorization");
 
-        if (publicApiRequestMatcher.matches(request)) {
-            filterChain.doFilter(request, response);
-            return;
-        }
+        boolean publicRequest = publicApiRequestMatcher.matches(request);
 
         if (header == null) {
             filterChain.doFilter(request, response);
@@ -67,23 +64,27 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         if (!header.regionMatches(
                 true, 0, BEARER_PREFIX, 0, BEARER_PREFIX.length())) {
-            rejectUnauthorized(request, response);
+            continueAnonymouslyOrReject(publicRequest, request, response, filterChain);
             return;
         }
 
         String token = header.substring(BEARER_PREFIX.length()).trim();
+        if (token.isEmpty()) {
+            continueAnonymouslyOrReject(publicRequest, request, response, filterChain);
+            return;
+        }
 
         Long userId;
         try {
             userId = tokenProvider.getUserId(token);
         } catch (JwtException | IllegalArgumentException exception) {
-            rejectUnauthorized(request, response);
+            continueAnonymouslyOrReject(publicRequest, request, response, filterChain);
             return;
         }
 
         if (!userRepository.existsByIdAndAccountStatus(
                 userId, AccountStatus.ACTIVE)) {
-            rejectUnauthorized(request, response);
+            continueAnonymouslyOrReject(publicRequest, request, response, filterChain);
             return;
         }
 
@@ -98,6 +99,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         // 하위 처리의 예외는 토큰 검증 오류로 바꾸지 않습니다.
         filterChain.doFilter(request, response);
+    }
+
+    /** 공개 API는 토큰 없이도 열되, 유효한 토큰이 있으면 로그인 정보도 전달합니다. */
+    private void continueAnonymouslyOrReject(
+            boolean publicRequest,
+            HttpServletRequest request,
+            HttpServletResponse response,
+            FilterChain filterChain
+    ) throws IOException, ServletException {
+        if (publicRequest) {
+            SecurityContextHolder.clearContext();
+            filterChain.doFilter(request, response);
+            return;
+        }
+        rejectUnauthorized(request, response);
     }
 
     private void rejectUnauthorized(

@@ -6,7 +6,9 @@ import jakarta.validation.constraints.NotNull;
 /** 초대 링크 생성 요청입니다. */
 public record InvitationCreateRequest(
         @NotNull InvitationType invitationType,
-        String message
+        String personalLabel,
+        String message,
+        Boolean promiseConfirmed
 ) {
-    // 나의 사람 초대 API는 message를 사용하지 않으며, 보호자 요청 API에서만 편지를 사용합니다.
+    // personalLabel은 나의 사람 초대에, message와 promiseConfirmed는 보호자 요청에 사용합니다.
 }
