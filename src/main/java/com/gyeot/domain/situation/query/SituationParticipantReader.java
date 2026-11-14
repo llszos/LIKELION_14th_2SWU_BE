@@ -6,9 +6,9 @@ import java.util.Optional;
 
 /**
  * C의 일반 돌봄 요청 검증에 필요한 상황·참여 정보를 제공하는 B의 조회 계약입니다.
- * D 영역에서도 SituationSummary와 isActiveParticipant()를 정보 조회 권한 검증에 사용합니다.
+ * D 영역 Issue #45에서도 isActiveParticipant() 계약으로 상황의 ACTIVE 참여 여부를 확인할 예정입니다.
  * Entity를 반환하지 않으며, 관계 자격 검증은 A, 요청 생성·일정 검증은 C가 담당합니다.
- * 구현체와 DB 조회는 후속 작업입니다. 급한 요청에는 상황 참여 검증을 적용하지 않습니다.
+ * DB에서 상황·참여 정보를 조회하며, 급한 요청에는 상황 참여 검증을 적용하지 않습니다.
  */
 public interface SituationParticipantReader {
 
