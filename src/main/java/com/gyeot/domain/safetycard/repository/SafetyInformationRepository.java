@@ -32,7 +32,7 @@ public interface SafetyInformationRepository extends JpaRepository<SafetyInforma
 
     /**
      * 내 항목의 유형별 가장 최근 수정 시각만 조회합니다. (안심카드 메인 조회)
-     * 유형과 수정 시각만 읽고 암호화된 title과 information_value 컬럼은 읽지 않아 복호화가 일어나지 않습니다.
+     * 유형과 수정 시각만 읽고 암호화된 title, information_value 컬럼은 읽지 않아 복호화가 일어나지 않습니다.
      */
     @Query("""
             select new com.gyeot.domain.safetycard.repository.InformationTypeLastUpdated(s.informationType, max(s.updatedAt))
@@ -41,6 +41,21 @@ public interface SafetyInformationRepository extends JpaRepository<SafetyInforma
             group by s.informationType
             """)
     List<InformationTypeLastUpdated> findLastUpdatedByType(@Param("ownerId") Long ownerId);
+
+    /**
+     * 정보 주인의 항목 중 주어진 ID의 항목 ID와 유형만 조회합니다. (C 요청 상세의 항목 이름 표시)
+     *
+     * - 정보 주인 조건을 쿼리에 넣어, 다른 사람의 항목은 DB에서 꺼내지 않습니다.
+     * - 없는 ID와 삭제된 항목은 행이 없으므로 결과에서 빠집니다.
+     * - ID와 유형만 읽고 암호화된 title, information_value 컬럼은 읽지 않아 복호화가 일어나지 않습니다.
+     */
+    @Query("""
+            select new com.gyeot.domain.safetycard.repository.InformationIdAndType(s.id, s.informationType)
+            from SafetyInformation s
+            where s.ownerId = :ownerId and s.id in :ids
+            order by s.id
+            """)
+    List<InformationIdAndType> findIdAndTypeByOwnerIdAndIdIn(@Param("ownerId") Long ownerId, @Param("ids") Collection<Long> ids);
 
     /**
      * 항목 여러 개를 잠금 조회하고, 결과를 ID 오름차순으로 돌려줍니다. (#38 항목 삭제와 권한 변경의 직렬화)
