@@ -95,8 +95,9 @@ public class PermissionGrantService {
         permissionWriter.lockItemsOfAssignment(event.previousAssignmentId(), event.informationIds());
 
         // 1. 이전 지정 회수 (C가 이전 지정을 먼저 마감한 뒤 발행하므로 이 지정은 더 쓰이지 않음)
-        permissionWriter.revokeAssignment(event.previousAssignmentId(), RevokeReason.ASSIGNMENT_CLOSED,
-                event.requesterId(), event.occurredAt());
+        //    뒤에서 새 지정에 INSERT하므로 범위 잠금 대신 권한 ID로 잠금 (갭 락 교착 위험 완화, #38 리뷰 반영)
+        permissionWriter.revokeByRequestEvent(permissionWriter.lockOpenPermissionsById(event.previousAssignmentId()),
+                RevokeReason.ASSIGNMENT_CLOSED, event.requesterId(), event.occurredAt());
 
         // 2. 새 지정에 이번에 고른 항목으로 PENDING 생성 (새 대상자는 아직 수락 전)
         permissionWriter.createPending(event.requestId(), event.assignmentId(),
@@ -139,7 +140,8 @@ public class PermissionGrantService {
         List<Long> afterList = sharableAfterIds(event, accepted); // 실제로 반영할 변경 후 전체 목록
 
         // 잠금 뒤 처음 읽는 권한 엔티티 (잠금 조회라 최신 상태)
-        List<RequestInformationPermission> open = permissionWriter.findOpenPermissions(event.assignmentId()); // 지금 공개 중
+        // 뒤에서 추가 항목을 INSERT하므로 범위 잠금 대신 권한 ID로 잠금 (갭 락 교착 위험 완화, #38 리뷰 반영)
+        List<RequestInformationPermission> open = permissionWriter.lockOpenPermissionsById(event.assignmentId()); // 지금 공개 중
         Set<Long> afterIds = new HashSet<>(afterList); // 포함 여부 비교용
         Set<Long> openIds = new HashSet<>();
 

@@ -15,17 +15,20 @@ import com.gyeot.global.exception.BusinessException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -150,8 +153,8 @@ class PermissionWriterTest {
     void 이미_끝나지_않은_권한이_있는_항목은_다시_만들지_않는다() {
         when(safetyInformationRepository.findAllByIdInForUpdate(any())).thenReturn(List.of(
                 item(10L, OWNER_ID, InformationType.ALLERGY), item(11L, OWNER_ID, InformationType.PET)));
-        when(permissionRepository.findAllByAssignmentIdAndStatusIn(any(), any()))
-                .thenReturn(List.of(pending(100L, 10L)));    // 10번은 이미 있음 (같은 이벤트가 다시 온 경우)
+        when(permissionRepository.findInformationIdsByAssignmentIdAndStatusIn(any(), any()))
+                .thenReturn(List.of(10L));                   // 10번은 이미 있음 (같은 이벤트가 다시 온 경우)
         returnSavedPermissions();
 
         List<RequestInformationPermission> created = writer.createPending(1L, 7L, OWNER_ID, List.of(10L, 11L));
@@ -197,11 +200,63 @@ class PermissionWriterTest {
     @Test
     void 수락_후_추가도_이미_끝나지_않은_권한이_있는_항목은_만들지_않는다() {
         when(safetyInformationRepository.findAllByIdInForUpdate(any())).thenReturn(List.of(item(10L, OWNER_ID, InformationType.ALLERGY)));
-        when(permissionRepository.findAllByAssignmentIdAndStatusIn(any(), any())).thenReturn(List.of(active(100L, 10L)));
+        when(permissionRepository.findInformationIdsByAssignmentIdAndStatusIn(any(), any())).thenReturn(List.of(10L));
         returnSavedPermissions();
 
         assertThat(writer.createActive(1L, 7L, OWNER_ID, 20L, List.of(10L), NOW, null)).isEmpty();
         assertThat(savedLogs()).isEmpty();
+    }
+
+    @Test
+    void 권한을_만들기_전_중복_확인은_범위_잠금_없이_항목_ID만_읽는다() {
+        // 범위 잠금 조회는 새 지정의 빈 범위에 갭 락을 걸어 뒤이은 INSERT와 교착 위험이 있음 (#38 리뷰 반영)
+        when(safetyInformationRepository.findAllByIdInForUpdate(any())).thenReturn(List.of(item(10L, OWNER_ID, InformationType.ALLERGY)));
+        returnSavedPermissions();
+
+        writer.createPending(1L, 7L, OWNER_ID, List.of(10L));
+
+        verify(permissionRepository).findInformationIdsByAssignmentIdAndStatusIn(7L,
+                List.of(PermissionStatus.PENDING, PermissionStatus.ACTIVE));
+        verify(permissionRepository, never()).findAllByAssignmentIdAndStatusIn(any(), any());
+    }
+
+    // === 권한 ID로 잠금 (대상 변경, 수정 확정, #38 리뷰 반영) ===
+
+    @Test
+    void 권한_ID를_오름차순으로_하나씩_잠그고_그_사이_회수된_권한은_뺀다() {
+        RequestInformationPermission pending = pending(100L, 10L);
+        RequestInformationPermission revokedMeanwhile = active(101L, 11L);
+        revokedMeanwhile.revoke(RevokeReason.ITEM_DELETED, NOW); // ID를 모은 뒤 항목 삭제가 회수한 경우
+        when(permissionRepository.findIdsByAssignmentIdAndStatusIn(any(), any())).thenReturn(List.of(100L, 101L));
+        when(permissionRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(pending));
+        when(permissionRepository.findByIdForUpdate(101L)).thenReturn(Optional.of(revokedMeanwhile));
+
+        List<RequestInformationPermission> locked = writer.lockOpenPermissionsById(7L);
+
+        assertThat(locked).containsExactly(pending); // 최신 상태가 REVOKED인 권한은 제외
+
+        // 받은 ID 순서(오름차순)대로 하나씩 기본 키 잠금, 범위 잠금 조회는 쓰지 않음
+        InOrder order = inOrder(permissionRepository);
+        order.verify(permissionRepository).findByIdForUpdate(100L);
+        order.verify(permissionRepository).findByIdForUpdate(101L);
+        verify(permissionRepository, never()).findAllByAssignmentIdAndStatusIn(any(), any());
+    }
+
+    @Test
+    void 잠글_권한_ID가_없으면_잠금_조회를_하지_않는다() {
+        when(permissionRepository.findIdsByAssignmentIdAndStatusIn(any(), any())).thenReturn(List.of());
+
+        assertThat(writer.lockOpenPermissionsById(7L)).isEmpty();
+        verify(permissionRepository, never()).findByIdForUpdate(any());
+    }
+
+    @Test
+    void ID를_모은_뒤_삭제된_권한은_잠금_결과에서_빠진다() {
+        // 조회한 ID의 행이 잠금 시점에 없는 경우를 방어함
+        when(permissionRepository.findIdsByAssignmentIdAndStatusIn(any(), any())).thenReturn(List.of(100L));
+        when(permissionRepository.findByIdForUpdate(100L)).thenReturn(Optional.empty());
+
+        assertThat(writer.lockOpenPermissionsById(7L)).isEmpty();
     }
 
     // === 활성화 (수락) ===

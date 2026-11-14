@@ -80,12 +80,19 @@ class PermissionGrantServiceTest {
     @Test
     void 대상_변경이면_이전_지정을_먼저_회수하고_새_지정에_이벤트_항목으로_PENDING을_만든다() {
         // 요청 1번, 요청자 10번, 이전 지정 7번(대상 20번) → 새 지정 8번(대상 21번), 이번에 고른 항목 100, 102번
+        List<RequestInformationPermission> previous = List.of(pending(500L, 100L));
+        when(permissionWriter.lockOpenPermissionsById(7L)).thenReturn(previous);
+
         service.grantOnTargetChanged(new CareRequestTargetChangedEvent(
                 1L, 10L, RequestType.GENERAL, 7L, 20L, 8L, 21L, List.of(100L, 102L), NOW));
 
+        // 이전 지정은 권한 ID로 잠가 회수한 뒤 새 지정에 생성 (범위 잠금은 쓰지 않음, #38 리뷰 반영)
         InOrder order = inOrder(permissionWriter);
-        order.verify(permissionWriter).revokeAssignment(7L, RevokeReason.ASSIGNMENT_CLOSED, 10L, NOW);
+        order.verify(permissionWriter).lockOpenPermissionsById(7L);
+        order.verify(permissionWriter).revokeByRequestEvent(previous, RevokeReason.ASSIGNMENT_CLOSED, 10L, NOW);
         order.verify(permissionWriter).createPending(1L, 8L, 10L, List.of(100L, 102L));
+        verify(permissionWriter, never()).findOpenPermissions(any());
+        verify(permissionWriter, never()).revokeAssignment(any(), any(), any(), any());
     }
 
     // === 수정 확정 ===
@@ -111,7 +118,7 @@ class PermissionGrantServiceTest {
         // 지금 공개 중: 100(유지), 101(제외) → 변경 후: 100, 102(추가)
         RequestInformationPermission kept = pending(500L, 100L);
         RequestInformationPermission removed = pending(501L, 101L);
-        when(permissionWriter.findOpenPermissions(7L)).thenReturn(List.of(kept, removed));
+        when(permissionWriter.lockOpenPermissionsById(7L)).thenReturn(List.of(kept, removed));
 
         service.grantOnChangeConfirmed(new CareRequestChangeConfirmedEvent(
                 1L, 10L, null, 7L, 20L, Set.of(ChangeableField.INFORMATION_IDS), List.of(100L, 102L), NOW));
@@ -124,7 +131,7 @@ class PermissionGrantServiceTest {
 
     @Test
     void 수락_전_수정은_유지_항목까지_전체_목록을_확인하고_거르지_않는다() {
-        when(permissionWriter.findOpenPermissions(7L)).thenReturn(List.of(pending(500L, 100L)));
+        when(permissionWriter.lockOpenPermissionsById(7L)).thenReturn(List.of(pending(500L, 100L)));
 
         service.grantOnChangeConfirmed(new CareRequestChangeConfirmedEvent(
                 1L, 10L, null, 7L, 20L, Set.of(ChangeableField.INFORMATION_IDS), List.of(100L, 102L), NOW));
@@ -136,7 +143,7 @@ class PermissionGrantServiceTest {
     @Test
     void 재확인_수락은_대기_중_삭제된_항목을_빼고_남은_항목으로_반영한다() {
         // 지금 공개 중: 100 / 제안: 100, 102, 103 → 대기 중 103 삭제 → 102만 추가
-        when(permissionWriter.findOpenPermissions(7L)).thenReturn(List.of(active(500L, 100L, null)));
+        when(permissionWriter.lockOpenPermissionsById(7L)).thenReturn(List.of(active(500L, 100L, null)));
         when(permissionWriter.filterOwnedItemIds(10L, List.of(100L, 102L, 103L))).thenReturn(List.of(100L, 102L));
         when(careRequestSharingReader.findById(1L)).thenReturn(Optional.of(requestInfo(RequestType.GENERAL, NOW.minusHours(3))));
 
@@ -152,7 +159,7 @@ class PermissionGrantServiceTest {
         // 지금 공개 중: 100, 101 / 제안: 100, 101 그대로인데 대기 중 101 삭제 → 101은 반영 목록에서 빠져 회수
         RequestInformationPermission kept = active(500L, 100L, null);
         RequestInformationPermission deleted = active(501L, 101L, null);
-        when(permissionWriter.findOpenPermissions(7L)).thenReturn(List.of(kept, deleted));
+        when(permissionWriter.lockOpenPermissionsById(7L)).thenReturn(List.of(kept, deleted));
         when(permissionWriter.filterOwnedItemIds(10L, List.of(100L, 101L))).thenReturn(List.of(100L));
 
         service.grantOnChangeConfirmed(new CareRequestChangeConfirmedEvent(
@@ -166,7 +173,7 @@ class PermissionGrantServiceTest {
     void 급한_요청의_재확인_수락은_추가_항목을_최초_수락_시각_기준_기한으로_만든다() {
         // 수락은 3시간 전, 수정 확정은 지금 → 기한은 수락 + 24시간 (지금 + 24시간이 아님)
         LocalDateTime acceptedAt = NOW.minusHours(3);
-        when(permissionWriter.findOpenPermissions(7L)).thenReturn(List.of(active(500L, 100L, acceptedAt.plusHours(24))));
+        when(permissionWriter.lockOpenPermissionsById(7L)).thenReturn(List.of(active(500L, 100L, acceptedAt.plusHours(24))));
         when(careRequestSharingReader.findById(1L)).thenReturn(Optional.of(requestInfo(RequestType.URGENT, acceptedAt)));
 
         service.grantOnChangeConfirmed(new CareRequestChangeConfirmedEvent(
@@ -180,7 +187,7 @@ class PermissionGrantServiceTest {
     void 급한_요청은_기존_권한이_없어도_수락_시각으로_기한을_계산한다() {
         // 공개 0개로 보낸 뒤 수락 후 처음 추가하는 경우
         LocalDateTime acceptedAt = NOW.minusHours(3);
-        when(permissionWriter.findOpenPermissions(7L)).thenReturn(List.of());
+        when(permissionWriter.lockOpenPermissionsById(7L)).thenReturn(List.of());
         when(careRequestSharingReader.findById(1L)).thenReturn(Optional.of(requestInfo(RequestType.URGENT, acceptedAt)));
 
         service.grantOnChangeConfirmed(new CareRequestChangeConfirmedEvent(
@@ -191,7 +198,7 @@ class PermissionGrantServiceTest {
 
     @Test
     void 일반_요청의_재확인_수락은_기한_없이_ACTIVE로_만든다() {
-        when(permissionWriter.findOpenPermissions(7L)).thenReturn(List.of(active(500L, 100L, null)));
+        when(permissionWriter.lockOpenPermissionsById(7L)).thenReturn(List.of(active(500L, 100L, null)));
         when(careRequestSharingReader.findById(1L)).thenReturn(Optional.of(requestInfo(RequestType.GENERAL, NOW.minusHours(3))));
 
         service.grantOnChangeConfirmed(new CareRequestChangeConfirmedEvent(
@@ -204,7 +211,7 @@ class PermissionGrantServiceTest {
     void 빈_목록이면_공개_중인_항목을_모두_회수하고_만들지_않는다() {
         RequestInformationPermission first = active(500L, 100L, null);
         RequestInformationPermission second = active(501L, 101L, null);
-        when(permissionWriter.findOpenPermissions(7L)).thenReturn(List.of(first, second));
+        when(permissionWriter.lockOpenPermissionsById(7L)).thenReturn(List.of(first, second));
 
         service.grantOnChangeConfirmed(new CareRequestChangeConfirmedEvent(
                 1L, 10L, 30L, 7L, 20L, Set.of(ChangeableField.INFORMATION_IDS), List.of(), NOW));
@@ -216,7 +223,7 @@ class PermissionGrantServiceTest {
 
     @Test
     void 바뀐_것이_없으면_회수할_목록이_비어_있고_만들지_않는다() {
-        when(permissionWriter.findOpenPermissions(7L)).thenReturn(List.of(pending(500L, 100L)));
+        when(permissionWriter.lockOpenPermissionsById(7L)).thenReturn(List.of(pending(500L, 100L)));
 
         service.grantOnChangeConfirmed(new CareRequestChangeConfirmedEvent(
                 1L, 10L, null, 7L, 20L, Set.of(ChangeableField.INFORMATION_IDS), List.of(100L), NOW));

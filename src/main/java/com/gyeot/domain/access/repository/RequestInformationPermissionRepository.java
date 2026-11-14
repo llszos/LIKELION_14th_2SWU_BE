@@ -79,8 +79,10 @@ public interface RequestInformationPermissionRepository extends JpaRepository<Re
      *
      * - 권한 엔티티를 읽지 않고 ID 값만 읽습니다. 잠그기 전에 엔티티를 읽으면 영속성 컨텍스트에 예전 상태가 남아,
      *   잠근 뒤 다시 조회해도 그 객체가 갱신되지 않기 때문입니다.
-     * - 이 값은 잠글 항목을 정하는 데만 씁니다. 잠금 없는 조회라 최신이 아닐 수 있지만,
+     * - 잠글 항목을 정하는 데 씁니다. 잠금 없는 조회라 최신이 아닐 수 있지만,
      *   권한 상태는 항목을 잠근 뒤 잠금 조회로 다시 확보하므로 판단에 쓰지 않습니다.
+     * - 권한을 만들기 전 중복 확인에도 씁니다. (PermissionWriter.openInformationIds, #38 리뷰 반영)
+     *   범위 잠금 조회는 빈 범위에 갭 락을 걸어 뒤이은 INSERT와 교착 위험이 있어 이 조회로 바꿨습니다.
      */
     @Query("""
             select distinct p.informationId
@@ -119,9 +121,11 @@ public interface RequestInformationPermissionRepository extends JpaRepository<Re
      * - 잠그지 않는 조회입니다. 권한이 없는 지정을 범위로 잠그면 빈 인덱스 범위에 갭 락이 걸리고,
      *   같은 트랜잭션이 그 뒤 권한을 INSERT하면 다른 요청의 INSERT와 서로 기다려 교착이 날 수 있어 범위 잠금을 피합니다.
      * - 이 ID 목록으로 findByIdForUpdate를 하나씩 부릅니다. 존재하는 권한을 기본 키로 조회하면 해당 행만 잠가 범위 조회의 갭 락을 줄입니다.
-     *   조회 전에 행이 삭제된 경우에는 갭 락이 생길 수 있습니다. (예: 보존 기간이 지난 권한 삭제, #44)
+     *   조회 전에 행이 삭제된 경우에는 갭 락이 생길 수 있습니다.
      * - 잠그지 않는 조회라 REPEATABLE READ에서 이전 스냅샷을 볼 수 있습니다. 그래서 대상 변경과 수정 확정처럼
      *   C 요청 행 잠금 안에서만 이 지정에 권한이 추가되는 경로에서만 씁니다. (항목 삭제, 회수 경로는 범위 잠금 유지)
+     *   호출 측은 요청 행 잠금 전에 일반 조회로 스냅샷을 만들지 않아야 합니다. 오래된 스냅샷에서 빠진 ID는
+     *   이후 기본 키 잠금 조회로도 찾을 수 없습니다. (PermissionWriter.lockOpenPermissionsById의 호출 전제)
      * - 엔티티가 아니라 ID만 읽어, 잠그기 전에 예전 상태가 영속성 컨텍스트에 남지 않게 합니다.
      */
     @Query("""
