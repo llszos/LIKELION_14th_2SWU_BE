@@ -7,7 +7,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 공개 항목 선택지 조회 응답입니다. (노션 D 명세 '공개 항목 선택지 조회')
+ * 공개 항목 선택지 조회 응답입니다. (노션 D 파트 API 명세 '공개 항목 선택지 조회')
  * 분류 4개를 BASIC → HEALTH → LIFE → ADVANCE_MESSAGE 순서로 항상 내려주고, 항목이 없는 분류는 빈 배열입니다.
  */
 public record SharingOptionsResponse(

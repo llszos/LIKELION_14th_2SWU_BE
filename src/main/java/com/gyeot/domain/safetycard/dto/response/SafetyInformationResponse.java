@@ -6,7 +6,7 @@ import com.gyeot.domain.safetycard.entity.SafetyInformation;
 import java.time.LocalDateTime;
 
 /**
- * 항목 하나의 응답입니다. (노션 D 명세 '항목 작성' 성공 응답, #38 항목 수정에서도 사용 예정)
+ * 항목 하나의 응답입니다. (노션 D 파트 API 명세 '항목 작성', '항목 수정' 성공 응답)
  */
 public record SafetyInformationResponse(
         Long informationId,              // 항목 ID
