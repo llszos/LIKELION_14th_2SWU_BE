@@ -14,6 +14,7 @@ import com.gyeot.global.exception.CommonErrorCode;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -23,10 +24,11 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * 나가기 업무 처리입니다. DB 구현 연결 전이므로 컴포넌트 스캔 대상이 아닙니다.
- * 연결 시 반드시 Spring Bean으로 등록하여 트랜잭션 프록시를 통해 호출해야 합니다.
+ * 상황과 참여 이력을 잠근 뒤 본인의 나가기를 처리합니다.
+ * Controller에서 Spring 트랜잭션 프록시를 통해 호출합니다.
  * 반복 요청의 성공 반환과 이력 선택 정책은 docs/situation-leave.md의 구현 가정입니다.
  */
+@Service
 public class SituationLeaveProcessor {
     private final SituationLeaveStore store;
     private final ApplicationEventPublisher eventPublisher;
@@ -44,13 +46,12 @@ public class SituationLeaveProcessor {
         Objects.requireNonNull(userId, "userId는 필수입니다.");
         Situation situation = store.findSituationForUpdate(situationId)
                 .orElseThrow(() -> new BusinessException(CommonErrorCode.NOT_FOUND));
-        if (situation.getStatus() == SituationStatus.ENDED) {
-            throw new BusinessException(SituationLeaveErrorCode.SITUATION_ENDED);
-        }
-
         SituationParticipant participant = selectParticipant(store.findParticipantsForUpdate(situationId, userId));
         if (participant.getRole() == SituationParticipantRole.OWNER) {
             throw new BusinessException(CommonErrorCode.FORBIDDEN);
+        }
+        if (situation.getStatus() == SituationStatus.ENDED) {
+            throw new BusinessException(SituationLeaveErrorCode.SITUATION_ENDED);
         }
         if (participant.getStatus() == SituationParticipantStatus.ACTIVE) {
             LocalDateTime occurredAt = LocalDateTime.now(clock).truncatedTo(ChronoUnit.MICROS);

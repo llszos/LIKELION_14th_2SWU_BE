@@ -69,7 +69,7 @@ class SituationLeaveProcessorTest {
         situation.end(now.minusHours(1));
         expectError(2L, SituationLeaveErrorCode.SITUATION_ENDED);
         assertThat(participant.getStatus()).isEqualTo(SituationParticipantStatus.ACTIVE);
-        verify(store, never()).findParticipantsForUpdate(anyLong(), anyLong());
+        verify(store).findParticipantsForUpdate(3L, 2L);
     }
 
     @Test
@@ -83,6 +83,21 @@ class SituationLeaveProcessorTest {
     void missingParticipationIsNotFound() {
         when(store.findParticipantsForUpdate(3L, 2L)).thenReturn(List.of());
         expectError(2L, CommonErrorCode.NOT_FOUND);
+    }
+
+    @Test
+    void endedSituationIsHiddenFromUserWithoutParticipation() {
+        situation.end(now);
+        when(store.findParticipantsForUpdate(3L, 2L)).thenReturn(List.of());
+        expectError(2L, CommonErrorCode.NOT_FOUND);
+    }
+
+    @Test
+    void endedOwnerRemainsForbidden() {
+        situation.end(now);
+        var owner = SituationParticipant.create(situation, 1L, SituationParticipantRole.OWNER, now.minusDays(1));
+        when(store.findParticipantsForUpdate(3L, 1L)).thenReturn(List.of(owner));
+        expectError(1L, CommonErrorCode.FORBIDDEN);
     }
 
     @Test
