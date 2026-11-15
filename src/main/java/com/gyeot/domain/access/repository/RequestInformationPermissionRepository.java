@@ -25,25 +25,11 @@ import java.util.Optional;
 public interface RequestInformationPermissionRepository extends JpaRepository<RequestInformationPermission, Long> { // JpaRepository<다룰 엔티티, 그 엔티티의 ID 타입>
 
     /**
-     * 정보 주인이 지금 공유 중인 건수를 셉니다. (F-30, 홈 F-34, 안심카드 메인 C-00)
-     * 공유 1건 = (요청, 담당자) 묶음이고, 담당 지정 하나는 요청 하나와 담당자 한 명으로 정해지므로 담당 지정 ID 개수로 셉니다.
-     * 권한에는 정보 주인 ID가 없어서, 공유한 안심카드 항목(safety_information)의 주인으로 찾습니다.
-     */
-    @Query("""
-            select count(distinct p.assignmentId)
-            from RequestInformationPermission p
-            join SafetyInformation s on s.id = p.informationId
-            where s.ownerId = :ownerUserId and p.status = :status
-            """)
-
-    long countSharings(@Param("ownerUserId") Long ownerUserId, @Param("status") PermissionStatus status);
-
-    /**
      * 정보 주인의 항목을 공유했거나 직접 철회한 대상 지정 ID를 조회합니다. (공유 관리 카드 후보, #46)
      *
      * - 공유 관리 화면에 나올 수 있는 카드는 지금 공유 중(ACTIVE)이거나, 정보 주인이 직접 철회(OWNER_REVOKED)한 카드입니다.
      *   수락 전(PENDING)과 그 밖의 이유로 끝난 권한만 있는 지정은 후보가 아닙니다.
-     * - 권한에는 정보 주인 ID가 없어서, 공유한 안심카드 항목의 주인으로 찾습니다. (countSharings와 같은 방식)
+     * - 권한에는 정보 주인 ID가 없어서, 공유한 안심카드 항목의 주인으로 찾습니다.
      *   삭제한 항목의 권한은 information_id가 NULL이라 join에서 빠집니다. (삭제 항목은 카드에 보여 주지 않음)
      * - 후보일 뿐 최종 카드가 아닙니다. 과거 철회 기록이 남아 있을 수 있어, 항목별 최신 권한과 요청 상태로 서비스에서 다시 판단합니다.
      * - 잠그지 않는 조회입니다. 화면에 보여 줄 값만 계산하고 권한을 바꾸지 않습니다.

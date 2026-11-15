@@ -38,6 +38,7 @@ import static org.mockito.Mockito.when;
  * 공유 카드 판단을 DB 없이 확인합니다. (저장소와 C, A, B 조회는 Mock)
  *
  * - 지금은 받은 정보용 판단(findViewableCards)의 관계, 상황 참여, 철회 카드 제외를 확인합니다.
+ * - 공유 중 카드만 쓰는 경로(findSharingCards)가 canReallow용 A, B 조회를 하지 않는지도 확인합니다. (목록 findCards와 비교)
  * - 공유 중 목록 판단(findCards)의 과거 철회, 공개 제외, 삭제, 빈 카드, 종료 경계는 다음 커밋에서 이 파일에 추가합니다.
  */
 class SharingCardReaderTest {
@@ -118,6 +119,35 @@ class SharingCardReaderTest {
         givenPermissions(revoked(100L, ITEM_ID, RevokeReason.OWNER_REVOKED));
 
         assertThat(reader.findViewableCards(OWNER_ID, VIEWER_ID)).isEmpty();
+    }
+
+    // === 공유 중 카드만 쓰는 경로 (건수, 받은 정보) ===
+
+    @Test
+    void 공유_중_카드만_조회하면_철회됨_카드를_빼고_관계와_상황_참여를_조회하지_않는다() {
+        givenPermissions(revoked(100L, ITEM_ID, RevokeReason.OWNER_REVOKED));
+
+        assertThat(reader.findSharingCards(OWNER_ID, null)).isEmpty();
+
+        // 철회됨 카드의 '다시 허용' 버튼 계산(A, B 조회)은 버릴 카드라 하지 않음
+        verify(relationshipQueryRepository, never()).existsBySourceUserIdAndTargetUserIdAndStatus(any(), any(), any());
+        verify(situationParticipantReader, never()).isActiveParticipant(any(), any());
+    }
+
+    @Test
+    void 공유_중_목록은_같은_철회됨_카드의_다시_허용_가능_여부를_계산한다() {
+        // 위 테스트와 같은 카드를 목록 경로로 보면 REVOKED로 남고, A, B를 조회해 canReallow를 정함
+        givenPermissions(revoked(100L, ITEM_ID, RevokeReason.OWNER_REVOKED));
+
+        assertThat(reader.findCards(OWNER_ID, null))
+                .singleElement()
+                .satisfies(card -> {
+                    assertThat(card.status()).isEqualTo(SharingStatus.REVOKED);
+                    assertThat(card.canReallow()).isTrue(); // 관계 유효, 담당자 상황 참여 중 (setUp 기본값)
+                });
+        verify(relationshipQueryRepository).existsBySourceUserIdAndTargetUserIdAndStatus(
+                OWNER_ID, VIEWER_ID, RelationshipStatus.ACTIVE);
+        verify(situationParticipantReader).isActiveParticipant(SITUATION_ID, VIEWER_ID);
     }
 
     // === 도우미 ===
