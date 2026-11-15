@@ -5,6 +5,7 @@ import com.gyeot.domain.relation.entity.Invitation;
 import com.gyeot.domain.relation.entity.InvitationStatus;
 import com.gyeot.domain.relation.entity.InvitationType;
 import com.gyeot.domain.relation.exception.InvitationErrorCode;
+import com.gyeot.domain.relation.repository.EmergencyContactRepository;
 import com.gyeot.domain.relation.repository.InvitationRepository;
 import com.gyeot.domain.relation.repository.RelationshipRepository;
 import com.gyeot.domain.user.repository.UserRepository;
@@ -74,6 +75,7 @@ class InvitationServiceTest {
         invitationService = new InvitationService(
                 repository,
                 org.mockito.Mockito.mock(RelationshipRepository.class),
+                org.mockito.Mockito.mock(EmergencyContactRepository.class),
                 org.mockito.Mockito.mock(UserRepository.class),
                 tokenGenerator,
                 clock,
