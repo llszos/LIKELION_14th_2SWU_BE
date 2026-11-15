@@ -1,6 +1,7 @@
 package com.gyeot.domain.relation.service;
 
 import com.gyeot.domain.relation.dto.response.InvitationDetailsResponse;
+import com.gyeot.domain.relation.entity.EmergencyContact;
 import com.gyeot.domain.relation.entity.Invitation;
 import com.gyeot.domain.relation.entity.InvitationStatus;
 import com.gyeot.domain.relation.entity.InvitationType;
@@ -8,6 +9,7 @@ import com.gyeot.domain.relation.entity.Relationship;
 import com.gyeot.domain.relation.entity.RelationshipStatus;
 import com.gyeot.domain.relation.entity.RelationshipType;
 import com.gyeot.domain.relation.exception.InvitationErrorCode;
+import com.gyeot.domain.relation.repository.EmergencyContactRepository;
 import com.gyeot.domain.relation.repository.InvitationRepository;
 import com.gyeot.domain.relation.repository.RelationshipRepository;
 import com.gyeot.domain.user.entity.User;
@@ -45,6 +47,7 @@ class InvitationResponseServiceTest {
 
     private InvitationRepository invitationRepository;
     private RelationshipRepository relationshipRepository;
+    private EmergencyContactRepository emergencyContactRepository;
     private UserRepository userRepository;
     private AdjustableClock clock;
     private InvitationTokenGenerator tokenGenerator;
@@ -57,12 +60,14 @@ class InvitationResponseServiceTest {
     void setUp() {
         invitationRepository = mock(InvitationRepository.class);
         relationshipRepository = mock(RelationshipRepository.class);
+        emergencyContactRepository = mock(EmergencyContactRepository.class);
         userRepository = mock(UserRepository.class);
         clock = new AdjustableClock(Instant.parse("2026-11-09T03:00:00Z"), ZoneId.of("Asia/Seoul"));
         tokenGenerator = new InvitationTokenGenerator();
         service = new InvitationService(
                 invitationRepository,
                 relationshipRepository,
+                emergencyContactRepository,
                 userRepository,
                 tokenGenerator,
                 clock,
@@ -211,6 +216,97 @@ class InvitationResponseServiceTest {
         assertEquals(INVITER_ID, relationshipCaptor.getValue().getSourceUserId());
         assertEquals(INVITEE_ID, relationshipCaptor.getValue().getTargetUserId());
         assertEquals("친구", relationshipCaptor.getValue().getPersonalLabel());
+    }
+
+    @Test
+    void 이미_보호자_관계인_사용자들의_오래된_나의_사람_초대는_수락할_수_없다() {
+        when(relationshipRepository.findActiveBetweenUsers(INVITER_ID, INVITEE_ID, RelationshipStatus.ACTIVE))
+                .thenReturn(java.util.List.of(
+                        Relationship.createGuardian(INVITER_ID, INVITEE_ID, 1),
+                        Relationship.createGuardian(INVITEE_ID, INVITER_ID, 1)
+                ));
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.acceptInvitation(TOKEN, INVITEE_ID)
+        );
+
+        assertEquals(InvitationErrorCode.GUARDIAN_RELATIONSHIP_ALREADY_EXISTS, exception.getErrorCode());
+        assertEquals(InvitationStatus.PENDING, invitation.getStatus());
+        verify(relationshipRepository, never()).save(any());
+    }
+
+    @Test
+    void 보호자_전환은_양방향_비상연락을_제거하고_각_사용자의_순서를_정규화한다() {
+        invitation = guardianInvitation();
+        when(invitationRepository.findByTokenHashForUpdate(tokenGenerator.hash(TOKEN)))
+                .thenReturn(Optional.of(invitation));
+        Relationship inviterToInvitee = Relationship.createMyPerson(INVITER_ID, INVITEE_ID, "친구");
+        Relationship inviteeToInviter = Relationship.createMyPerson(INVITEE_ID, INVITER_ID, null);
+        Relationship inviterGuardianFirst = Relationship.createGuardian(INVITER_ID, 5L, 1);
+        Relationship inviterGuardianGap = Relationship.createGuardian(INVITER_ID, 6L, 3);
+        Relationship inviteeGuardianFirst = Relationship.createGuardian(INVITEE_ID, 7L, 1);
+        Relationship inviteeGuardianGap = Relationship.createGuardian(INVITEE_ID, 8L, 3);
+        when(relationshipRepository.findActiveBetweenUsers(INVITER_ID, INVITEE_ID, RelationshipStatus.ACTIVE))
+                .thenReturn(java.util.List.of(inviterToInvitee, inviteeToInviter));
+        when(relationshipRepository.findAllBySourceUserIdAndRelationshipTypeAndStatusOrderByGuardianPriorityAsc(
+                INVITER_ID, RelationshipType.GUARDIAN, RelationshipStatus.ACTIVE))
+                .thenReturn(java.util.List.of(inviterGuardianFirst, inviterGuardianGap));
+        when(relationshipRepository.findAllBySourceUserIdAndRelationshipTypeAndStatusOrderByGuardianPriorityAsc(
+                INVITEE_ID, RelationshipType.GUARDIAN, RelationshipStatus.ACTIVE))
+                .thenReturn(java.util.List.of(inviteeGuardianFirst, inviteeGuardianGap));
+        EmergencyContact inviterPair = EmergencyContact.create(INVITER_ID, INVITEE_ID, 1);
+        EmergencyContact inviterOther = EmergencyContact.create(INVITER_ID, 3L, 2);
+        EmergencyContact inviteePair = EmergencyContact.create(INVITEE_ID, INVITER_ID, 1);
+        EmergencyContact inviteeOther = EmergencyContact.create(INVITEE_ID, 4L, 2);
+        when(emergencyContactRepository.findAllByUserIdOrderByPriorityAsc(INVITER_ID))
+                .thenReturn(java.util.List.of(inviterPair, inviterOther));
+        when(emergencyContactRepository.findAllByUserIdOrderByPriorityAsc(INVITEE_ID))
+                .thenReturn(java.util.List.of(inviteePair, inviteeOther));
+
+        service.acceptInvitation(TOKEN, INVITEE_ID);
+
+        assertEquals(RelationshipStatus.ENDED, inviterToInvitee.getStatus());
+        assertEquals(RelationshipStatus.ENDED, inviteeToInviter.getStatus());
+        assertEquals(1, inviterGuardianFirst.getGuardianPriority());
+        assertEquals(2, inviterGuardianGap.getGuardianPriority());
+        assertEquals(1, inviteeGuardianFirst.getGuardianPriority());
+        assertEquals(2, inviteeGuardianGap.getGuardianPriority());
+        assertEquals(1, inviterOther.getPriority());
+        assertEquals(1, inviteeOther.getPriority());
+        verify(emergencyContactRepository).deleteAll(java.util.List.of(inviterPair));
+        verify(emergencyContactRepository).deleteAll(java.util.List.of(inviteePair));
+        ArgumentCaptor<java.util.List<Relationship>> guardianCaptor = ArgumentCaptor.forClass(java.util.List.class);
+        verify(relationshipRepository, org.mockito.Mockito.atLeastOnce()).saveAllAndFlush(guardianCaptor.capture());
+        java.util.List<Relationship> newGuardians = guardianCaptor.getAllValues().getLast();
+        assertEquals(2, newGuardians.size());
+        assertTrue(newGuardians.stream().allMatch(guardian -> guardian.getGuardianPriority() == 3));
+        assertTrue(newGuardians.stream().allMatch(guardian -> guardian.getRelationshipType() == RelationshipType.GUARDIAN));
+        assertTrue(newGuardians.stream().anyMatch(guardian -> guardian.getSourceUserId().equals(INVITER_ID)
+                && guardian.getTargetUserId().equals(INVITEE_ID)));
+        assertTrue(newGuardians.stream().anyMatch(guardian -> guardian.getSourceUserId().equals(INVITEE_ID)
+                && guardian.getTargetUserId().equals(INVITER_ID)));
+    }
+
+    @Test
+    void 이미_서로_보호자면_보호자_초대_수락도_거부한다() {
+        invitation = guardianInvitation();
+        when(invitationRepository.findByTokenHashForUpdate(tokenGenerator.hash(TOKEN)))
+                .thenReturn(Optional.of(invitation));
+        when(relationshipRepository.findActiveBetweenUsers(INVITER_ID, INVITEE_ID, RelationshipStatus.ACTIVE))
+                .thenReturn(java.util.List.of(
+                        Relationship.createGuardian(INVITER_ID, INVITEE_ID, 1),
+                        Relationship.createGuardian(INVITEE_ID, INVITER_ID, 1)
+                ));
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.acceptInvitation(TOKEN, INVITEE_ID)
+        );
+
+        assertEquals(InvitationErrorCode.GUARDIAN_RELATIONSHIP_ALREADY_EXISTS, exception.getErrorCode());
+        assertEquals(InvitationStatus.PENDING, invitation.getStatus());
+        verify(relationshipRepository, never()).saveAllAndFlush(any());
     }
 
     @Test
