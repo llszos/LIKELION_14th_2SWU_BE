@@ -3,6 +3,7 @@ package com.gyeot.domain.situation.service;
 import com.gyeot.domain.situation.entity.Situation;
 import com.gyeot.domain.situation.entity.SituationStatus;
 import com.gyeot.domain.situation.repository.SituationRepository;
+import com.gyeot.domain.situation.repository.SituationParticipantRepository;
 import com.gyeot.global.exception.BusinessException;
 import com.gyeot.global.exception.CommonErrorCode;
 import org.junit.jupiter.api.Test;
@@ -19,7 +20,8 @@ import static org.mockito.Mockito.*;
 
 class SituationQueryServiceTest {
     private final SituationRepository repository = mock(SituationRepository.class);
-    private final SituationQueryService service = new SituationQueryService(repository);
+    private final SituationParticipantRepository participantRepository = mock(SituationParticipantRepository.class);
+    private final SituationQueryService service = new SituationQueryService(repository, participantRepository);
 
     @Test
     void mapsBasicFieldsAndSliceMetadataUsingFixedDescendingOrder() {

@@ -1,8 +1,11 @@
 package com.gyeot.domain.situation.controller;
 
 import com.gyeot.domain.situation.dto.response.SituationListResponse;
+import com.gyeot.domain.situation.dto.response.SituationDetailResponse;
 import com.gyeot.domain.situation.entity.SituationStatus;
+import com.gyeot.domain.situation.exception.SituationQueryErrorCode;
 import com.gyeot.domain.situation.service.SituationQueryService;
+import com.gyeot.global.exception.BusinessException;
 import com.gyeot.global.exception.GlobalExceptionHandler;
 import com.gyeot.global.security.auth.AuthenticatedUser;
 import org.junit.jupiter.api.AfterEach;
@@ -83,6 +86,52 @@ class SituationControllerTest {
     @Test
     void rejectsMalformedPaginationBeforeCallingService() throws Exception {
         mvc.perform(get("/api/situations").param("page", "invalid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void detailUsesAuthenticatedIdAndReturnsOnlyBasicFields() throws Exception {
+        LocalDateTime start = LocalDateTime.of(2026, 11, 20, 9, 0);
+        when(service.detailActive(1L, 20L)).thenReturn(new SituationDetailResponse(
+                1L, "상세", "유형", start, start.plusHours(1), SituationStatus.ACTIVE, 10L, null));
+
+        mvc.perform(get("/api/situations/1").param("userId", "999"))
+                .andExpect(status().isOk())
+                .andExpect(content().json("""
+                        {
+                          "status":"success", "code":null, "message":null,
+                          "data":{
+                            "situationId":1, "name":"상세", "situationType":"유형",
+                            "startAt":"2026-11-20T09:00:00", "endAt":"2026-11-20T10:00:00",
+                            "status":"ACTIVE", "creatorId":10, "endedAt":null
+                          }
+                        }
+                        """))
+                .andExpect(jsonPath("$.data.requests").doesNotExist())
+                .andExpect(jsonPath("$.data.activeRequestCount").doesNotExist())
+                .andExpect(jsonPath("$.data.activeParticipantCount").doesNotExist())
+                .andExpect(jsonPath("$.data.targetUserName").doesNotExist());
+        verify(service).detailActive(1L, 20L);
+        verifyNoMoreInteractions(service);
+    }
+
+    @Test
+    void detailReturnsCommonNotFoundEnvelope() throws Exception {
+        when(service.detailActive(1L, 20L))
+                .thenThrow(new BusinessException(SituationQueryErrorCode.SITUATION_NOT_FOUND));
+        mvc.perform(get("/api/situations/1"))
+                .andExpect(status().isNotFound())
+                .andExpect(content().json("""
+                        {"status":"error", "code":"SITUATION_NOT_FOUND",
+                         "message":"상황을 찾을 수 없습니다.", "data":null}
+                        """));
+    }
+
+    @Test
+    void detailRejectsMalformedIdBeforeCallingService() throws Exception {
+        mvc.perform(get("/api/situations/not-a-number"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
         verifyNoInteractions(service);
