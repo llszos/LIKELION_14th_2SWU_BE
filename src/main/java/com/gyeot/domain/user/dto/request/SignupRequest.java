@@ -1,5 +1,6 @@
 package com.gyeot.domain.user.dto.request;
 
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -24,6 +25,7 @@ public record SignupRequest(
         String name,
 
         @NotNull(message = "개인정보 제공 동의는 필수입니다.")
+        @AssertTrue(message = "개인정보 제공 동의는 필수입니다.")
         Boolean privacyConsent
 
 ) {

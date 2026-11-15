@@ -7,7 +7,6 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import lombok.AccessLevel;
@@ -16,15 +15,14 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
-/** 개인정보 제공 동의의 정책 버전과 동의 시각을 기록합니다. */
+/** 개인정보 제공 동의의 정책 버전과 동의 시각을 기록하며, 탈퇴 후에도 동의 증빙을 보존합니다. */
 @Entity
 @Table(
         name = "user_consents",
         uniqueConstraints = @UniqueConstraint(
                 name = "uk_user_consents_user_type_version",
                 columnNames = {"user_id", "consent_type", "policy_version"}
-        ),
-        indexes = @Index(name = "idx_user_consents_user_id", columnList = "user_id")
+        )
 )
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
