@@ -196,6 +196,54 @@ class SituationLeaveProcessorTest {
         verifyNoInteractions(store, publisher);
     }
 
+    @Test
+    void situationLookupFailurePropagatesBeforeHistoryLookupOrMutation() {
+        var failure = new IllegalStateException("situation lookup failed");
+        when(store.findSituationForUpdate(3L)).thenThrow(failure);
+
+        assertThatThrownBy(() -> processor.leave(3L, 2L)).isSameAs(failure);
+
+        verify(store).findSituationForUpdate(3L);
+        verifyNoMoreInteractions(store);
+        assertThat(participant.getStatus()).isEqualTo(SituationParticipantStatus.ACTIVE);
+        assertThat(participant.getLeftAt()).isNull();
+        verifyNoInteractions(publisher);
+    }
+
+    @Test
+    void participantHistoryLookupFailurePropagatesWithoutMutationOrEvent() {
+        var failure = new IllegalStateException("participant history lookup failed");
+        when(store.findParticipantsForUpdate(3L, 2L)).thenThrow(failure);
+
+        assertThatThrownBy(() -> processor.leave(3L, 2L)).isSameAs(failure);
+
+        var order = inOrder(store);
+        order.verify(store).findSituationForUpdate(3L);
+        order.verify(store).findParticipantsForUpdate(3L, 2L);
+        order.verifyNoMoreInteractions();
+        assertThat(participant.getStatus()).isEqualTo(SituationParticipantStatus.ACTIVE);
+        assertThat(participant.getLeftAt()).isNull();
+        verifyNoInteractions(publisher);
+    }
+
+    @Test
+    void clockFailureAfterLookupsPropagatesBeforeStateChangeAndEvent() {
+        Clock failingClock = mock(Clock.class);
+        var failure = new DateTimeException("clock unavailable");
+        when(failingClock.getZone()).thenReturn(ZoneId.of("Asia/Seoul"));
+        when(failingClock.instant()).thenThrow(failure);
+        var subject = new SituationLeaveProcessor(store, publisher, failingClock);
+
+        assertThatThrownBy(() -> subject.leave(3L, 2L)).isSameAs(failure);
+
+        verify(store).findSituationForUpdate(3L);
+        verify(store).findParticipantsForUpdate(3L, 2L);
+        verifyNoMoreInteractions(store);
+        assertThat(participant.getStatus()).isEqualTo(SituationParticipantStatus.ACTIVE);
+        assertThat(participant.getLeftAt()).isNull();
+        verifyNoInteractions(publisher);
+    }
+
     private SituationParticipant participant(Long id, LocalDateTime joinedAt) {
         var value = SituationParticipant.create(situation, 2L, SituationParticipantRole.PARTICIPANT, joinedAt);
         ReflectionTestUtils.setField(value, "id", id);
