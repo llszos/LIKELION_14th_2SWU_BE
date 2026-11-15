@@ -235,8 +235,14 @@ public class SharingCardReader {
     /**
      * 다시 열 수 있는 상태인지: 요청자 → 담당자 관계가 유효하고, 담당자가 상황에 참여 중인지 (요청 조건은 이미 통과)
      * 화면 버튼 표시용입니다. 실제 다시 허용은 잠금을 잡은 뒤 같은 조건을 다시 확인합니다.
+     *
+     * - 목록의 철회됨 카드(canReallow)와 직접 철회 응답(SharingRevokeTransaction)이 씁니다.
+     *   다른 빈에서 프록시를 거쳐 부르므로 public입니다. (프록시는 private 메서드를 가로채지 못함)
+     *
+     * @param request     요청 조건을 통과한 요청 정보 (assigneeId가 있음)
+     * @param ownerUserId 정보 주인 ID (요청자)
      */
-    private boolean canReopen(SharingRequestInfo request, Long ownerUserId) {
+    public boolean canReopen(SharingRequestInfo request, Long ownerUserId) {
 
         if (!relationshipQueryRepository.existsBySourceUserIdAndTargetUserIdAndStatus(
                 ownerUserId, request.assigneeId(), RelationshipStatus.ACTIVE)) {

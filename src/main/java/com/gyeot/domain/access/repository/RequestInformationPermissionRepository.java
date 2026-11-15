@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -97,6 +98,24 @@ public interface RequestInformationPermissionRepository extends JpaRepository<Re
             """)
     List<Long> findLastSharedInformationIds(@Param("requestId") Long requestId,
                                             @Param("excludedReasons") Collection<RevokeReason> excludedReasons);
+
+    /**
+     * 공유 카드(대상 지정)가 속한 요청 ID를 조회합니다. (공유 직접 철회, 다시 허용의 바깥 단계, #46)
+     *
+     * - 쓰기 트랜잭션 밖에서 부릅니다. 쓰기 트랜잭션은 C 요청 행 잠금을 첫 조회로 해야 하는데,
+     *   그 잠금에 필요한 요청 ID를 같은 트랜잭션에서 일반 조회로 먼저 읽으면 잠금 전에 스냅샷이 만들어지기 때문입니다.
+     * - 권한의 request_id는 만든 뒤 바뀌지 않아, 잠금 전에 따로 읽은 값이어도 그대로 쓸 수 있습니다.
+     * - 한 지정의 권한은 모두 같은 요청이라 distinct로 하나만 돌려줍니다. 권한이 없는 지정이면 빈 Optional입니다.
+     * - 읽기 전용 트랜잭션을 명시합니다. 호출하는 쪽에 트랜잭션이 없으면 이 조회만의 짧은 트랜잭션으로 시작하고 끝나,
+     *   뒤이은 쓰기 트랜잭션에 스냅샷이 남지 않습니다.
+     */
+    @Transactional(readOnly = true)
+    @Query("""
+            select distinct p.requestId
+            from RequestInformationPermission p
+            where p.assignmentId = :assignmentId
+            """)
+    Optional<Long> findRequestIdByAssignmentId(@Param("assignmentId") Long assignmentId);
 
     /**
      * 대상 지정 하나의 열린 권한이 가리키는 항목 ID만 조회합니다. (#38 잠금 순서, 잠그기 전 단계)
