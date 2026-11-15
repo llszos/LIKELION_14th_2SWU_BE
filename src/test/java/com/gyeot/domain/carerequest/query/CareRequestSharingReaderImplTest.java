@@ -145,6 +145,41 @@ public class CareRequestSharingReaderImplTest {
         assertThat(reader.findById(12345L)).isEmpty();
     }
 
+    // === findByIdForUpdate (D #46 다시 허용) ===
+
+    @Test
+    void 잠금_조회는_일반_조회와_같은_값을_돌려준다() {
+        CareRequest request = saveRequest();
+        accept(request, saveAssignment(request, TARGET_ID, 1));
+        flushAndClear();
+
+        assertThat(reader.findByIdForUpdate(request.getId())).isEqualTo(reader.findById(request.getId()));
+        assertThat(reader.findByIdForUpdate(request.getId()).orElseThrow().assigneeId()).isEqualTo(TARGET_ID);
+    }
+
+    @Test
+    void 잠금_조회는_없는_요청이면_빈_Optional이다() {
+        assertThat(reader.findByIdForUpdate(12345L)).isEmpty();
+    }
+
+    @Test
+    void 같은_트랜잭션에서_먼저_읽어_둔_값이_있어도_잠금_조회는_DB의_최신_값을_돌려준다() {
+        CareRequest request = saveRequest();
+        RequestAssignment assignment = saveAssignment(request, TARGET_ID, 1);
+        accept(request, assignment);
+        flushAndClear();
+        reader.findById(request.getId()); // 요청·지정 엔티티가 메모리에 남음 (수락됨, 담당자 있음)
+
+        // 다른 트랜잭션이 취소하고 지정을 마감한 것처럼 DB만 바꿈 (메모리의 엔티티는 예전 값 그대로)
+        entityManager.createNativeQuery("update care_requests set status = 'CANCELED' where id = :id")
+                .setParameter("id", request.getId()).executeUpdate();
+        entityManager.createNativeQuery("update request_assignments set closed_at = :now, close_reason = 'REQUEST_ENDED' "
+                        + "where id = :id")
+                .setParameter("now", NOW).setParameter("id", assignment.getId()).executeUpdate();
+
+        assertNoAssignee(reader.findByIdForUpdate(request.getId()).orElseThrow(), CareRequestStatus.CANCELED);
+    }
+
     // === findAllByIds ===
 
     @Test

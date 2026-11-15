@@ -82,7 +82,7 @@ class CareRequestSharingReaderLockTest {
 
         try {
             // 1. 첫 번째 트랜잭션: 잠그고 → 신호를 받을 때까지 기다렸다가 → 요청 취소·지정 마감 후 커밋
-            //    (C의 요청 취소도 요청 행을 먼저 잠그므로, 여기서는 같은 잠금으로 그 상황을 흉내 냄)
+            //    (C의 요청 취소도 요청 행을 먼저 잠그므로, 여기서는 같은 잠금으로 그 상황을 흉내 냈습니다.)
             CompletableFuture<Void> first = CompletableFuture.runAsync(() -> tx.executeWithoutResult(status -> {
                 assertThat(reader.findByIdForUpdate(requestId).orElseThrow().status())
                         .isEqualTo(CareRequestStatus.ACCEPTED);
