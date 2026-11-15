@@ -1,12 +1,9 @@
 package com.gyeot.domain.access.service;
 
-import com.gyeot.domain.access.dto.response.SharedItemName;
 import com.gyeot.domain.access.dto.response.SharingStatus;
 import com.gyeot.domain.access.entity.RequestInformationPermission;
-import com.gyeot.domain.access.entity.RevokeReason;
 import com.gyeot.domain.access.repository.RequestInformationPermissionRepository;
-import com.gyeot.domain.carerequest.enums.CareRequestStatus;
-import com.gyeot.domain.carerequest.enums.RequestType;
+import com.gyeot.domain.access.service.SharingCardRules.ItemJudgement;
 import com.gyeot.domain.carerequest.query.CareRequestSharingReader;
 import com.gyeot.domain.carerequest.query.CareRequestSharingReader.SharingRequestInfo;
 import com.gyeot.domain.relation.entity.RelationshipStatus;
@@ -36,7 +33,7 @@ import java.util.stream.Collectors;
  * 공유 관리 카드(요청, 담당자 묶음)를 판단합니다. (노션 D 파트 API 명세 '공유 중 목록 조회', F-30, #46)
  * 공유 중 목록, 받은 정보, 공유 중 건수가 같은 기준을 쓰도록 판단을 이곳에 모았습니다.
  *
- * 판단 순서
+ * 판단 순서 (1~4의 규칙 자체는 SharingCardRules에 있고, 이 클래스는 잠그지 않는 조회로 값을 모아 그 규칙을 부릅니다)
  * 1. 요청 조건: 요청이 있고, 요청자가 정보 주인이고, 일반 요청이고, 수락됨이나 진행 중이고, 종료 시각 전이고,
  *    이 카드의 지정이 지금 담당자의 지정이어야 합니다. 하나라도 아니면 카드를 뺍니다. (자동으로 끝난 공유)
  * 2. 항목별 최신 권한: 같은 항목의 권한 중 가장 나중에 만든 행으로 판단합니다. 과거 철회 기록이 남아 있어도
@@ -168,8 +165,8 @@ public class SharingCardReader {
         for (Map.Entry<Long, List<RequestInformationPermission>> entry : permissionsByAssignment.entrySet()) {
             Long assignmentId = entry.getKey();
             SharingRequestInfo request = requests.get(entry.getValue().get(0).getRequestId());
-            if (isOpenSharing(request, ownerUserId, assignmentId, receiverUserId, now)) {
-                sources.put(assignmentId, new CardSource(request, latestByInformationId(entry.getValue())));
+            if (SharingCardRules.isOpenSharing(request, ownerUserId, assignmentId, receiverUserId, now)) {
+                sources.put(assignmentId, new CardSource(request, SharingCardRules.latestByInformationId(entry.getValue())));
             }
         }
 
@@ -193,55 +190,7 @@ public class SharingCardReader {
         return cards;
     }
 
-    // === 1. 요청 조건 ===
-
-    /** 이 카드가 지금 유효한 공유인지 (요청 상태, 기한, 지금 담당자, 받는 사람 필터) */
-    private static boolean isOpenSharing(SharingRequestInfo request, Long ownerUserId, Long assignmentId,
-                                         Long receiverUserId, LocalDateTime now) {
-
-        if (request == null) {
-            return false; // C에 요청이 없음 (방어)
-        }
-
-        if (!Objects.equals(request.requesterId(), ownerUserId)) {
-            return false; // 정보 주인 = 요청자 (방어)
-        }
-
-        if (request.requestType() != RequestType.GENERAL) {
-            return false; // 급한 요청은 SHOULD 범위라 이번에는 카드로 만들지 않음 (#45와 같은 범위)
-        }
-
-        if (request.status() != CareRequestStatus.ACCEPTED && request.status() != CareRequestStatus.IN_PROGRESS) {
-            return false; // 수락 전이거나 끝난 요청 (끝난 공유는 목록에서 빠짐)
-        }
-
-        if (request.endsAt() == null || !now.isBefore(request.endsAt())) {
-            return false; // 종료 시각이 지남 (스케줄러가 완료로 바꾸기 전 1분 사이 포함)
-        }
-
-        if (request.assignmentId() == null || request.assigneeId() == null
-                || !Objects.equals(request.assignmentId(), assignmentId)) {
-            return false; // 이 카드의 지정이 지금 담당자의 지정이 아님 (수락 철회, 대상 변경)
-        }
-
-        return receiverUserId == null || Objects.equals(request.assigneeId(), receiverUserId); // R-02-01 한 사람 기준
-    }
-
-    // === 2. 항목별 최신 권한 ===
-
-    /** 항목 ID → 그 항목의 가장 나중에 만든 권한 (입력이 ID 오름차순이라 뒤의 행이 최신) */
-    private static Map<Long, RequestInformationPermission> latestByInformationId(List<RequestInformationPermission> permissions) {
-
-        Map<Long, RequestInformationPermission> latest = new LinkedHashMap<>();
-
-        for (RequestInformationPermission permission : permissions) {
-            latest.merge(permission.getInformationId(), permission,
-                    (previous, current) -> current.getId() > previous.getId() ? current : previous); // 순서에 기대지 않고 ID로 한 번 더 확인
-        }
-        return latest;
-    }
-
-    // === 3~5. 원본 확인, 상태, canReallow ===
+    // === 3~5. 원본 확인, 상태, canReallow (3, 4는 SharingCardRules) ===
 
     /**
      * 요청 조건을 통과한 카드 하나를 최종 카드로 만듭니다. 보여 줄 항목이 없으면 빈 Optional입니다.
@@ -256,38 +205,12 @@ public class SharingCardReader {
                                              Map<Long, SafetyInformation> items, Long ownerUserId,
                                              boolean withReallow) {
 
-        // 3. 원본이 남아 있는 항목만, 최신 권한이 ACTIVE인 것과 직접 철회인 것으로 나눔
-        List<SafetyInformation> activeItems = new ArrayList<>();
-        List<SafetyInformation> revokedItems = new ArrayList<>();
-
-        for (Map.Entry<Long, RequestInformationPermission> entry : source.latest().entrySet()) {
-
-            SafetyInformation item = items.get(entry.getKey());
-            if (item == null) {
-                continue; // 원본이 없거나 다른 사람 항목 (스냅샷에 없는 항목 포함)
-            }
-
-            RequestInformationPermission latest = entry.getValue();
-            if (latest.isActive()) {
-                activeItems.add(item);
-            } else if (latest.getRevokeReason() == RevokeReason.OWNER_REVOKED) {
-                revokedItems.add(item);
-            } // 그 밖(수락 전, 공개 항목 제외 등)은 카드에 보여 주지 않음
+        // 3, 4. 원본이 남은 항목만으로 상태와 보여 줄 항목을 정함 (목록과 쓰기가 같은 규칙, 빈 카드면 뺌)
+        Optional<ItemJudgement> judged = SharingCardRules.judgeItems(source.latest(), items);
+        if (judged.isEmpty()) {
+            return Optional.empty();
         }
-
-        // 4. 유효 항목 기준으로 상태를 정함 (원본 확인 뒤라 사라진 항목 때문에 상태가 틀리지 않음)
-        SharingStatus status;
-        List<SafetyInformation> shown;
-
-        if (!activeItems.isEmpty()) {
-            status = SharingStatus.SHARING;   // 볼 수 있는 항목이 있으면 공유 중 (섞인 카드도 ACTIVE 항목만 표시)
-            shown = activeItems;
-        } else if (!revokedItems.isEmpty()) {
-            status = SharingStatus.REVOKED;   // 직접 철회한 항목만 남음
-            shown = revokedItems;
-        } else {
-            return Optional.empty(); // 남은 항목이 없는 빈 카드는 목록에서 뺌 (11/14 FE 답변)
-        }
+        SharingStatus status = judged.get().status();
 
         // 5. 철회됨 카드만 다시 허용 가능 여부를 확인
         SharingRequestInfo request = source.request();
@@ -295,11 +218,6 @@ public class SharingCardReader {
         // 공유 중 카드는 다시 허용할 대상이 없어 항상 false. 철회됨 카드만 관계와 상황 참여를 조회 (A, B 조회를 필요한 카드로 한정)
         // 건수와 받은 정보(withReallow = false)는 철회됨 카드를 어차피 버리므로 조회하지 않음
         boolean canReallow = withReallow && status == SharingStatus.REVOKED && canReopen(request, ownerUserId);
-
-        List<SharedItemName> names = shown.stream()
-                .sorted(Comparator.comparing(SafetyInformation::getId))                         // 작성순
-                .map(item -> SharedItemName.of(item.getInformationType(), item.getTitle()))
-                .toList();
 
         return Optional.of(new SharingCardView(
                 assignmentId,
@@ -311,7 +229,7 @@ public class SharingCardReader {
                 request.endsAt(),       // 자동 회수 시각 = 요청 종료 시각 (일반 요청)
                 status,
                 canReallow,
-                names));
+                judged.get().names())); // 작성순
     }
 
     /**
