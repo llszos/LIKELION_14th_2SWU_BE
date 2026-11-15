@@ -1,0 +1,219 @@
+package com.gyeot.domain.access.service;
+
+import com.gyeot.domain.access.entity.RequestInformationPermission;
+import com.gyeot.domain.access.entity.RevokeReason;
+import com.gyeot.domain.carerequest.enums.ChangeableField;
+import com.gyeot.domain.carerequest.enums.RequestType;
+import com.gyeot.domain.carerequest.event.CareRequestAcceptedEvent;
+import com.gyeot.domain.carerequest.event.CareRequestChangeConfirmedEvent;
+import com.gyeot.domain.carerequest.event.CareRequestCreatedEvent;
+import com.gyeot.domain.carerequest.event.CareRequestTargetChangedEvent;
+import com.gyeot.domain.carerequest.query.CareRequestSharingReader;
+import com.gyeot.domain.carerequest.query.CareRequestSharingReader.SharingRequestInfo;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+/**
+ * C 요청 이벤트에 따라 안심카드 접근 권한을 만들고 활성화합니다. (F-03, F-09, ERD 9.2, #42)
+ *
+ * - 이벤트를 발행한 C 트랜잭션 안에서만 실행합니다. (MANDATORY)
+ *   트랜잭션 없이 호출되면 C 변경과 권한 변경이 따로 저장될 수 있어 바로 실패시킵니다.
+ * - 같은 요청의 C 이벤트는 요청 행 잠금(findByIdForUpdate)을 획득한 트랜잭션 안에서 동기로 발행되는 것을 전제로 합니다.
+ *   그래서 권한이 아직 없는 상태에서도 같은 요청의 이벤트가 동시에 처리되지 않습니다.
+ * - 정보 주인은 요청자입니다. (requesterId)
+ * - GRANTED 이력의 수행자는 권한이 열리게 한 사람입니다. 수락이면 담당자입니다. (시스템 자동 처리만 NULL, ERD 4.12)
+ *
+ * - 각 처리는 권한을 읽기 전에 관련 항목 행부터 한 번에 잠급니다. (PermissionWriter 클래스 설명의 잠금 규칙, #38)
+ *   요청 행 잠금은 같은 요청끼리만 막아 주므로, 다른 요청이나 항목 삭제와의 경합은 항목 행 잠금으로 막습니다.
+ */
+@Service
+@RequiredArgsConstructor
+@Transactional(propagation = Propagation.MANDATORY)
+public class PermissionGrantService {
+
+    static final long URGENT_ACCESS_HOURS = 24; // 급한 요청 열람 기한: 수락 후 24시간 (F-13, ERD 4.11)
+
+    private final PermissionWriter permissionWriter;
+    private final CareRequestSharingReader careRequestSharingReader; // 수락 후 추가 항목의 기한 계산 (요청 유형, 수락 시각)
+
+    /**
+     * 요청 생성: 최초 지정에 공개 항목마다 PENDING 권한을 만듭니다.
+     * 공개 항목이 0개인 요청은 권한을 만들지 않습니다.
+     */
+    public void grantOnRequestCreated(CareRequestCreatedEvent event) {
+
+        // 공개할 항목 행을 먼저 잠금 (확인부터 권한 저장까지 그 항목이 삭제되지 않게, #38 잠금 규칙)
+        permissionWriter.lockItems(event.informationIds());
+
+        // 정보 주인 = 요청자. 대상자는 아직 수락 전이라 PENDING (내용은 볼 수 없음)
+        permissionWriter.createPending(event.requestId(), event.assignmentId(),
+                event.requesterId(), event.informationIds());
+    }
+
+    /**
+     * 수락: 담당자의 공유 예정 권한을 모두 활성화하고 항목마다 GRANTED 이력을 남깁니다.
+     *
+     * - 급한 요청은 expires_at = 수락 시각 + 24시간, 일반 요청은 기한 없이 요청 종료 시각으로 판단합니다.
+     * - 공개 항목이 0개인 요청은 바꿀 권한이 없어 아무 일도 하지 않습니다.
+     * - expires_at을 저장하는 것만으로 접근이 막히지 않습니다. 전달받은 정보 조회(#45)에서 기한을 함께 검사합니다.
+     * - 급한 요청(F-13)은 SHOULD 범위라 여기서는 기한 저장까지만 합니다. 24시간이 지난 권한의 자동 회수는 이번 범위가 아닙니다.
+     */
+    public void grantOnAccepted(CareRequestAcceptedEvent event) {
+
+        // 급한 요청만 기한을 둠. 일반 요청은 null이고 요청 종료 시각(C의 endsAt)으로 판단
+        LocalDateTime expiresAt = event.requestType() == RequestType.URGENT
+                ? event.occurredAt().plusHours(URGENT_ACCESS_HOURS)
+                : null;
+
+        // 활성화할 권한의 항목 행을 먼저 잠금 (그 사이 항목이 삭제되면 잠금 조회에서 이미 회수된 상태로 보여 건너뜀)
+        permissionWriter.lockItemsOfAssignment(event.assignmentId(), null);
+
+        // 정보 주인 = 요청자, 수행자 = 수락한 담당자, 부여 시각 = 수락 시각
+        permissionWriter.activatePending(event.assignmentId(), event.requesterId(), event.assigneeId(),
+                event.occurredAt(), expiresAt);
+    }
+
+    /**
+     * 대상 변경(다시 부탁하기): 이전 지정의 권한을 끝내고, 새 지정에 공유 예정 권한을 만듭니다. (ERD 9.2)
+     *
+     * - 이전 지정은 ASSIGNMENT_CLOSED로 회수합니다. 보통 수락 전(PENDING)이라 이력은 남지 않습니다.
+     * - 새 지정은 이벤트의 informationIds로 만듭니다. 다시 부탁하기 화면에서 공개 항목을 바꿀 수 있어,
+     *   이전 지정의 항목을 복사하지 않습니다.
+     * - 같은 이벤트가 다시 와도 회수는 건너뛰고, 생성은 이미 있는 항목을 만들지 않아 결과가 같습니다.
+     */
+    public void grantOnTargetChanged(CareRequestTargetChangedEvent event) {
+
+        // 0. 이전 지정의 열린 권한 항목과 새로 공개할 항목을 한 번에 잠금
+        //    회수와 생성을 따로 잠그면 작업 전체의 잠금 순서가 엇갈릴 수 있어 먼저 모아서 잠금 (#38 잠금 규칙)
+        permissionWriter.lockItemsOfAssignment(event.previousAssignmentId(), event.informationIds());
+
+        // 1. 이전 지정 회수 (C가 이전 지정을 먼저 마감한 뒤 발행하므로 이 지정은 더 쓰이지 않음)
+        //    뒤에서 새 지정에 INSERT하므로 범위 잠금 대신 권한 ID로 잠금 (갭 락 교착 위험 완화, #38 리뷰 반영)
+        permissionWriter.revokeByRequestEvent(permissionWriter.lockOpenPermissionsById(event.previousAssignmentId()),
+                RevokeReason.ASSIGNMENT_CLOSED, event.requesterId(), event.occurredAt());
+
+        // 2. 새 지정에 이번에 고른 항목으로 PENDING 생성 (새 대상자는 아직 수락 전)
+        permissionWriter.createPending(event.requestId(), event.assignmentId(),
+                event.requesterId(), event.informationIds());
+    }
+
+    /**
+     * 수정 확정: 변경 후 전체 공개 항목 목록과 지금 공개 중인 항목을 비교해 반영합니다. (ERD 4.8)
+     *
+     * - 공개 항목을 바꾸지 않은 수정(일정, 장소만 변경)은 건너뜁니다.
+     * - 열린 지정이 없으면(대상자가 빠진 상태) 권한을 둘 곳이 없어 건너뜁니다.
+     *
+     * - 반영할 목록 확인 (ERD 4.8 변경안 적용 방식, sharableAfterIds)
+     *   수락 전 직접 수정: C가 같은 트랜잭션에서 바로 앞에 확인하므로, 하나라도 문제가 있으면 전체를 거부합니다.
+     *   재확인 수락: 대기 중에 삭제됐거나 요청자 것이 아닌 항목은 빼고 남은 항목으로 반영합니다.
+     *   (담당자는 항목을 고칠 수 없어, 거부하면 재확인 기한이 끝날 때까지 수락할 방법이 없음)
+     *
+     * 아래 비교는 확인을 마친 목록을 기준으로 합니다.
+     * - 빠진 항목: SHARING_EXCLUDED로 회수 (ACTIVE였으면 정보 주인을 수행자로 AUTO_REVOKED 이력)
+     *   재확인 수락에서 대기 중 삭제된 유지 항목도 반영 목록에서 빠지므로 여기서 회수됩니다.
+     * - 추가된 항목: 수락 전 직접 수정(proposalId 없음)은 PENDING, 재확인 수락(proposalId 있음)은 ACTIVE + GRANTED
+     * - 유지된 항목: 그대로 둠 (권한과 이력 변화 없음)
+     * - 빈 목록: 공개 중인 항목 전부 회수
+     */
+    public void grantOnChangeConfirmed(CareRequestChangeConfirmedEvent event) {
+
+        if (!event.changedFields().contains(ChangeableField.INFORMATION_IDS)) {
+            return; // 공개 항목은 그대로인 수정
+        }
+
+        if (event.assignmentId() == null) {
+            return; // 열린 지정 없음 (이전 지정의 권한은 마감 때 이미 회수됨)
+        }
+
+        // 지금 공개 중인 항목과 변경 후 목록의 항목을 한 번에 잠금 (#38 잠금 규칙)
+        // 아래의 목록 확인, 공개 중 권한 조회, 회수, 생성은 모두 이 잠금 뒤에 하므로 최신 상태로 판단함
+        permissionWriter.lockItemsOfAssignment(event.assignmentId(), event.informationIds());
+
+        boolean accepted = event.proposalId() != null; // 재확인은 수락한 담당자에게만 가므로 제안 ID가 있으면 수락 후
+        List<Long> afterList = sharableAfterIds(event, accepted); // 실제로 반영할 변경 후 전체 목록
+
+        // 잠금 뒤 처음 읽는 권한 엔티티 (잠금 조회라 최신 상태)
+        // 뒤에서 추가 항목을 INSERT하므로 범위 잠금 대신 권한 ID로 잠금 (갭 락 교착 위험 완화, #38 리뷰 반영)
+        List<RequestInformationPermission> open = permissionWriter.lockOpenPermissionsById(event.assignmentId()); // 지금 공개 중
+        Set<Long> afterIds = new HashSet<>(afterList); // 포함 여부 비교용
+        Set<Long> openIds = new HashSet<>();
+
+        for (RequestInformationPermission permission : open) {
+            openIds.add(permission.getInformationId());
+        }
+
+        // 1. 빠진 항목 회수 (정보 주인이 뺀 것, 재확인 수락이면 대기 중 삭제된 항목 포함)
+        List<RequestInformationPermission> excluded = open.stream()
+                .filter(permission -> !afterIds.contains(permission.getInformationId()))
+                .toList();
+
+        permissionWriter.revokeByRequestEvent(excluded, RevokeReason.SHARING_EXCLUDED,
+                event.requesterId(), event.occurredAt());
+
+        // 2. 새로 들어온 항목만 생성 (요청자가 고른 순서 유지, 목록 확인은 위에서 완료)
+        List<Long> added = afterList.stream()
+                .filter(informationId -> !openIds.contains(informationId))
+                .toList();
+
+        if (added.isEmpty()) {
+            return;
+        }
+
+        if (!accepted) {
+            permissionWriter.createPending(event.requestId(), event.assignmentId(), event.requesterId(), added);
+            return;
+        }
+
+        // 수락 후 추가: 바로 볼 수 있게 ACTIVE, 수행자는 재확인을 수락한 담당자, 부여 시각은 확정 시각
+        permissionWriter.createActive(event.requestId(), event.assignmentId(), event.requesterId(),
+                event.targetUserId(), added, event.occurredAt(), expiresAtOfAcceptedRequest(event.requestId()));
+    }
+
+    /**
+     * 수정 확정에서 실제로 반영할 공개 항목 목록입니다.
+     *
+     * 수락 전 직접 수정은 유지 항목까지 전체를 확인해 하나라도 문제가 있으면 거부하고(회수도 실행하지 않음),
+     * 재확인 수락은 삭제됐거나 요청자 것이 아닌 항목을 빼고 돌려줍니다.
+     */
+    private List<Long> sharableAfterIds(CareRequestChangeConfirmedEvent event, boolean accepted) {
+        if (accepted) {
+            // 재확인 수락: 거부하지 않고 걸러 냄 (담당자가 수락을 못 하고 막히지 않게)
+            return permissionWriter.filterOwnedItemIds(event.requesterId(), event.informationIds());
+        }
+        // 수락 전 직접 수정: 유지 항목까지 전체 확인, 실패 시 여기서 예외가 나 회수도 실행되지 않음
+        permissionWriter.loadOwnedItemTypes(event.requesterId(), event.informationIds());
+        return event.informationIds();
+    }
+
+    /**
+     * 수락 후 추가 항목에 줄 기한입니다.
+     *
+     * - 일반 요청: null (요청 종료 시각으로 판단)
+     * - 급한 요청: 최초 수락 시각 + 24시간. 수정 시각부터 다시 24시간을 주면 기한이 늘어나므로 수락 시각 기준입니다.
+     *
+     * 수정 확정 이벤트에는 요청 유형과 수락 시각이 없어 C의 공유용 요청 조회(CareRequestSharingReader)로 확인합니다.
+     * 기존 권한이 하나도 없는 경우(공개 0개로 보낸 뒤 수락 후 추가)도 같은 기준으로 계산됩니다.
+     */
+    private LocalDateTime expiresAtOfAcceptedRequest(Long requestId) {
+
+        SharingRequestInfo request = careRequestSharingReader.findById(requestId)
+                .orElseThrow(() -> new IllegalStateException("수정이 확정된 요청을 찾을 수 없습니다: " + requestId));
+
+        if (request.requestType() != RequestType.URGENT) {
+            return null;
+        }
+
+        // 재확인은 수락한 담당자에게만 가므로 현재 담당자의 수락 시각이 있어야 함
+        if (request.acceptedAt() == null) {
+            throw new IllegalStateException("재확인 수락인데 현재 담당자의 수락 시각이 없습니다: " + requestId);
+        }
+        return request.acceptedAt().plusHours(URGENT_ACCESS_HOURS);
+    }
+}
