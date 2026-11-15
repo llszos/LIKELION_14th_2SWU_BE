@@ -51,7 +51,7 @@ class SharingRevokeTransactionTest {
     // 고정 시각: 2026-10-02 15:00 (한국 시간). 요청은 17:00 종료라 지금은 진행 중
     private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 10, 2, 15, 0);
-    private static final List<PermissionStatus> CARD_STATUSES = List.of(PermissionStatus.ACTIVE, PermissionStatus.REVOKED);
+    private static final List<PermissionStatus> CARD_STATUSES = List.of(PermissionStatus.ACTIVE, PermissionStatus.REVOKED); // 서비스와 같은 잠금 대상 상태
 
     private static final Long OWNER_ID = 10L;     // 정보 주인 (요청자, 로그인한 사용자)
     private static final Long ASSIGNEE_ID = 20L;  // 지금 담당자
@@ -60,11 +60,11 @@ class SharingRevokeTransactionTest {
     private static final Long ITEM_ID = 12L;
     private static final Long OTHER_ITEM_ID = 13L;
 
-    private CareRequestSharingReader careRequestSharingReader;
-    private RequestInformationPermissionRepository permissionRepository;
-    private PermissionWriter permissionWriter;
-    private SharingCardReader sharingCardReader;
-    private ApplicationEventPublisher eventPublisher;
+    private CareRequestSharingReader careRequestSharingReader;            // C 요청 조회 (Mock)
+    private RequestInformationPermissionRepository permissionRepository; // 잠글 항목 ID 조회 (Mock)
+    private PermissionWriter permissionWriter;                           // 잠금, 회수 (Mock, 규칙 자체는 PermissionWriterTest)
+    private SharingCardReader sharingCardReader;                         // canReallow 계산 (Mock)
+    private ApplicationEventPublisher eventPublisher;                    // 이벤트 발행 확인 (Mock)
     private SharingRevokeTransaction transaction;
 
     @BeforeEach
@@ -205,6 +205,7 @@ class SharingRevokeTransactionTest {
 
     // === 도우미 ===
 
+    /** 기본 인자(정보 주인, 카드, 요청)로 철회하면 404 SHARING_NOT_FOUND인지 */
     private void assertNotFound() {
         assertThatThrownBy(() -> transaction.revoke(OWNER_ID, ASSIGNMENT_ID, REQUEST_ID))
                 .isInstanceOf(BusinessException.class)
@@ -219,10 +220,12 @@ class SharingRevokeTransactionTest {
                 NOW.minusHours(1), NOW.plusHours(2), 5L, ASSIGNEE_ID, NOW.minusDays(1), HelpType.HOSPITAL)));
     }
 
+    /** 권한 잠금 조회(lockPermissionsById)가 돌려줄 권한 (잠근 뒤의 최신 상태라고 가정) */
     private void givenLockedPermissions(RequestInformationPermission... permissions) {
         when(permissionWriter.lockPermissionsById(ASSIGNMENT_ID, CARD_STATUSES)).thenReturn(List.of(permissions));
     }
 
+    /** 이 카드(요청 31, 지정 40)의 ACTIVE 권한 */
     private static RequestInformationPermission active(Long id, Long informationId) {
         RequestInformationPermission permission = RequestInformationPermission.createActive(
                 REQUEST_ID, ASSIGNMENT_ID, informationId, InformationType.MEDICATION, NOW.minusDays(1), null);
@@ -230,12 +233,14 @@ class SharingRevokeTransactionTest {
         return permission;
     }
 
+    /** 이 카드의 직접 철회(OWNER_REVOKED) 권한 */
     private static RequestInformationPermission revoked(Long id, Long informationId) {
         RequestInformationPermission permission = active(id, informationId);
         permission.revoke(RevokeReason.OWNER_REVOKED, NOW.minusHours(1));
         return permission;
     }
 
+    /** 잠금 조회로 얻은 항목 원본 (주인을 바꿔 다른 사람의 항목도 만듦) */
     private static SafetyInformation item(Long id, String title, Long ownerId) {
         SafetyInformation item = SafetyInformation.create(ownerId, InformationType.MEDICATION, title, "아침 1정");
         ReflectionTestUtils.setField(item, "id", id);

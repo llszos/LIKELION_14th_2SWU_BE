@@ -22,7 +22,7 @@ import static org.mockito.Mockito.when;
  */
 class SharingCountReaderImplTest {
 
-    private static final Long OWNER_ID = 10L;
+    private static final Long OWNER_ID = 10L; // 정보 주인
     private static final LocalDateTime STARTS_AT = LocalDateTime.of(2026, 10, 2, 14, 0);
 
     private SharingCardReader sharingCardReader;
@@ -51,6 +51,7 @@ class SharingCountReaderImplTest {
         assertThat(countReader.countActiveSharings(OWNER_ID)).isZero();
     }
 
+    /** 공유 중 카드 하나 (건수는 개수만 보므로 나머지 값은 고정) */
     private static SharingCardView card(Long assignmentId) {
         return new SharingCardView(assignmentId, 31L, 20L, 5L, HelpType.HOSPITAL, STARTS_AT, STARTS_AT.plusHours(3),
                 SharingStatus.SHARING, false, List.of(SharedItemName.of(InformationType.MEDICATION, "혈압약")));

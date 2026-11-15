@@ -22,12 +22,12 @@ import static org.mockito.Mockito.when;
  */
 class SharingRevokeServiceTest {
 
-    private static final Long OWNER_ID = 10L;
-    private static final Long ASSIGNMENT_ID = 40L;
-    private static final Long REQUEST_ID = 31L;
+    private static final Long OWNER_ID = 10L;      // 로그인한 사용자 (정보 주인)
+    private static final Long ASSIGNMENT_ID = 40L; // 철회할 공유 카드 ID
+    private static final Long REQUEST_ID = 31L;    // 카드가 속한 요청 ID
 
-    private RequestInformationPermissionRepository permissionRepository;
-    private SharingRevokeTransaction revokeTransaction;
+    private RequestInformationPermissionRepository permissionRepository; // 지정 → 요청 ID 조회 (Mock)
+    private SharingRevokeTransaction revokeTransaction;                   // 실제 철회 (Mock, 넘긴 값만 확인)
     private SharingRevokeService service;
 
     @BeforeEach
@@ -43,7 +43,7 @@ class SharingRevokeServiceTest {
         when(permissionRepository.findRequestIdByAssignmentId(ASSIGNMENT_ID)).thenReturn(Optional.of(REQUEST_ID));
         when(revokeTransaction.revoke(OWNER_ID, ASSIGNMENT_ID, REQUEST_ID)).thenReturn(expected);
 
-        assertThat(service.revoke(OWNER_ID, ASSIGNMENT_ID)).isEqualTo(expected);
+        assertThat(service.revoke(OWNER_ID, ASSIGNMENT_ID)).isEqualTo(expected); // 쓰기 트랜잭션의 응답을 그대로 돌려줌
     }
 
     @Test
@@ -54,6 +54,6 @@ class SharingRevokeServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(SafetyCardErrorCode.SHARING_NOT_FOUND);
-        verify(revokeTransaction, never()).revoke(any(), any(), any());
+        verify(revokeTransaction, never()).revoke(any(), any(), any()); // 잠금 없이 바로 404
     }
 }

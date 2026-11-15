@@ -36,6 +36,7 @@ import java.util.stream.Collectors;
  *   지정 하나만 끝나면 revokeAssignment(수락 철회, 지정 마감),
  *   요청 자체가 끝나면 revokeRequest(완료, 취소, 만료)를 씁니다. 둘 다 revokeByRequestEvent로 같은 규칙을 적용합니다.
  *   안심카드 항목을 지우면 revokeItem으로 그 항목의 권한만 끝냅니다. (#38)
+ *   정보 주인이 공유 카드를 직접 철회하면 revokeByOwner로 끝냅니다. (#46, 이력 유형과 수행자 규칙이 C 이벤트 회수와 다름)
  *
  * - 잠금 순서 (#38, 항목 삭제와 권한 변경의 경합 방지)
  *   1. 작업 전체에 필요한 항목 ID를 모읍니다. 이때 권한 엔티티는 읽지 않습니다.
@@ -47,6 +48,7 @@ import java.util.stream.Collectors;
  *
  * - 권한 조회 방식 (#38 리뷰 반영)
  *   대상 변경과 수정 확정: 권한 ID를 조회한 뒤 기본 키로 하나씩 잠급니다.
+ *   공유 직접 철회(#46): 같은 방식(lockPermissionsById)으로 ACTIVE와 REVOKED를 함께 잠급니다. 다시 허용도 이 방식을 사용할 예정입니다.
  *   수락, C 이벤트 회수, 항목 삭제: 범위 잠금을 유지합니다.
  *   생성 전 중복 확인: 잠그지 않는 항목 ID 조회를 사용합니다.
  *

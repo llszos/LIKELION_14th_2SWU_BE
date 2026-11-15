@@ -161,6 +161,7 @@ final class SharingCardRules {
             names = List.copyOf(names);
         }
 
+        /** 보여 줄 항목을 작성순으로 정렬해, 권한과 이름 목록의 순서를 같게 만듦 */
         private static ItemJudgement of(SharingStatus status, List<Shown> shown) {
             List<Shown> sorted = shown.stream()
                     .sorted(Comparator.comparing(s -> s.item().getId())) // 작성순
