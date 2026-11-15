@@ -93,8 +93,8 @@ public class CareRequestCleanupService {
      * 회원 탈퇴 (ERD 9.6)
      * - 요청자로서: 끝나지 않은 내 요청을 취소합니다. (USER_WITHDRAWN)
      * - 대상자·담당자로서: 지금 맡은 지정을 마감합니다. (USER_WITHDRAWN, 진행 중이면 요청 취소 USER_WITHDRAWN)
+     * 요청과 지정은 삭제하지 않고 남깁니다. 상대방의 기록에는 이름이 "탈퇴한 사용자"로 표시됩니다. (RequestUserNames, F-32)
      * 두 목록을 합쳐 요청 ID 순서로 처리합니다. (두 사람이 동시에 탈퇴해도 잠그는 순서가 같음)
-     * TODO: 탈퇴한 사람이 보낸 요청의 삭제는 팀 결정 후 추가합니다. (삭제되는 요청의 이벤트 발행 방식 미정, #76)
      */
     public void removeWithdrawnUser(Long userId, LocalDateTime occurredAt) {
         Collection<Long> requestIds = new TreeSet<>(careRequestRepository.findIdsByRequesterIdAndStatusIn(userId, ONGOING));
