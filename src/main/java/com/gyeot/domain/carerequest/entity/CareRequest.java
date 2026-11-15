@@ -57,12 +57,12 @@ public class CareRequest extends BaseEntity {
 
     // 요청 유형
     @Enumerated(EnumType.STRING)
-    @Column(name = "request_type", nullable = false, length = 20, updatable = false)
+    @Column(name = "request_type", nullable = false, length = 20, updatable = false, columnDefinition = "VARCHAR(20)")  // MySQL ENUM 대신 VARCHAR, 길이는 length와 같게 (#36)
     private RequestType requestType;
 
     // 도움 유형
     @Enumerated(EnumType.STRING)
-    @Column(name = "help_type", nullable = false, length = 30, updatable = false)
+    @Column(name = "help_type", nullable = false, length = 30, updatable = false, columnDefinition = "VARCHAR(30)")  // MySQL ENUM 대신 VARCHAR, 길이는 length와 같게 (#36)
     private HelpType helpType;
 
     // 요청 내용
@@ -83,7 +83,7 @@ public class CareRequest extends BaseEntity {
 
     // 요청 상태
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false, length = 20)
+    @Column(name = "status", nullable = false, length = 20, columnDefinition = "VARCHAR(20)")  // MySQL ENUM 대신 VARCHAR, 길이는 length와 같게 (#36)
     private CareRequestStatus status;
 
     /** TODO: SHOULD 기능이므로 1차 추가 때 재확인이 필요합니다.
@@ -111,7 +111,7 @@ public class CareRequest extends BaseEntity {
 
     // 취소 사유
     @Enumerated(EnumType.STRING)
-    @Column(name = "cancel_reason", length = 40)
+    @Column(name = "cancel_reason", length = 40, columnDefinition = "VARCHAR(40)")  // MySQL ENUM 대신 VARCHAR, 길이는 length와 같게 (#36)
     private CancelReason cancelReason;
 
     // 생성자

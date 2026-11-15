@@ -60,7 +60,7 @@ public class RequestAssignment extends BaseCreatedEntity {
 
     // 응답 상태 (가능·어려움·확인 후 답변)
     @Enumerated(EnumType.STRING)
-    @Column(name = "response_status", length = 30)
+    @Column(name = "response_status", length = 30, columnDefinition = "VARCHAR(30)")  // MySQL ENUM 대신 VARCHAR, 길이는 length와 같게 (#36)
     private AssignmentResponseStatus responseStatus; // 미응답 NULL
 
     /**
@@ -84,7 +84,7 @@ public class RequestAssignment extends BaseCreatedEntity {
 
     // 대상 지정 마감 사유 (변경·관계 해제 등)
     @Enumerated(EnumType.STRING)
-    @Column(name = "close_reason", length = 40)
+    @Column(name = "close_reason", length = 40, columnDefinition = "VARCHAR(40)")  // MySQL ENUM 대신 VARCHAR, 길이는 length와 같게 (#36)
     private AssignmentCloseReason closeReason;
 
     // 담당자 없음 안내 확인 일시 (요청자가 담당자 없음 모달을 닫은 시각)
@@ -92,7 +92,7 @@ public class RequestAssignment extends BaseCreatedEntity {
     private LocalDateTime noticeClosedAt; // 미확인 null
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "notice_reason", length = 30)
+    @Column(name = "notice_reason", length = 30, columnDefinition = "VARCHAR(30)")  // MySQL ENUM 대신 VARCHAR, 길이는 length와 같게 (#36)
     private NoAssigneeReason noticeReason; // 요청자가 모달을 닫을 때의 담당자 없음 사유, 미확인 null
 
 

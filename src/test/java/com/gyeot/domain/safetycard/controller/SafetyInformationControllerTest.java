@@ -71,13 +71,13 @@ class SafetyInformationControllerTest {
     @Test
     void 분류별_항목을_조회한다() throws Exception {
         when(service.getCategoryItems(1L, InformationCategory.HEALTH))
-                .thenReturn(new CategoryItemsResponse(InformationCategory.HEALTH, "건강", List.of()));
+                .thenReturn(new CategoryItemsResponse(InformationCategory.HEALTH, "건강 정보", List.of()));
 
         mvc.perform(get("/api/safety-information").param("category", "HEALTH"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("success"))
                 .andExpect(jsonPath("$.data.category").value("HEALTH"))
-                .andExpect(jsonPath("$.data.categoryName").value("건강"));
+                .andExpect(jsonPath("$.data.categoryName").value("건강 정보"));
     }
 
     @Test

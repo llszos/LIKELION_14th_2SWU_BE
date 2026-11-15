@@ -11,7 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class InformationTypeTest {
 
     @Test
-    void 민감정보는_질환_복용약_알레르기_주소_출입_방법_5개다() {
+    void 민감정보는_질환_복용약_알러지_주소_출입_방법_5개다() {
         assertThat(Arrays.stream(values()).filter(InformationType::isSensitive))
                 .containsExactlyInAnyOrder(DISEASE, MEDICATION, ALLERGY, ADDRESS, ENTRY_METHOD);
     }

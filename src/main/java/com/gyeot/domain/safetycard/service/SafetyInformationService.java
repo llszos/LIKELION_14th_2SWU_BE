@@ -1,12 +1,15 @@
 package com.gyeot.domain.safetycard.service;
 
 import com.gyeot.domain.access.query.SharingCountReader;
+import com.gyeot.domain.access.service.PermissionItemDeletionService;
 import com.gyeot.domain.safetycard.dto.request.SafetyInformationCreateRequest;
+import com.gyeot.domain.safetycard.dto.request.SafetyInformationUpdateRequest;
 import com.gyeot.domain.safetycard.dto.response.CategoryItemsResponse;
 import com.gyeot.domain.safetycard.dto.response.CategoryItemsResponse.Item;
 import com.gyeot.domain.safetycard.dto.response.CategoryItemsResponse.TypeItems;
 import com.gyeot.domain.safetycard.dto.response.SafetyCardSummaryResponse;
 import com.gyeot.domain.safetycard.dto.response.SafetyCardSummaryResponse.CategorySummary;
+import com.gyeot.domain.safetycard.dto.response.SafetyInformationDeleteResponse;
 import com.gyeot.domain.safetycard.dto.response.SafetyInformationResponse;
 import com.gyeot.domain.safetycard.entity.InformationCategory;
 import com.gyeot.domain.safetycard.entity.InformationType;
@@ -20,6 +23,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
@@ -30,16 +34,18 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 정보 주인이 자기 안심카드 항목을 조회·작성합니다. (F-02)
+ * 정보 주인이 자기 안심카드 항목을 조회, 작성, 수정, 삭제합니다. (F-02)
  * 항목 내용은 DB에 암호화돼 있지만, 엔티티를 꺼낼 때 Converter가 복호화해서 여기서는 평문으로 다룹니다.
  */
 @Service                        // Spring이 객체로 만들어 Controller에 넣어 줌
-@RequiredArgsConstructor        // 아래 final 필드(Repository, SharingCountReader)를 채우는 생성자 자동 생성
+@RequiredArgsConstructor        // 아래 final 필드(Repository, SharingCountReader, PermissionItemDeletionService, Clock)를 채우는 생성자 자동 생성
 @Transactional(readOnly = true) // 기본은 읽기 전용, 저장하는 메서드만 따로 @Transactional
 public class SafetyInformationService {
 
     private final SafetyInformationRepository safetyInformationRepository; // 안심카드 항목 조회·저장
     private final SharingCountReader sharingCountReader;                   // 공유 중 건수 (F-30 기준, access 영역)
+    private final PermissionItemDeletionService permissionItemDeletionService; // 항목 삭제 시 접근 권한 정리 (access 영역, #38)
+    private final Clock clock;                                             // 오늘 날짜 기준 (서비스 시간대 Asia/Seoul, 테스트에서 고정 가능)
 
     private static final Set<String> BLOOD_TYPES = Set.of("A", "B", "O", "AB"); // 혈액형 허용 값 (표시 "AB형"은 FE가 변환)
 
@@ -64,6 +70,34 @@ public class SafetyInformationService {
                 SafetyInformation.create(userId, type, request.title(), request.informationValue()));
 
         return SafetyInformationResponse.from(saved);
+    }
+
+    /**
+     * 본인 안심카드 항목 1개의 이름과 내용을 수정합니다. (항목 수정)
+     *
+     * - 없는 항목이거나 다른 사람의 항목이면 404 SAFETY_INFO_NOT_FOUND
+     * - 입력 규칙은 작성과 같고, 유형은 바꿀 수 없어 기존 항목의 유형 기준으로 검사합니다.
+     * - 수정하면 updated_at이 바뀌고, 담당자 화면(전달받은 정보 조회)에는 '갱신됨'으로 표시됩니다. (updated_at > 권한 granted_at)
+     * - 공유 중인 항목이어도 권한은 그대로 두고, 담당자는 수정된 내용을 봅니다.
+     */
+    @Transactional // 수정하므로 읽기 전용이 아닌 트랜잭션
+    public SafetyInformationResponse update(Long userId, Long informationId, SafetyInformationUpdateRequest request) {
+
+        // 1. 본인 항목인지 확인하며 항목 행을 잠금 (없거나 남의 항목이면 404, 남의 항목이 있다는 것도 알려 주지 않음)
+        //    동시에 삭제되면 삭제가 끝날 때까지 기다린 뒤 404
+        SafetyInformation information = getOwnedItem(userId, informationId);
+
+        // 2. 기존 항목의 유형으로 입력 규칙 검사 (작성과 같은 규칙)
+        validateByType(information.getInformationType(), request.title(), request.informationValue());
+
+        // 3. 변경 감지로 수정 (title, 내용은 Converter가 다시 암호화해서 저장)
+        information.update(request.title(), request.informationValue());
+
+        // 4. updated_at은 DB에 반영(flush)될 때 채워지므로, 먼저 반영해야 응답에 수정 후 시각이 담김
+        //    값이 그대로면 변경이 없어 updated_at도 바뀌지 않음 ('갱신됨' 표시 안 함)
+        safetyInformationRepository.flush();
+
+        return SafetyInformationResponse.from(information);
     }
 
     /**
@@ -113,6 +147,47 @@ public class SafetyInformationService {
         return new CategoryItemsResponse(category, category.getDescription(), types);
     }
 
+    /**
+     * 본인 안심카드 항목 1개를 삭제하고, 연결된 접근 권한을 즉시 회수합니다. (항목 삭제, ERD 9.5)
+     *
+     * - 없는 항목, 다른 사람의 항목, 이미 삭제된 항목이면 404 SAFETY_INFO_NOT_FOUND
+     * - 권한 회수, 회수 이력, 담당자 알림 이벤트, 권한의 information_id 정리, 항목 삭제를 한 트랜잭션에서 처리합니다.
+     *   하나라도 실패하면 모두 되돌려, 항목은 남았는데 권한만 회수되는 일이 없습니다.
+     * - 접근 이력은 지우지 않습니다. 접근 이력 화면에서는 "알러지 (삭제된 항목)"처럼 유형 이름만 보입니다.
+     */
+    @Transactional // 삭제하므로 읽기 전용이 아닌 트랜잭션 (access 영역의 MANDATORY 서비스가 이 트랜잭션에 참여)
+    public SafetyInformationDeleteResponse delete(Long userId, Long informationId) {
+
+        // 1. 본인 항목인지 확인하며 항목 행을 잠금 (수정과 같은 기준, 없거나 남의 항목이면 404)
+        //    이 잠금을 먼저 쥐어야, 같은 항목으로 권한을 만들거나 바꾸는 작업과 순서가 정해짐 (항목 행 → 권한 행)
+        SafetyInformation information = getOwnedItem(userId, informationId);
+
+        // 2. 권한 회수, 담당자 알림, information_id 정리 (회수 시각과 이력 시각은 삭제 시각으로 통일)
+        LocalDateTime deletedAt = LocalDateTime.now(clock);
+        permissionItemDeletionService.revokeOnItemDeleted(userId, informationId, deletedAt);
+
+        // 3. 항목 행 삭제 (권한이 원본을 더 가리키지 않으므로 FK 없이도 남는 참조가 없음)
+        safetyInformationRepository.delete(information);
+
+        return new SafetyInformationDeleteResponse(informationId);
+    }
+
+    /**
+     * 본인 항목을 잠금 조회로 찾습니다. 없는 항목과 다른 사람의 항목을 구분하지 않고 404 SAFETY_INFO_NOT_FOUND로 거부합니다. (항목 수정, 삭제)
+     *
+     * - 구분해서 알려 주면 다른 사람 항목 ID가 있는지 확인하는 데 쓰일 수 있어 같은 응답으로 묶었습니다.
+     *
+     * - 항목 행을 잠그고 읽습니다. (#38 항목 삭제와 권한 변경의 직렬화)
+     *   삭제: 권한을 만들거나 바꾸는 작업도 같은 항목 행을 먼저 잠그므로, 삭제가 끝날 때까지 기다리거나 삭제가 그 작업을 기다립니다.
+     *   수정: 동시에 삭제되면 잠금을 기다린 뒤 없는 항목으로 보여 404가 됩니다. (잠그지 않으면 이미 지워진 행을 수정하려다 저장 오류가 남)
+     * - 이 트랜잭션에서 그 항목을 처음 읽는 조회라, 잠금 조회 결과가 곧 최신 상태입니다.
+     */
+    private SafetyInformation getOwnedItem(Long userId, Long informationId) {
+        return safetyInformationRepository.findByIdForUpdate(informationId)
+                .filter(information -> information.getOwnerId().equals(userId)) // 남의 항목은 없는 것으로 취급
+                .orElseThrow(() -> new BusinessException(SafetyCardErrorCode.SAFETY_INFO_NOT_FOUND));
+    }
+
     // 유형마다 다른 입력 규칙. 어기면 공통 에러 400 INVALID_INPUT (요구사항 명세 F-02 입력 형식)
     private void validateByType(InformationType type, String title, String value) {
         // title: 이름이 있는 유형(질환 등)은 필수이고 공백만 있으면 안 됨
@@ -129,9 +204,15 @@ public class SafetyInformationService {
             if (!value.matches("\\d{4}-\\d{2}-\\d{2}")) {
                 throw invalidInput();
             }
+            LocalDate birthDate;
             try {
-                LocalDate.parse(value);
+                birthDate = LocalDate.parse(value);
             } catch (DateTimeParseException exception) {
+                throw invalidInput();
+            }
+
+            // 미래 날짜는 생년월일이 될 수 없음. 오늘은 허용 (FE도 같은 규칙으로 막지만, API 직접 호출에 대비해 서버에서도 확인)
+            if (birthDate.isAfter(LocalDate.now(clock))) {
                 throw invalidInput();
             }
         }
