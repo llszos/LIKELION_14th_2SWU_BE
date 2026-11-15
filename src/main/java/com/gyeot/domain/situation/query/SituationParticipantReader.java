@@ -1,6 +1,6 @@
 package com.gyeot.domain.situation.query;
 
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -26,7 +26,7 @@ public interface SituationParticipantReader {
 
     /**
      * 생성자·기간·상태 검증에 필요한 상황 정보를 조회합니다. 종료된 상황도 반환합니다.
-     * 반환된 날짜의 시간 경계와 요청 자격은 C가 합의된 업무 규칙에 따라 검증합니다.
+     * 반환된 Asia/Seoul 날짜시각을 기준으로 요청 기간과 자격은 C가 검증합니다.
      *
      * @param situationId 상황 ID, null 불가
      * @return 상황이 있으면 요약 정보, 없으면 Optional.empty(). Optional 자체는 null 불가
@@ -42,15 +42,15 @@ public interface SituationParticipantReader {
      * 조회 구현체·호출부·테스트의 문자열 사용도 함께 변경합니다.
      *
      * @param creatorId 상황 생성자 ID (users.id)
-     * @param startDate 상황 시작 날짜 (한국 날짜 기준)
-     * @param endDate 상황 종료 날짜 (한국 날짜 기준)
+     * @param startAt 상황 시작 시각 (Asia/Seoul, 오프셋 없는 LocalDateTime)
+     * @param endAt 상황 종료 예정 시각 (Asia/Seoul). 실제 종료 처리 시각 endedAt과 다릅니다.
      * @param status 상황 상태 코드. 참여 상태나 날짜로 계산한 화면 상태가 아닙니다.
      */
-    record SituationSummary(Long creatorId, LocalDate startDate, LocalDate endDate, String status) {
+    record SituationSummary(Long creatorId, LocalDateTime startAt, LocalDateTime endAt, String status) {
         public SituationSummary {
             Objects.requireNonNull(creatorId, "creatorId는 필수입니다.");
-            Objects.requireNonNull(startDate, "startDate는 필수입니다.");
-            Objects.requireNonNull(endDate, "endDate는 필수입니다.");
+            Objects.requireNonNull(startAt, "startAt은 필수입니다.");
+            Objects.requireNonNull(endAt, "endAt은 필수입니다.");
             Objects.requireNonNull(status, "status는 필수입니다.");
         }
     }

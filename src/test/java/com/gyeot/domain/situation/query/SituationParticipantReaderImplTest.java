@@ -9,7 +9,6 @@ import com.gyeot.domain.situation.repository.SituationRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Optional;
 
@@ -21,9 +20,9 @@ import static org.mockito.Mockito.*;
 class SituationParticipantReaderImplTest {
     private static final Long SITUATION_ID = 1L;
     private static final Long USER_ID = 20L;
-    private static final LocalDate START = LocalDate.of(2026, 11, 1);
-    private static final LocalDate END = LocalDate.of(2026, 11, 5);
-    private static final LocalDateTime JOINED_AT = START.atStartOfDay();
+    private static final LocalDateTime START = LocalDateTime.of(2026, 11, 1, 9, 15, 30, 123456000);
+    private static final LocalDateTime END = LocalDateTime.of(2026, 11, 5, 18, 45, 30, 654321000);
+    private static final LocalDateTime JOINED_AT = START;
 
     private SituationRepository situationRepository;
     private SituationParticipantRepository participantRepository;
@@ -97,7 +96,7 @@ class SituationParticipantReaderImplTest {
     @Test
     void ENDED_상황도_반환하고_ACTIVE_참여는_별도로_true이다() {
         Situation situation = situation();
-        situation.end(END.atTime(23, 0));
+        situation.end(END.plusHours(1));
         when(situationRepository.findById(SITUATION_ID)).thenReturn(Optional.of(situation));
         givenParticipation(true);
 
