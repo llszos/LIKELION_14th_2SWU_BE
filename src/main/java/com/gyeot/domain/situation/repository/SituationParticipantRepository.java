@@ -8,8 +8,15 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.Lock;
 import jakarta.persistence.LockModeType;
 import java.util.List;
+import java.util.Optional;
 
 public interface SituationParticipantRepository extends JpaRepository<SituationParticipant, Long> {
+    /** 상황 행을 먼저 잠근 트랜잭션에서 호출합니다. participantId는 참여 이력 PK입니다. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from SituationParticipant p where p.situation.id = :situationId and p.id = :participantId")
+    Optional<SituationParticipant> findBySituationAndParticipantForUpdate(
+            @Param("situationId") Long situationId, @Param("participantId") Long participantId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from SituationParticipant p where p.situation.id = :situationId and p.userId = :userId order by p.id")
     List<SituationParticipant> findHistoryForUpdate(
