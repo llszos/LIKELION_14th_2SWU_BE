@@ -70,6 +70,15 @@ public class RequestAssignment extends BaseCreatedEntity {
     @Column(name = "response_deadline", nullable = false)
     private LocalDateTime responseDeadline; // 시작 시각이 앞당겨지면 limitDeadlineTo()로 줄어듦
 
+    /**
+     * 요청자가 고른 응답 기한(시간) (#69)
+     * 실제 기한(response_deadline)은 시작 시각으로 제한될 수 있어, 고른 값을 따로 남깁니다.
+     * 요청 상세 responseDeadlineHours (N-07 같은 내용으로 새 요청의 기본값)에 사용합니다.
+     * 고르지 않았으면(기본값 규칙) NULL, 급한 요청·기존 행도 NULL
+     */
+    @Column(name = "response_deadline_hours")
+    private Integer responseDeadlineHours;
+
     // 최근 응답 일시
     @Column(name = "responded_at")
     private LocalDateTime respondedAt;
@@ -97,11 +106,12 @@ public class RequestAssignment extends BaseCreatedEntity {
 
 
     private RequestAssignment(CareRequest careRequest, Long targetUserId,
-                              int assignmentOrder, LocalDateTime responseDeadline) {
+                              int assignmentOrder, LocalDateTime responseDeadline, Integer responseDeadlineHours) {
         this.careRequest = careRequest;
         this.targetUserId = targetUserId;
         this.assignmentOrder = assignmentOrder;
         this.responseDeadline = responseDeadline;
+        this.responseDeadlineHours = responseDeadlineHours;
     }
 
     // === 생성 메서드 ===
@@ -112,6 +122,12 @@ public class RequestAssignment extends BaseCreatedEntity {
      */
     public static RequestAssignment assign(CareRequest careRequest, Long targetUserId,
                                            int assignmentOrder, LocalDateTime responseDeadline) {
+        return assign(careRequest, targetUserId, assignmentOrder, responseDeadline, null);
+    }
+
+    public static RequestAssignment assign(CareRequest careRequest, Long targetUserId,
+                                           int assignmentOrder, LocalDateTime responseDeadline,
+                                           Integer responseDeadlineHours) {
         // 요청, 대상자, 응답 기한은 필수입니다.
         if(careRequest == null || targetUserId == null || responseDeadline == null) {
             throw new IllegalArgumentException("요청, 대상자, 응답 기한은 필수입니다.");
@@ -134,7 +150,7 @@ public class RequestAssignment extends BaseCreatedEntity {
             throw new IllegalArgumentException("요청자 본인을 대상으로 지정할 수 없습니다.");
         }
 
-        return new RequestAssignment(careRequest, targetUserId, assignmentOrder, responseDeadline);
+        return new RequestAssignment(careRequest, targetUserId, assignmentOrder, responseDeadline,responseDeadlineHours);
     }
 
     // ===== 상태 변경 메서드 =====

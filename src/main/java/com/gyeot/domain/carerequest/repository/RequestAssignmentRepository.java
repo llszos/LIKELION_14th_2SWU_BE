@@ -1,7 +1,10 @@
 package com.gyeot.domain.carerequest.repository;
 
 import com.gyeot.domain.carerequest.entity.RequestAssignment;
+import com.gyeot.domain.carerequest.enums.CareRequestStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
 import java.util.List;
@@ -45,4 +48,14 @@ public interface RequestAssignmentRepository extends JpaRepository<RequestAssign
      */
     List<RequestAssignment> findAllByCareRequestIdInAndClosedAtIsNullAndAcceptedAtIsNotNull(
             Collection<Long> requestIds);
+
+    /**
+     * 내가 보낸 요청 중 특정 상태인 요청의 지정 전체를 요청과 함께 가져옵니다. (#74 담당자 없음 안내 목록)
+     * 요청마다 따로 조회하지 않도록 join fetch로 한 번에 가져옵니다. (N+1 방지)
+     * 지정이 하나도 없는 요청은 담당자 없음 안내 대상이 아니라 결과에 없어도 됩니다.
+     */
+    @Query("select a from RequestAssignment a join fetch a.careRequest r "
+            + "where r.requesterId = :requesterId and r.status = :status")
+    List<RequestAssignment> findAllWithRequestByRequesterIdAndStatus(@Param("requesterId") Long requesterId,
+                                                                     @Param("status") CareRequestStatus status);
 }
