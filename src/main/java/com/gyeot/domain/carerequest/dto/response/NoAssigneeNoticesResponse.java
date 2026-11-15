@@ -37,8 +37,7 @@ public record NoAssigneeNoticesResponse(List<Item> items) {
 
     /**
      * 대상자
-     * TODO: A의 사용자 기본 정보 일괄 조회(#57)가 들어오면 name을 채웁니다. 지금은 null입니다.
-     *       응답 모양은 명세와 같게 미리 두어, FE가 지금부터 같은 모양으로 개발할 수 있게 했습니다.
+     * 탈퇴한 사용자는 '탈퇴한 사용자'
      */
     public record Target(Long userId, String name) {
     }

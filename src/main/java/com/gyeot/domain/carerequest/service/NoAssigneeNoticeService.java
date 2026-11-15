@@ -38,6 +38,7 @@ import java.util.stream.Collectors;
 public class NoAssigneeNoticeService {
     private final CareRequestFinder careRequestFinder;
     private final RequestAssignmentRepository assignmentRepository;
+    private final RequestUserNames userNames; // 대상자 이름 (A, 탈퇴자는 "탈퇴한 사용자")
     private final Clock clock;
 
     // === 담당자 없음 안내 목록 (GET /api/care-requests/no-assignee-notices) ===
@@ -59,11 +60,18 @@ public class NoAssigneeNoticeService {
                 .collect(Collectors.toMap(a -> a.getCareRequest().getId(), a -> a,
                         (a, b) -> a.getAssignmentOrder() > b.getAssignmentOrder() ? a : b)); // 같은 요청이면 순서가 큰 쪽
 
-        List<Item> items = latestByRequestId.values().stream()
+        List<RequestAssignment> notices = latestByRequestId.values().stream()
                 .filter(latest -> latest.needsNoAssigneeNotice(now))
                 .filter(latest -> isBeforeStart(latest.getCareRequest(), now))
                 .sorted(MODAL_ORDER)
-                .map(latest -> toItem(latest, now))
+                .toList();
+
+        // 모달에 보여 줄 대상자 이름을 한 번에 조회 (모달 수만큼 조회하지 않음)
+        Map<Long, String> names = userNames.namesOf(
+                notices.stream().map(RequestAssignment::getTargetUserId).toList());
+
+        List<Item> items = notices.stream()
+                .map(latest -> toItem(latest, names.get(latest.getTargetUserId()), now))
                 .toList();
 
         return new NoAssigneeNoticesResponse(items);
@@ -86,10 +94,10 @@ public class NoAssigneeNoticeService {
                             : a.getCareRequest().getStartsAt())    // 일반 요청: 시작 시각
                     .thenComparing(a -> a.getCareRequest().getId());
 
-    private Item toItem(RequestAssignment latest, LocalDateTime now) {
+    private Item toItem(RequestAssignment latest, String targetName, LocalDateTime now) {
         CareRequest request = latest.getCareRequest();
         return new Item(request.getId(), request.getRequestType(), request.getHelpType(), request.getStartsAt(), request.getPlace(),
-                new Target(latest.getTargetUserId(), null), // TODO: #57 사용자 조회가 들어오면 이름을 채움
+                new Target(latest.getTargetUserId(), targetName),
                 latest.currentNoAssigneeReason(now));
     }
 

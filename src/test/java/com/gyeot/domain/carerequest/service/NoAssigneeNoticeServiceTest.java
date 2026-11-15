@@ -11,6 +11,9 @@ import com.gyeot.domain.carerequest.exception.CareRequestErrorCode;
 import com.gyeot.domain.carerequest.repository.CareRequestRepository;
 import com.gyeot.domain.carerequest.repository.RequestAssignmentRepository;
 import com.gyeot.domain.safetycard.crypto.SafetyInformationCipher;
+import com.gyeot.domain.user.entity.User;
+import com.gyeot.domain.user.query.UserProfileQueryImpl;
+import com.gyeot.domain.user.repository.UserRepository;
 import com.gyeot.global.config.JpaAuditingConfig;
 import com.gyeot.global.exception.BusinessException;
 import com.gyeot.global.exception.CommonErrorCode;
@@ -52,6 +55,8 @@ import static org.assertj.core.api.Assertions.tuple;
         SafetyInformationCipher.class, // 안심카드 엔티티의 암호화 Converter가 필요로 함
         CareRequestFinder.class,
         NoAssigneeNoticeService.class,
+        RequestUserNames.class,
+        UserProfileQueryImpl.class, // 대상자 이름은 A의 실제 조회로 확인 (탈퇴자 표시 포함)
         NoAssigneeNoticeServiceTest.FixedClockConfig.class // @Nested 안쪽 클래스는 바깥의 설정을 자동으로 못 찾아서 직접 등록
 })
 @ActiveProfiles("test")
@@ -82,6 +87,7 @@ public class NoAssigneeNoticeServiceTest {
     @Autowired private CareRequestRepository careRequestRepository;
     @Autowired private RequestAssignmentRepository assignmentRepository;
     @Autowired private EntityManager entityManager;
+    @Autowired private UserRepository userRepository;
 
     // === 목록 ===
 
@@ -105,6 +111,24 @@ public class NoAssigneeNoticeServiceTest {
                     .containsExactly(
                             tuple(deadlinePassed.getId(), NoAssigneeReason.DEADLINE_PASSED, SEOYEON, "○○병원"),
                             tuple(unavailable.getId(), NoAssigneeReason.UNAVAILABLE, MINJAE, "○○병원"));
+        }
+
+        @Test
+        void 대상자_이름을_채우고_탈퇴한_사용자는_탈퇴한_사용자로_보여_준다() {
+            User active = userRepository.save(User.register("minjae@example.com", "password-hash", "박민재"));
+            User withdrawn = userRepository.save(User.register("seoyeon@example.com", "password-hash", "이서연"));
+            withdrawn.withdraw(NOW.minusDays(1));
+            CareRequest first = request(NOW.plusDays(1));
+            assign(first, active.getId(), 1, NOW.plusHours(12)).respond(AssignmentResponseStatus.UNAVAILABLE, NOW);
+            CareRequest second = request(NOW.plusDays(2));
+            assign(second, withdrawn.getId(), 1, NOW.plusHours(12)).respond(AssignmentResponseStatus.UNAVAILABLE, NOW);
+            flush();
+
+            assertThat(notices())
+                    .extracting(i -> i.target().userId(), i -> i.target().name())
+                    .containsExactly(
+                            tuple(active.getId(), "박민재"),
+                            tuple(withdrawn.getId(), RequestUserNames.WITHDRAWN_USER_NAME));
         }
 
         @Test
