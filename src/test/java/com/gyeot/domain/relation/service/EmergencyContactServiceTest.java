@@ -8,6 +8,7 @@ import com.gyeot.domain.relation.entity.Relationship;
 import com.gyeot.domain.relation.entity.RelationshipStatus;
 import com.gyeot.domain.relation.entity.RelationshipType;
 import com.gyeot.domain.relation.exception.EmergencyContactErrorCode;
+import com.gyeot.domain.relation.query.EmergencyContactOrderReader;
 import com.gyeot.domain.relation.repository.EmergencyContactRepository;
 import com.gyeot.domain.relation.repository.RelationshipRepository;
 import com.gyeot.domain.user.entity.User;
@@ -76,6 +77,62 @@ class EmergencyContactServiceTest {
         assertEquals("친구", response.items().get(1).personalLabel());
         assertEquals(2, response.items().get(1).priority());
         assertEquals(null, response.items().get(1).guardianPriority());
+    }
+
+    @Test
+    void 급한_요청_조회는_보호자_순서_뒤에_추가_대상의_사용자_순서를_반환한다() {
+        Relationship firstGuardian = Relationship.createGuardian(USER_ID, GUARDIAN_ID, 1);
+        Relationship secondGuardian = Relationship.createGuardian(USER_ID, 5L, 2);
+        Relationship newGuardian = Relationship.createGuardian(USER_ID, 6L, 3);
+        EmergencyContact firstContact = EmergencyContact.create(USER_ID, FIRST_CONTACT_ID, 1);
+        EmergencyContact secondContact = EmergencyContact.create(USER_ID, SECOND_CONTACT_ID, 2);
+        when(relationshipRepository.findAllBySourceUserIdAndRelationshipTypeAndStatusOrderByGuardianPriorityAsc(
+                USER_ID, RelationshipType.GUARDIAN, RelationshipStatus.ACTIVE))
+                .thenReturn(List.of(firstGuardian, secondGuardian, newGuardian));
+        when(emergencyContactRepository.findAllByUserIdOrderByPriorityAsc(USER_ID))
+                .thenReturn(List.of(firstContact, secondContact));
+
+        List<EmergencyContactOrderReader.Contact> contacts = service.findOrderedContacts(USER_ID);
+
+        assertEquals(List.of(GUARDIAN_ID, 5L, 6L, FIRST_CONTACT_ID, SECOND_CONTACT_ID),
+                contacts.stream().map(EmergencyContactOrderReader.Contact::userId).toList());
+        assertEquals(List.of(1, 2, 3, 4, 5),
+                contacts.stream().map(EmergencyContactOrderReader.Contact::priority).toList());
+        assertEquals(List.of(
+                        EmergencyContactOrderReader.ContactType.GUARDIAN,
+                        EmergencyContactOrderReader.ContactType.GUARDIAN,
+                        EmergencyContactOrderReader.ContactType.GUARDIAN,
+                        EmergencyContactOrderReader.ContactType.MY_PERSON,
+                        EmergencyContactOrderReader.ContactType.MY_PERSON),
+                contacts.stream().map(EmergencyContactOrderReader.Contact::type).toList());
+    }
+
+    @Test
+    void 보호자가_없으면_기존_추가_대상_순서를_유지하고_첫_대상을_1순위로_반환한다() {
+        EmergencyContact laterContact = EmergencyContact.create(USER_ID, SECOND_CONTACT_ID, 2);
+        EmergencyContact firstContact = EmergencyContact.create(USER_ID, FIRST_CONTACT_ID, 1);
+        when(relationshipRepository.findAllBySourceUserIdAndRelationshipTypeAndStatusOrderByGuardianPriorityAsc(
+                USER_ID, RelationshipType.GUARDIAN, RelationshipStatus.ACTIVE)).thenReturn(List.of());
+        when(emergencyContactRepository.findAllByUserIdOrderByPriorityAsc(USER_ID))
+                .thenReturn(List.of(firstContact, laterContact));
+
+        List<EmergencyContactOrderReader.Contact> contacts = service.findOrderedContacts(USER_ID);
+
+        assertEquals(List.of(FIRST_CONTACT_ID, SECOND_CONTACT_ID),
+                contacts.stream().map(EmergencyContactOrderReader.Contact::userId).toList());
+        assertEquals(1, contacts.get(0).priority());
+        assertEquals(EmergencyContactOrderReader.ContactType.MY_PERSON, contacts.get(0).type());
+    }
+
+    @Test
+    void 연락_대상이_없으면_빈_목록을_반환한다() {
+        when(relationshipRepository.findAllBySourceUserIdAndRelationshipTypeAndStatusOrderByGuardianPriorityAsc(
+                USER_ID, RelationshipType.GUARDIAN, RelationshipStatus.ACTIVE)).thenReturn(List.of());
+        when(emergencyContactRepository.findAllByUserIdOrderByPriorityAsc(USER_ID)).thenReturn(List.of());
+
+        List<EmergencyContactOrderReader.Contact> contacts = service.findOrderedContacts(USER_ID);
+
+        assertEquals(List.of(), contacts);
     }
 
     @Test
