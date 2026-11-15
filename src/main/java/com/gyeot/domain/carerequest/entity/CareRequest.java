@@ -67,8 +67,8 @@ public class CareRequest extends BaseEntity {
     @Column(name = "help_type", nullable = false, length = 30, updatable = false, columnDefinition = "VARCHAR(30)")  // MySQL ENUM 대신 VARCHAR, 길이는 length와 같게 (#36)
     private HelpType helpType;
 
-    // 요청 내용
-    @Column(name = "description", nullable = false, columnDefinition = "TEXT", updatable = false)
+    // 요청 내용 (부탁 내용, 선택 입력이라 입력하지 않으면 NULL)
+    @Column(name = "description", columnDefinition = "TEXT", updatable = false)
     private String description;
 
     // 요청 장소
