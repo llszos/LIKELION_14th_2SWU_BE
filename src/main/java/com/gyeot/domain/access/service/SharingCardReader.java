@@ -48,8 +48,10 @@ import java.util.stream.Collectors;
  *    실제 다시 허용 API는 잠금을 잡은 뒤 다시 검증합니다.
  *
  * - 급한 요청(F-13, SHOULD)은 이번 범위에서 카드로 만들지 않습니다. (전달받은 정보 조회 #45와 같은 범위)
- * - SHARING 카드는 관계와 상황 참여를 확인하지 않습니다. 관계 해제와 상황 나가기는 C가 지정을 마감해 권한이 회수되지만,
- *   그 처리 전 잠시는 목록에 카드가 보여도 실제 조회(#45)는 막힐 수 있습니다. 카드마다 A, B 조회가 붙는 비용을 고려한 선택입니다.
+ * - 공유 중 목록(findCards)의 SHARING 카드는 관계와 상황 참여를 확인하지 않습니다. 관계 해제와 상황 나가기는 C가 지정을 마감해
+ *   권한이 회수되지만, 그 처리 전 잠시는 목록에 카드가 보여도 실제 조회(#45)는 막힐 수 있습니다. 카드마다 A, B 조회가 붙는 비용을 고려한 선택입니다.
+ * - 받은 정보(findViewableCards)는 받는 사람이 "지금 볼 수 있는 것만" 보여 주므로, 전달받은 정보 조회(#45)와 같이
+ *   정보 주인 → 받는 사람 관계와 받는 사람의 상황 참여까지 확인합니다. 받는 사람 한 명 기준이라 관계 확인은 한 번입니다.
  * - 잠그지 않는 조회입니다. 같은 트랜잭션의 첫 일반 DB 조회 시점의 스냅샷 기준이며, 그 뒤 커밋된 변경은 다음 조회부터 반영됩니다.
  */
 @Component                        // 공유 관리 서비스들이 주입받아 쓰는 판단 도우미
@@ -129,6 +131,31 @@ public class SharingCardReader {
         }
         cards.sort(CARD_ORDER); // 자동 회수 시각 빠른 순, 같으면 지정 ID 순
         return cards;
+    }
+
+    /**
+     * 받는 사람이 지금 볼 수 있는 카드만 돌려줍니다. (받은 정보 조회, R-02-01)
+     *
+     * - findCards(정보 주인, 받는 사람)의 SHARING 카드 중, 정보 주인 → 받는 사람 관계가 유효하고
+     *   받는 사람이 그 요청의 상황에 참여 중(ACTIVE)인 카드만 남깁니다. (전달받은 정보 조회 #45와 같은 기준)
+     * - 철회됨 카드는 받는 사람에게는 볼 수 없는 정보라 뺍니다.
+     * - 일반 요청은 상황 참여가 필수라, 상황 ID가 없으면 확인을 건너뛰지 않고 뺍니다.
+     *
+     * @param ownerUserId  정보 주인 ID (화면의 '이 사람')
+     * @param viewerUserId 받는 사람 ID (로그인한 사용자)
+     * @return 볼 수 있는 카드 목록 (자동 회수 시각 빠른 순). 없으면 빈 목록
+     */
+    public List<SharingCardView> findViewableCards(Long ownerUserId, Long viewerUserId) {
+        // 관계는 정보 주인 → 받는 사람 방향 하나라 카드마다가 아니라 한 번만 확인 (나의 사람 해제는 해제한 방향만 회수)
+        if (!relationshipQueryRepository.existsBySourceUserIdAndTargetUserIdAndStatus(
+                ownerUserId, viewerUserId, RelationshipStatus.ACTIVE)) {
+            return List.of();
+        }
+        return findCards(ownerUserId, viewerUserId).stream()
+                .filter(card -> card.status() == SharingStatus.SHARING)                 // 지금 공유 중인 카드만
+                .filter(card -> card.situationId() != null                              // 일반 요청은 상황 필수
+                        && situationParticipantReader.isActiveParticipant(card.situationId(), viewerUserId)) // 나가기, 제외면 뺌
+                .toList();                                                              // findCards의 순서를 그대로 유지
     }
 
     // === 1. 요청 조건 ===
@@ -240,6 +267,7 @@ public class SharingCardReader {
                 assignmentId,
                 request.requestId(),
                 request.assigneeId(),   // 받는 사람 = 지금 담당자 (요청 조건에서 이 지정의 담당자임을 확인함)
+                request.situationId(),  // 받은 정보 조회의 상황 참여 확인용 (응답에는 내려가지 않음)
                 request.helpType(),
                 request.startsAt(),
                 request.endsAt(),       // 자동 회수 시각 = 요청 종료 시각 (일반 요청)
