@@ -57,6 +57,21 @@ class SituationCreateRequestValidationTest {
     }
 
     @Test
+    void checksTypeStorageLengthWithoutApprovingAnyCode() {
+        assertTrue(validator.validate(request("x".repeat(30), null, "이름", List.of(), START, END)).isEmpty());
+        assertEquals(Set.of("situationType"),
+                invalidFields(request("x".repeat(31), null, "이름", List.of(), START, END)));
+    }
+
+    @Test
+    void rejectsNullParticipantElementBeforeBusinessValidation() {
+        var violations = validator.validate(request("미확정 종류", null, "이름",
+                java.util.Arrays.asList(20L, null), START, END));
+        assertEquals(1, violations.size());
+        assertEquals("participantIds[1].<list element>", violations.iterator().next().getPropertyPath().toString());
+    }
+
+    @Test
     void rejectsBlankName() {
         for (String name : List.of("", " ", "\t\n")) {
             assertEquals(Set.of("name"), invalidFields(request("상황 종류", null, name, List.of(), START, END)));

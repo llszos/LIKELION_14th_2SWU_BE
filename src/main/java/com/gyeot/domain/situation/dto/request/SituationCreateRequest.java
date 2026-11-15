@@ -12,6 +12,7 @@ import java.util.List;
 /** 상황 생성 입력입니다. 날짜시각은 오프셋 없는 Asia/Seoul 현지 시각으로 해석합니다. */
 public record SituationCreateRequest(
         @NotBlank(message = "상황 종류는 필수입니다.")
+        @Size(max = 30, message = "상황 종류는 30자 이하여야 합니다.")
         String situationType,
 
         @Size(max = 15, message = "기타 상황 종류는 15자 이하여야 합니다.")
@@ -22,7 +23,7 @@ public record SituationCreateRequest(
         String name,
 
         @NotNull(message = "참여자 목록은 필수입니다.")
-        List<Long> participantIds,
+        List<@NotNull(message = "참여자 ID는 null일 수 없습니다.") Long> participantIds,
 
         @NotNull(message = "시작 시각은 필수입니다.")
         LocalDateTime startAt,
