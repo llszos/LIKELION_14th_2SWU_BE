@@ -39,6 +39,44 @@ public interface RequestInformationPermissionRepository extends JpaRepository<Re
     long countSharings(@Param("ownerUserId") Long ownerUserId, @Param("status") PermissionStatus status);
 
     /**
+     * 정보 주인의 항목을 공유했거나 직접 철회한 대상 지정 ID를 조회합니다. (공유 관리 카드 후보, #46)
+     *
+     * - 공유 관리 화면에 나올 수 있는 카드는 지금 공유 중(ACTIVE)이거나, 정보 주인이 직접 철회(OWNER_REVOKED)한 카드입니다.
+     *   수락 전(PENDING)과 그 밖의 이유로 끝난 권한만 있는 지정은 후보가 아닙니다.
+     * - 권한에는 정보 주인 ID가 없어서, 공유한 안심카드 항목의 주인으로 찾습니다. (countSharings와 같은 방식)
+     *   삭제한 항목의 권한은 information_id가 NULL이라 join에서 빠집니다. (삭제 항목은 카드에 보여 주지 않음)
+     * - 후보일 뿐 최종 카드가 아닙니다. 과거 철회 기록이 남아 있을 수 있어, 항목별 최신 권한과 요청 상태로 서비스에서 다시 판단합니다.
+     * - 잠그지 않는 조회입니다. 화면에 보여 줄 값만 계산하고 권한을 바꾸지 않습니다.
+     */
+    @Query("""
+            select distinct p.assignmentId
+            from RequestInformationPermission p
+            join SafetyInformation s on s.id = p.informationId
+            where s.ownerId = :ownerUserId
+              and (p.status = com.gyeot.domain.access.entity.PermissionStatus.ACTIVE
+                   or p.revokeReason = com.gyeot.domain.access.entity.RevokeReason.OWNER_REVOKED)
+            """)
+    List<Long> findSharingCandidateAssignmentIds(@Param("ownerUserId") Long ownerUserId);
+
+    /**
+     * 여러 대상 지정의 권한을 상태와 상관없이 모두 조회합니다. 삭제한 항목의 권한은 뺍니다. (공유 관리 카드 판단, #46)
+     *
+     * - 항목별 최신 권한으로 카드 상태를 판단하려면 끝난 권한(공개 항목 제외, 직접 철회 등)도 함께 필요합니다.
+     *   예: 철회 → 다시 허용 → 공개 항목 제외면, 그 항목의 최신 행은 SHARING_EXCLUDED라 예전 철회 기록으로 보지 않습니다.
+     * - 삭제한 항목의 권한은 information_id가 NULL이라 조건에서 빠집니다. (삭제는 그 항목의 모든 권한 행을 NULL로 바꿈, ERD 9.5)
+     * - ID 오름차순이라 같은 항목에서는 나중에 만든 권한이 뒤에 옵니다.
+     * - 잠그지 않는 조회입니다. 빈 목록을 넘기지 않도록 호출 측에서 먼저 확인합니다.
+     */
+    @Query("""
+            select p
+            from RequestInformationPermission p
+            where p.assignmentId in :assignmentIds
+              and p.informationId is not null
+            order by p.id
+            """)
+    List<RequestInformationPermission> findItemPermissionsByAssignmentIds(@Param("assignmentIds") Collection<Long> assignmentIds);
+
+    /**
      * 요청에 지금 공개 중인 항목 ID를 조회합니다. (F-03 요청 수정, 공개 항목 선택지 조회)
      * 삭제된 항목은 권한의 information_id가 NULL이라 빠집니다.
      */
