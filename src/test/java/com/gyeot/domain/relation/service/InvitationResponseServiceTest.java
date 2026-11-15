@@ -13,8 +13,10 @@ import com.gyeot.domain.relation.repository.RelationshipRepository;
 import com.gyeot.domain.user.entity.User;
 import com.gyeot.domain.user.repository.UserRepository;
 import com.gyeot.global.exception.BusinessException;
+import com.gyeot.global.exception.CommonErrorCode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Clock;
@@ -85,7 +87,7 @@ class InvitationResponseServiceTest {
         InvitationDetailsResponse response = service.getInvitation(TOKEN);
 
         assertEquals(InvitationStatus.EXPIRED, response.status());
-        assertFalse(response.canRespond());
+        assertFalse(response.canAccept());
         assertEquals(InvitationStatus.PENDING, invitation.getStatus());
         verify(invitationRepository, never()).save(any());
     }
@@ -98,8 +100,74 @@ class InvitationResponseServiceTest {
         InvitationDetailsResponse response = service.getInvitation(TOKEN);
 
         assertEquals(InvitationStatus.ACCEPTED, response.status());
-        assertFalse(response.canRespond());
+        assertFalse(response.canAccept());
         assertEquals(InvitationStatus.ACCEPTED, invitation.getStatus());
+    }
+
+    @Test
+    void 비로그인_초대_조회는_수락_불가로_안내한다() {
+        InvitationDetailsResponse response = service.getInvitation(TOKEN);
+
+        assertFalse(response.canAccept());
+        assertEquals("AUTHENTICATION_REQUIRED", response.unavailableReason());
+    }
+
+    @Test
+    void 보호자_요청_조회는_인원_초과를_수락_불가_사유로_반환한다() {
+        invitation = guardianInvitation();
+        when(invitationRepository.findByTokenHash(tokenGenerator.hash(TOKEN)))
+                .thenReturn(Optional.of(invitation));
+        when(relationshipRepository.countBySourceUserIdAndRelationshipTypeAndStatus(
+                INVITEE_ID, RelationshipType.GUARDIAN, RelationshipStatus.ACTIVE)).thenReturn(3L);
+
+        InvitationDetailsResponse response = service.getInvitation(TOKEN, INVITEE_ID);
+
+        assertFalse(response.canAccept());
+        assertEquals("GUARDIAN_LIMIT_REACHED", response.unavailableReason());
+    }
+
+    @Test
+    void 보호자_요청_생성은_발신자_인원_초과를_막는다() {
+        when(relationshipRepository.countBySourceUserIdAndRelationshipTypeAndStatus(
+                INVITER_ID, RelationshipType.GUARDIAN, RelationshipStatus.ACTIVE)).thenReturn(3L);
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.createInvitation(INVITER_ID, InvitationType.GUARDIAN, null, null, true)
+        );
+
+        assertEquals(InvitationErrorCode.GUARDIAN_LIMIT_REACHED, exception.getErrorCode());
+    }
+
+    @Test
+    void 보호자_요청_생성은_약속_확인값이_true가_아니면_막는다() {
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.createInvitation(INVITER_ID, InvitationType.GUARDIAN, null, null, false)
+        );
+
+        assertEquals(CommonErrorCode.INVALID_INPUT, exception.getErrorCode());
+    }
+
+    @Test
+    void 발신자나_수신자의_보호자_인원이_가득_차면_수락하지_않고_대기상태를_유지한다() {
+        for (Long fullUserId : new Long[]{INVITER_ID, INVITEE_ID}) {
+            Invitation guardianInvitation = guardianInvitation();
+            when(invitationRepository.findByTokenHashForUpdate(tokenGenerator.hash(TOKEN)))
+                    .thenReturn(Optional.of(guardianInvitation));
+            when(relationshipRepository.countBySourceUserIdAndRelationshipTypeAndStatus(
+                    anyLong(), org.mockito.ArgumentMatchers.eq(RelationshipType.GUARDIAN),
+                    org.mockito.ArgumentMatchers.eq(RelationshipStatus.ACTIVE)))
+                    .thenAnswer(call -> fullUserId.equals(call.getArgument(0)) ? 3L : 0L);
+
+            BusinessException exception = assertThrows(
+                    BusinessException.class,
+                    () -> service.acceptInvitation(TOKEN, INVITEE_ID)
+            );
+
+            assertEquals(InvitationErrorCode.GUARDIAN_LIMIT_REACHED, exception.getErrorCode());
+            assertEquals(InvitationStatus.PENDING, guardianInvitation.getStatus());
+        }
     }
 
     @Test
@@ -119,6 +187,30 @@ class InvitationResponseServiceTest {
         );
         assertEquals(InvitationErrorCode.INVITATION_NOT_PENDING, duplicate.getErrorCode());
         verify(relationshipRepository).save(any(Relationship.class));
+    }
+
+    @Test
+    void 초대자의_개인_라벨은_수락_후_초대자_방향_관계에_적용한다() {
+        invitation = Invitation.create(
+                INVITER_ID,
+                InvitationType.MY_PERSON,
+                tokenGenerator.hash(TOKEN),
+                null,
+                "친구",
+                NOW.plusMinutes(10)
+        );
+        when(invitationRepository.findByTokenHashForUpdate(tokenGenerator.hash(TOKEN)))
+                .thenReturn(Optional.of(invitation));
+        when(relationshipRepository.existsBySourceUserIdAndTargetUserIdAndRelationshipTypeAndStatus(
+                INVITER_ID, INVITEE_ID, RelationshipType.MY_PERSON, RelationshipStatus.ACTIVE)).thenReturn(false);
+
+        service.acceptInvitation(TOKEN, INVITEE_ID);
+
+        ArgumentCaptor<Relationship> relationshipCaptor = ArgumentCaptor.forClass(Relationship.class);
+        verify(relationshipRepository).save(relationshipCaptor.capture());
+        assertEquals(INVITER_ID, relationshipCaptor.getValue().getSourceUserId());
+        assertEquals(INVITEE_ID, relationshipCaptor.getValue().getTargetUserId());
+        assertEquals("친구", relationshipCaptor.getValue().getPersonalLabel());
     }
 
     @Test
@@ -216,6 +308,17 @@ class InvitationResponseServiceTest {
             result.expire();
         }
         return result;
+    }
+
+    private Invitation guardianInvitation() {
+        return Invitation.create(
+                INVITER_ID,
+                InvitationType.GUARDIAN,
+                tokenGenerator.hash(TOKEN),
+                "필요할 때 연락을 확인해요",
+                null,
+                NOW.plusMinutes(10)
+        );
     }
 
     private User user(Long id, String name) {
