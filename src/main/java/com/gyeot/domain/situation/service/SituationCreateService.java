@@ -16,7 +16,7 @@ import java.time.*;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 
-/** 공통 저장 흐름. 실제 종류 Resolver가 미완성이므로 현재 운영 경로에서는 저장되지 않습니다. */
+/** 종류·참여자 검증 후 상황·OWNER·선택 참여자를 하나의 트랜잭션에서 저장합니다. */
 @Service @RequiredArgsConstructor
 public class SituationCreateService {
     private final Validator validator;
@@ -35,7 +35,8 @@ public class SituationCreateService {
         List<Long> ids = new java.util.ArrayList<>(request.participantIds());
         String storedType = types.resolve(request.situationType(), request.customSituationType());
         participantValidator.validate(authenticatedCreatorId, ids);
-        var response = writer.save(authenticatedCreatorId, storedType, request.name(), request.startAt(), request.endAt());
+        var custom = request.customSituationType() == null ? null : request.customSituationType().strip();
+        var response = writer.save(authenticatedCreatorId, storedType, request.name(), request.startAt(), request.endAt(), custom);
         var situation = situations.getReferenceById(response.situationId());
         var joinedAt = LocalDateTime.now(clock.withZone(ZoneId.of("Asia/Seoul"))).truncatedTo(ChronoUnit.MICROS);
         for (Long id : ids) {

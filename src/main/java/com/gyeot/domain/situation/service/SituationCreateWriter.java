@@ -16,10 +16,9 @@ import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 
 /**
- * 상황과 OWNER만 원자적으로 저장하는 내부 컴포넌트입니다. 아직 HTTP에 연결하지 않습니다.
+ * 상황(기타 문구 포함)과 OWNER를 원자적으로 저장하는 내부 컴포넌트입니다.
  * 호출자는 인증된 생성자 ID와 검증을 마친 저장 값을 전달해야 합니다.
- * 전체 Request를 받지 않으며 선택 참여자·기타 문구를 처리하거나 무시하지 않습니다.
- * 후속 생성 Service는 해당 정책과 저장 모델을 완성한 뒤 이 컴포넌트를 사용해야 합니다.
+ * 선택 참여자는 상위 생성 Service의 동일 트랜잭션에서 저장합니다.
  */
 @Component
 @RequiredArgsConstructor
@@ -34,8 +33,14 @@ public class SituationCreateWriter {
     @Transactional
     public SituationCreateResponse save(Long authenticatedCreatorId, String situationType, String name,
                                         LocalDateTime startAt, LocalDateTime endAt) {
+        return save(authenticatedCreatorId, situationType, name, startAt, endAt, null);
+    }
+
+    @Transactional
+    public SituationCreateResponse save(Long authenticatedCreatorId, String situationType, String name,
+                                        LocalDateTime startAt, LocalDateTime endAt, String customSituationType) {
         Situation situation = situationRepository.save(
-                Situation.create(authenticatedCreatorId, situationType, name, startAt, endAt));
+                Situation.create(authenticatedCreatorId, situationType, name, startAt, endAt, customSituationType));
         LocalDateTime joinedAt = LocalDateTime.now(clock.withZone(SEOUL)).truncatedTo(ChronoUnit.MICROS);
         participantRepository.save(SituationParticipant.create(
                 situation, authenticatedCreatorId, SituationParticipantRole.OWNER, joinedAt));

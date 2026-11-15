@@ -14,11 +14,12 @@ public record SituationDetailResponse(
         LocalDateTime endAt,
         SituationStatus status,
         Long creatorId,
-        LocalDateTime endedAt
+        LocalDateTime endedAt,
+        String customSituationType
 ) {
     public static SituationDetailResponse from(Situation situation) {
         return new SituationDetailResponse(situation.getId(), situation.getTitle(), situation.getSituationType(),
                 situation.getStartAt(), situation.getEndAt(), situation.getStatus(),
-                situation.getCreatorId(), situation.getEndedAt());
+                situation.getCreatorId(), situation.getEndedAt(), situation.getCustomSituationType());
     }
 }

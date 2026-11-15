@@ -101,6 +101,18 @@ class SituationCreateWriterIntegrationTest {
     }
 
     @Test
+    void otherCustomTextIsPersistedAndReadInSeparateTransaction() {
+        var response = writer.save(10L, "OTHER", "기타 상황", START, END, "  재활 동행  ");
+        readInNewTransaction().executeWithoutResult(status -> {
+            var situation = situations.findById(response.situationId()).orElseThrow();
+            assertThat(situation.getSituationType()).isEqualTo("OTHER");
+            assertThat(situation.getCustomSituationType()).isEqualTo("재활 동행");
+            assertThat(situation.getStartAt()).isEqualTo(START);
+            assertThat(situation.getEndAt()).isEqualTo(END);
+        });
+    }
+
+    @Test
     void ownerSaveFailureRollsBackBothAlreadyFlushedRows() {
         AtomicReference<Long> situationId = new AtomicReference<>();
         AtomicReference<Long> ownerId = new AtomicReference<>();

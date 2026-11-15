@@ -23,7 +23,7 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-/** 실제 Service·Resolver의 미설정 경계를 HTTP로 확인합니다. DB나 성공을 위장하는 종류 변환은 사용하지 않습니다. */
+/** 실제 Service·Resolver가 잘못된 입력을 저장 전에 거부하는지 확인합니다. DB는 사용하지 않습니다. */
 @WebMvcTest(SituationCreateController.class)
 @Import({SituationCreateService.class, SituationCreationTypeResolver.class,
         SecurityConfig.class, PublicApiRequestMatcher.class, RefreshCookieCsrfMatcher.class,
@@ -44,18 +44,18 @@ class SituationCreateReadinessTest {
         when(users.existsByIdAndAccountStatus(10L, AccountStatus.ACTIVE)).thenReturn(true);
     }
 
-    @Test void realTypeGateReturns503WithoutAnyPartialStorageOrParticipantLookup() throws Exception {
+    @Test void unsupportedTypeReturns400WithoutAnyPartialStorageOrParticipantLookup() throws Exception {
         for (String custom : new String[]{"null", "\"기타 문구\""}) {
             mvc.perform(post("/api/situations").header("Authorization", "Bearer valid")
                             .contentType("application/json").content(body("[]", custom)))
-                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.status").value("error"))
-                    .andExpect(jsonPath("$.code").value("SITUATION_TYPE_NOT_CONFIGURED"));
+                    .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
         }
         verifyNoInteractions(participantsValidation, writer, situations, participants, clock);
     }
 
-    @Test void nullParticipantIdIs400EvenWhileTypeContractIsUnavailable() throws Exception {
+    @Test void nullParticipantIdIs400BeforeStorage() throws Exception {
         mvc.perform(post("/api/situations").header("Authorization", "Bearer valid")
                         .contentType("application/json").content(body("[null]", "null")))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));

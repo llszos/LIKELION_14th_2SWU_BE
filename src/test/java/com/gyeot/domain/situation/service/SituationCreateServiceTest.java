@@ -41,11 +41,11 @@ class SituationCreateServiceTest {
     @Test void emptySelectionStillSavesOwner(){service.create(10L,request(List.of()));verify(participants).save(any());}
     @Test void validationFailureDoesNotPartiallySave(){doThrow(new IllegalArgumentException("invalid participants")).when(validation).validate(10L,List.of(20L));assertThatThrownBy(()->service.create(10L,request(List.of(20L)))).isInstanceOf(IllegalArgumentException.class);verifyNoInteractions(situations,participants);}
     @Test void invalidPeriodDoesNotReachTypeOrStorage(){var r=new SituationCreateRequest("test-type",null,"이름",List.of(),start,start);assertThatThrownBy(()->service.create(10L,r)).isInstanceOf(BusinessException.class);verifyNoInteractions(types,validation,situations,participants);}
-    @Test void realTypeBoundaryRejectsAllInputsIncludingCustomWithoutSaving(){
+    @Test void unknownTypeIsInvalidInputWithoutSaving(){
         var subject=new SituationCreateService(factory.getValidator(),new SituationCreationTypeResolver(),validation,writer,situations,participants,clock);
         for(String custom:Arrays.asList(null,"기타 내용")){
             var r=new SituationCreateRequest("test-type",custom,"이름",List.of(),start,start.plusHours(1));
-            assertThatThrownBy(()->subject.create(10L,r)).isInstanceOfSatisfying(BusinessException.class,e->assertThat(e.getErrorCode().getCode()).isEqualTo("SITUATION_TYPE_NOT_CONFIGURED"));
+            assertThatThrownBy(()->subject.create(10L,r)).isInstanceOfSatisfying(BusinessException.class,e->assertThat(e.getErrorCode().getCode()).isEqualTo("INVALID_INPUT"));
         }
         verifyNoInteractions(validation,situations,participants);
     }

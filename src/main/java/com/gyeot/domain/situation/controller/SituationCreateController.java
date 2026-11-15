@@ -15,7 +15,6 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/situations")
 public class SituationCreateController {
     private final SituationCreateService service;
-    /** 종류 계약 준비 전에는 503을 반환하며 저장하지 않습니다. */
     @PostMapping @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<SituationCreateResponse> create(@AuthenticationPrincipal AuthenticatedUser user,
             @Valid @RequestBody SituationCreateRequest request) {

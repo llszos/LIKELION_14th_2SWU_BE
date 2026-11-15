@@ -95,7 +95,7 @@ class SituationControllerTest {
     void detailUsesAuthenticatedIdAndReturnsOnlyBasicFields() throws Exception {
         LocalDateTime start = LocalDateTime.of(2026, 11, 20, 9, 0);
         when(service.detailActive(1L, 20L)).thenReturn(new SituationDetailResponse(
-                1L, "상세", "유형", start, start.plusHours(1), SituationStatus.ACTIVE, 10L, null));
+                1L, "상세", "유형", start, start.plusHours(1), SituationStatus.ACTIVE, 10L, null, null));
 
         mvc.perform(get("/api/situations/1").param("userId", "999"))
                 .andExpect(status().isOk())

@@ -3,7 +3,7 @@ package com.gyeot.domain.situation.controller;
 import com.gyeot.domain.situation.service.SituationCreateService;
 import com.gyeot.domain.situation.dto.response.SituationCreateResponse;
 import com.gyeot.domain.situation.entity.SituationStatus;
-import com.gyeot.domain.situation.exception.SituationCreationErrorCode;
+
 import com.gyeot.domain.user.entity.AccountStatus;
 import com.gyeot.domain.user.repository.UserRepository;
 import com.gyeot.global.exception.*;
@@ -37,7 +37,7 @@ class SituationCreateControllerTest {
             """;
     private void auth(){when(tokens.getUserId("valid")).thenReturn(10L);when(users.existsByIdAndAccountStatus(10L,AccountStatus.ACTIVE)).thenReturn(true);}
     @Test void mockedSuccessUsesPrincipalAnd201Envelope()throws Exception{auth();when(service.create(eq(10L),any())).thenReturn(new SituationCreateResponse(7L,10L,SituationStatus.ACTIVE));mvc.perform(post("/api/situations").header("Authorization","Bearer valid").contentType("application/json").content(body)).andExpect(status().isCreated()).andExpect(jsonPath("$.data.situationId").value(7)).andExpect(jsonPath("$.data.creatorId").value(10)).andExpect(jsonPath("$.data.status").value("ACTIVE"));verify(service).create(eq(10L),any());}
-    @Test void unavailableTypeUsesExplicitErrorInsteadOfSuccess()throws Exception{auth();when(service.create(eq(10L),any())).thenThrow(new BusinessException(SituationCreationErrorCode.SITUATION_TYPE_NOT_CONFIGURED));mvc.perform(post("/api/situations").header("Authorization","Bearer valid").contentType("application/json").content(body)).andExpect(status().isServiceUnavailable()).andExpect(jsonPath("$.code").value("SITUATION_TYPE_NOT_CONFIGURED"));}
+    @Test void invalidTypeUsesCommon400()throws Exception{auth();when(service.create(eq(10L),any())).thenThrow(new BusinessException(CommonErrorCode.INVALID_INPUT));mvc.perform(post("/api/situations").header("Authorization","Bearer valid").contentType("application/json").content(body)).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));}
     @Test void anonymousIs401()throws Exception{mvc.perform(post("/api/situations").contentType("application/json").content(body)).andExpect(status().isUnauthorized());verifyNoInteractions(service);}
     @Test void invalidInputIs400BeforeService()throws Exception{auth();mvc.perform(post("/api/situations").header("Authorization","Bearer valid").contentType("application/json").content("{}")).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));verifyNoInteractions(service);}
 
@@ -75,7 +75,7 @@ class SituationCreateControllerTest {
     void mocked201PreservesBoundaryFieldsWithoutDeclaringATypeSupported() throws Exception {
         auth();
         when(service.create(eq(10L), any())).thenReturn(new SituationCreateResponse(7L, 10L, SituationStatus.ACTIVE));
-        String boundaryBody = body.replace("이름", "가".repeat(150))
+        String boundaryBody = body.replace("test-type", "OTHER").replace("이름", "가".repeat(150))
                 .replace("\"name\":", "\"customSituationType\":\"" + "가".repeat(15) + "\",\"name\":");
         mvc.perform(post("/api/situations").header("Authorization", "Bearer valid")
                         .contentType("application/json").content(boundaryBody))

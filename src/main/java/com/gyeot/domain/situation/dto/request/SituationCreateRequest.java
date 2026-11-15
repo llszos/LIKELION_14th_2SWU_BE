@@ -1,6 +1,7 @@
 package com.gyeot.domain.situation.dto.request;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.gyeot.domain.situation.entity.SituationType;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -15,7 +16,6 @@ public record SituationCreateRequest(
         @Size(max = 30, message = "상황 종류는 30자 이하여야 합니다.")
         String situationType,
 
-        @Size(max = 15, message = "기타 상황 종류는 15자 이하여야 합니다.")
         String customSituationType,
 
         @NotBlank(message = "상황 이름은 필수입니다.")
@@ -36,5 +36,11 @@ public record SituationCreateRequest(
     @AssertTrue(message = "상황 시작 시각은 종료 예정 시각보다 빨라야 합니다.")
     public boolean isPeriodValid() {
         return startAt == null || endAt == null || startAt.isBefore(endAt);
+    }
+
+    @JsonIgnore
+    @AssertTrue(message = "기타는 공백 제거 후 1~15자 입력이 필요하며, 다른 종류에서는 기타 문구를 사용할 수 없습니다.")
+    public boolean isCustomSituationTypeValid() {
+        return SituationType.isCustomTextValid(situationType, customSituationType);
     }
 }

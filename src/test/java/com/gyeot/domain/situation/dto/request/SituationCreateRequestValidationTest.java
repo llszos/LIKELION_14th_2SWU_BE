@@ -112,15 +112,14 @@ class SituationCreateRequestValidationTest {
 
     @Test
     void acceptsCustomTypeAtMaximumLengthAndWhenAbsent() {
-        for (String custom : new String[]{null, "", "가".repeat(15)}) {
-            assertTrue(validator.validate(request("상황 종류", custom, "회복 지원", List.of(), START, END)).isEmpty());
-        }
+        assertTrue(validator.validate(request("RECOVERY", null, "회복 지원", List.of(), START, END)).isEmpty());
+        assertTrue(validator.validate(request("OTHER", "  " + "가".repeat(15) + "  ", "회복 지원", List.of(), START, END)).isEmpty());
     }
 
     @Test
     void rejectsCustomTypeOverMaximumLength() {
-        assertEquals(Set.of("customSituationType"),
-                invalidFields(request("상황 종류", "가".repeat(16), "회복 지원", List.of(), START, END)));
+        assertEquals(Set.of("customSituationTypeValid"),
+                invalidFields(request("OTHER", "가".repeat(16), "회복 지원", List.of(), START, END)));
     }
 
     private static SituationCreateRequest request(String type, String custom, String name,
