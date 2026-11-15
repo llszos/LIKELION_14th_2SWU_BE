@@ -1,12 +1,15 @@
 package com.gyeot.domain.carerequest.repository;
 
 import com.gyeot.domain.carerequest.entity.CareRequest;
+import com.gyeot.domain.carerequest.enums.CareRequestStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -24,4 +27,17 @@ public interface CareRequestRepository extends JpaRepository<CareRequest, Long> 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from CareRequest r where r.id = :id")
     Optional<CareRequest> findByIdForUpdate(@Param("id") Long id);
+
+    // === #76 다른 영역 이벤트 수신 (상황 종료, 회원 탈퇴) ===
+    // 처리할 요청 ID만 먼저 모읍니다. 실제 처리는 요청 행을 ID 순서로 하나씩 잠근 뒤 최신 값으로 다시 확인합니다.
+
+    /** 상황의 특정 상태 요청 ID (요청 ID 순) */
+    @Query("select r.id from CareRequest r where r.situationId = :situationId and r.status in :statuses order by r.id")
+    List<Long> findIdsBySituationIdAndStatusIn(@Param("situationId") Long situationId,
+                                               @Param("statuses") Collection<CareRequestStatus> statuses);
+
+    /** 사용자가 보낸 특정 상태 요청 ID (요청 ID 순) */
+    @Query("select r.id from CareRequest r where r.requesterId = :requesterId and r.status in :statuses order by r.id")
+    List<Long> findIdsByRequesterIdAndStatusIn(@Param("requesterId") Long requesterId,
+                                               @Param("statuses") Collection<CareRequestStatus> statuses);
 }
