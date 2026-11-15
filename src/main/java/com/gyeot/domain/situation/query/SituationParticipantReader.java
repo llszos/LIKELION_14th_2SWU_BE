@@ -1,6 +1,7 @@
 package com.gyeot.domain.situation.query;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -11,6 +12,19 @@ import java.util.Optional;
  * DB에서 상황·참여 정보를 조회하며, 급한 요청에는 상황 참여 검증을 적용하지 않습니다.
  */
 public interface SituationParticipantReader {
+
+    /**
+     * ACTIVE 참여 행의 사용자 ID를 joinedAt ASC, 참여 행 id ASC 순서로 반환합니다.
+     * OWNER를 포함하고 LEFT·REMOVED는 제외합니다. 상황의 ACTIVE·ENDED 상태는 제한하지 않습니다.
+     * 상황이 없거나 ACTIVE 참여 행이 없으면 빈 목록을 반환합니다.
+     * 동일 사용자의 ACTIVE 행이 여러 개이면 중복 ID를 그대로 반환합니다.
+     * 관계 자격 검증과 본인 제외는 호출하는 C 영역의 책임입니다.
+     *
+     * @param situationId 상황 ID, null 불가
+     * @return 정렬된 사용자 ID 목록, null 아님
+     * @throws NullPointerException situationId가 null인 경우
+     */
+    List<Long> findActiveParticipantIds(Long situationId);
 
     /**
      * 해당 상황·사용자의 ACTIVE 참여 행이 존재하는지 확인합니다.
