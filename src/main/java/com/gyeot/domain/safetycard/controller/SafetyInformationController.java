@@ -10,6 +10,8 @@ import com.gyeot.domain.safetycard.entity.InformationCategory;
 import com.gyeot.domain.safetycard.service.SafetyInformationService;
 import com.gyeot.global.common.ApiResponse;
 import com.gyeot.global.security.auth.AuthenticatedUser;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -29,6 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
  * 정보 주인의 안심카드 항목 조회, 작성, 수정, 삭제 API입니다. (F-02, 노션 D 파트 API 명세)
  * 모든 API는 로그인이 필요하고(토큰이 없으면 Security 설정에서 401), 로그인한 사용자 본인의 항목만 다룹니다.
  */
+@Tag(name = "안심카드", description = "내 안심카드 항목 조회, 작성, 수정, 삭제와 요청에 공개할 항목 선택지 API") // Swagger 화면의 묶음 이름 (두 컨트롤러가 같은 묶음)
 @RestController                            // JSON을 돌려주는 Controller
 @RequiredArgsConstructor                   // 아래 final 필드(Service)를 채우는 생성자 자동 생성
 @RequestMapping("/api/safety-information") // 이 Controller의 공통 경로
@@ -37,6 +40,8 @@ public class SafetyInformationController {
     private final SafetyInformationService safetyInformationService; // 실제 조회·작성 로직
 
     /** 안심카드 메인 조회: GET /api/safety-information/summary (화면 C-00) */
+    @Operation(summary = "안심카드 메인 조회",
+            description = "분류별 최근 갱신일과 지금 공유 중인 건수를 조회합니다. 공유 중 건수는 공유 관리 목록의 '공유 중' 카드 수와 같습니다.")
     @GetMapping("/summary")
     public ApiResponse<SafetyCardSummaryResponse> getSummary(
             @AuthenticationPrincipal AuthenticatedUser user) {   // 로그인한 사용자 (JWT 토큰에서 꺼냄, 요청 값으로 바꿀 수 없음)
@@ -47,6 +52,8 @@ public class SafetyInformationController {
      * 분류별 항목 조회: GET /api/safety-information?category=HEALTH
      * category가 없거나 잘못된 값이면 공통 에러 400 INVALID_INPUT
      */
+    @Operation(summary = "분류별 항목 조회",
+            description = "한 분류의 항목을 유형별로 묶어 조회합니다. 등록한 항목이 없는 유형도 빈 배열로 내려줍니다.")
     @GetMapping
     public ApiResponse<CategoryItemsResponse> getCategoryItems(
             @AuthenticationPrincipal AuthenticatedUser user,     // 로그인한 사용자 (JWT 토큰에서 꺼냄, 요청 값으로 바꿀 수 없음)
@@ -58,6 +65,8 @@ public class SafetyInformationController {
      * 항목 작성: POST /api/safety-information
      * 입력 규칙을 어기면 400 INVALID_INPUT, 1개만 등록하는 항목을 또 작성하면 409 SAFETY_INFO_ALREADY_EXISTS
      */
+    @Operation(summary = "항목 작성",
+            description = "항목 1개를 작성합니다. 1개만 등록하는 항목(생년월일, 혈액형, 주소, 출입 방법)을 또 작성하면 409입니다.")
     @PostMapping
     public ResponseEntity<ApiResponse<SafetyInformationResponse>> create(
             @AuthenticationPrincipal AuthenticatedUser user,     // 로그인한 사용자 (JWT 토큰에서 꺼냄, 요청 값으로 바꿀 수 없음)
@@ -72,6 +81,8 @@ public class SafetyInformationController {
      * 항목 수정: PATCH /api/safety-information/{informationId}
      * 입력 규칙을 어기면 400 INVALID_INPUT, 없거나 다른 사람의 항목이면 404 SAFETY_INFO_NOT_FOUND
      */
+    @Operation(summary = "항목 수정",
+            description = "항목의 이름과 내용을 수정합니다. 실제 변경 여부와 권한 부여 시각을 기준으로 담당자 화면의 '갱신됨' 표시가 결정됩니다.")
     @PatchMapping("/{informationId}")
     public ApiResponse<SafetyInformationResponse> update(
             @AuthenticationPrincipal AuthenticatedUser user,     // 로그인한 사용자 (JWT 토큰에서 꺼냄, 요청 값으로 바꿀 수 없음)
@@ -87,6 +98,8 @@ public class SafetyInformationController {
      * 없거나 다른 사람의 항목, 이미 삭제된 항목이면 404 SAFETY_INFO_NOT_FOUND
      * 공유 중인 항목이면 연결된 접근 권한도 함께 회수됩니다.
      */
+    @Operation(summary = "항목 삭제",
+            description = "항목을 삭제합니다. 공유 중인 항목이면 연결된 접근 권한을 바로 회수합니다.")
     @DeleteMapping("/{informationId}")
     public ApiResponse<SafetyInformationDeleteResponse> delete(
             @AuthenticationPrincipal AuthenticatedUser user,     // 로그인한 사용자 (JWT 토큰에서 꺼냄, 요청 값으로 바꿀 수 없음)
