@@ -42,6 +42,7 @@ import static org.mockito.Mockito.when;
  * 공유 직접 철회의 쓰기 처리를 DB 없이 확인합니다. (C, 저장소, PermissionWriter, 카드 판단 도우미는 Mock)
  *
  * - 카드 상태별 처리: 공유 중이면 회수와 이벤트 1건, 이미 철회됨이면 변경 없음, 요청 조건 실패나 빈 카드면 404
+ * - 잠금 단계(SharingCardLocker)는 실제 객체를 써서, 분리 전과 같은 잠금 순서와 결과인지 함께 확인합니다.
  * - 최신 권한 기준 회수 대상, 잠금 순서(요청 확인 → 항목 → 권한 → 회수)
  * - 권한 회수와 이력 규칙 자체는 PermissionWriterTest, 판단 규칙 자체는 SharingCardReaderTest에서 확인합니다.
  * - C 요청 행 잠금과 실제 DB 동시성은 C 잠금 계약 반영 뒤 통합 테스트에서 확인합니다.
@@ -74,7 +75,9 @@ class SharingRevokeTransactionTest {
         permissionWriter = mock(PermissionWriter.class);
         sharingCardReader = mock(SharingCardReader.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
-        transaction = new SharingRevokeTransaction(careRequestSharingReader, permissionRepository, permissionWriter,
+        // 잠금 단계(SharingCardLocker)는 실제 객체로, 그 아래 저장소와 PermissionWriter만 Mock (잠금 순서까지 함께 확인)
+        transaction = new SharingRevokeTransaction(careRequestSharingReader,
+                new SharingCardLocker(permissionRepository, permissionWriter), permissionWriter,
                 sharingCardReader, eventPublisher, Clock.fixed(NOW.atZone(SEOUL).toInstant(), SEOUL));
 
         // 기본은 "공유 중 카드 1장": 진행 중인 일반 요청, 지금 담당자의 지정, 혈압약(12번)과 당뇨약(13번) 공유 중
