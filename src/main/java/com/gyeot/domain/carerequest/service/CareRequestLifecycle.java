@@ -9,6 +9,7 @@ import com.gyeot.domain.carerequest.enums.CancelReason;
 import com.gyeot.domain.carerequest.enums.CareRequestStatus;
 import com.gyeot.domain.carerequest.enums.InvalidationReason;
 import com.gyeot.domain.carerequest.enums.ProposalStatus;
+import com.gyeot.domain.carerequest.event.CareRequestAssignmentClosedEvent;
 import com.gyeot.domain.carerequest.event.CareRequestCanceledEvent;
 import com.gyeot.domain.carerequest.event.CareRequestCompletedEvent;
 import com.gyeot.domain.carerequest.repository.RequestAssignmentRepository;
@@ -96,10 +97,44 @@ public class CareRequestLifecycle {
         eventPublisher.publishEvent(CareRequestCanceledEvent.of(request, openAssignment, now));
     }
 
+    /**
+     * 대상자·담당자가 빠짐 (상황 나가기·제외, 관계 해제, 회원 탈퇴, #76)
+     * - 진행 중: 요청 취소 (cancelReason, 예: ASSIGNEE_LEFT)
+     * - 수락됨(시작 전): 지정 마감 → 요청됨으로 복귀, 대기 중 수정안 무효 (재확인할 담당자가 없어짐)
+     * - 수락 전 대상자: 지정 마감, 요청은 요청됨 그대로 (요청자에게 담당자 없음)
+     * 마감 사유는 이력과 이벤트로 남고, 요청자 화면의 담당자 없음 사유가 됩니다. (NoAssigneeReason.from)
+     * 호출하는 쪽은 요청 행을 잠그고, 끝난 요청이 아니며 assignment가 지금 열린 지정인지 먼저 확인해야 합니다.
+     */
+    public void removeAssignee(CareRequest request, RequestAssignment assignment, AssignmentCloseReason closeReason,
+                               CancelReason cancelReason, Long actorUserId, LocalDateTime now) {
+        if (request.getStatus() == CareRequestStatus.IN_PROGRESS) {
+            cancel(request, cancelReason, actorUserId, now); // 열린 지정은 REQUEST_ENDED로 함께 마감됨
+            return;
+        }
+        CareRequestStatus previousStatus = request.getStatus();
+        boolean wasAssignee = assignment.isAccepted() && previousStatus == CareRequestStatus.ACCEPTED;
+
+        assignment.close(closeReason, now);
+        eventRepository.save(RequestChangeEvent.assignmentClosed(assignment, actorUserId, now));
+        if (wasAssignee) {
+            request.revertToRequested(); // ACCEPTED → REQUESTED
+            eventRepository.save(RequestChangeEvent.statusChanged(request, previousStatus, actorUserId, now));
+            invalidatePendingProposal(request, InvalidationReason.ASSIGNMENT_CLOSED, actorUserId, now);
+        }
+
+        // D: 그 지정의 권한 회수 / B(알림): 없음 (요청자에게는 담당자 없음 모달, F-14)
+        eventPublisher.publishEvent(CareRequestAssignmentClosedEvent.of(assignment, now));
+    }
+
     // === 내부 처리 ===
 
+    /**
+     * 요청의 열린 지정 (잠금 읽기)
+     * 다른 영역 이벤트를 받아 그 트랜잭션 안에서 처리할 때(#76), 일반 조회는 트랜잭션 첫 조회 시점 스냅샷을 볼 수 있어
+     * 마지막으로 커밋된 값을 읽도록 잠금 읽기로 가져옵니다. 호출하는 쪽이 이미 요청 행을 잠갔으므로 순서는 요청 → 지정입니다.
+     */
     private RequestAssignment currentOpenAssignment(CareRequest request) {
-        return assignmentRepository.findByCareRequestIdAndClosedAtIsNull(request.getId()).orElse(null);
+        return assignmentRepository.findOpenByRequestIdForUpdate(request.getId()).orElse(null);
     }
 
     /**
@@ -108,7 +143,7 @@ public class CareRequestLifecycle {
      */
     private void invalidatePendingProposal(CareRequest request, InvalidationReason reason,
                                            Long actorUserId, LocalDateTime now) {
-        proposalRepository.findByCareRequestIdAndStatus(request.getId(), ProposalStatus.PENDING)
+        proposalRepository.findByRequestIdAndStatusForUpdate(request.getId(), ProposalStatus.PENDING) // 잠금 읽기 (위와 같은 이유)
                 .ifPresent(proposal -> {
                     proposal.invalidate();
                     eventRepository.save(RequestChangeEvent.reconfirmationInvalidated(
