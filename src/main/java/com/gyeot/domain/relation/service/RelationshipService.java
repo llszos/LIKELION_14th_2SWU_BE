@@ -56,14 +56,16 @@ public class RelationshipService {
             throw new BusinessException(CommonErrorCode.UNAUTHORIZED);
         }
 
-        Relationship snapshot = relationshipRepository.findById(relationshipId)
+        var participants = relationshipRepository.findParticipantsById(relationshipId)
                 .orElseThrow(() -> new BusinessException(RelationshipErrorCode.RELATIONSHIP_NOT_FOUND));
-        if (!snapshot.getSourceUserId().equals(userId)) {
+        if (!participants.sourceUserId().equals(userId)) {
             throw new BusinessException(RelationshipErrorCode.RELATIONSHIP_NOT_FOUND);
         }
 
         // 초대 수락·보호자 순서 변경과 같은 사용자 쌍 잠금 순서를 사용해 역방향 동시 요청의 교착을 막습니다.
-        lockRelationshipUsers(snapshot.getSourceUserId(), snapshot.getTargetUserId());
+        lockRelationshipUsers(participants.sourceUserId(), participants.targetUserId());
+        // 위 조회는 scalar projection이라 관계 엔티티가 영속성 컨텍스트에 남지 않습니다.
+        // 사용자 잠금 대기 후 처음 엔티티를 잠금 조회하므로 앞선 트랜잭션의 종료 상태를 읽습니다.
         Relationship relationship = relationshipRepository.findByIdForUpdate(relationshipId)
                 .orElseThrow(() -> new BusinessException(RelationshipErrorCode.RELATIONSHIP_NOT_FOUND));
         if (!relationship.getSourceUserId().equals(userId)) {

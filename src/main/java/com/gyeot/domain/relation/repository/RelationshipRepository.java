@@ -16,6 +16,15 @@ import java.util.Optional;
 /** 나의 사람·보호자 관계를 저장하고 조회합니다. */
 public interface RelationshipRepository extends JpaRepository<Relationship, Long> {
 
+    /** 사용자 행 잠금 순서를 정할 때 관계 엔티티를 영속성 컨텍스트에 먼저 올리지 않습니다. */
+    @Query("""
+            select new com.gyeot.domain.relation.repository.RelationshipParticipants(
+                r.sourceUserId, r.targetUserId)
+            from Relationship r
+            where r.id = :relationshipId
+            """)
+    Optional<RelationshipParticipants> findParticipantsById(@Param("relationshipId") Long relationshipId);
+
     /** 관계 해제 경합에서 동일한 관계 행을 직렬화합니다. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from Relationship r where r.id = :relationshipId")

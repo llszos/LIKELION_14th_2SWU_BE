@@ -105,7 +105,8 @@ class RelationshipServiceTest {
     void 나의_사람_해제는_요청한_방향과_비상연락만_종료하고_이벤트를_한번_발행한다() {
         Relationship requested = relationship(10L, Relationship.createMyPerson(1L, 2L, "친구"));
         Relationship reverse = relationship(11L, Relationship.createMyPerson(2L, 1L, "지인"));
-        when(relationshipRepository.findById(10L)).thenReturn(Optional.of(requested));
+        when(relationshipRepository.findParticipantsById(10L))
+                .thenReturn(Optional.of(new com.gyeot.domain.relation.repository.RelationshipParticipants(1L, 2L)));
         when(relationshipRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(requested));
 
         var response = service.endRelationship(1L, 10L);
@@ -128,7 +129,8 @@ class RelationshipServiceTest {
         Relationship reverse = relationship(21L, Relationship.createGuardian(2L, 1L, 2));
         Relationship remainingForFirst = Relationship.createGuardian(1L, 3L, 2);
         Relationship remainingForSecond = Relationship.createGuardian(2L, 4L, 1);
-        when(relationshipRepository.findById(20L)).thenReturn(Optional.of(requested));
+        when(relationshipRepository.findParticipantsById(20L))
+                .thenReturn(Optional.of(new com.gyeot.domain.relation.repository.RelationshipParticipants(1L, 2L)));
         when(relationshipRepository.findByIdForUpdate(20L)).thenReturn(Optional.of(requested));
         when(relationshipRepository.findActiveBetweenUsersForUpdate(1L, 2L, RelationshipStatus.ACTIVE))
                 .thenReturn(List.of(requested, reverse));
@@ -156,7 +158,8 @@ class RelationshipServiceTest {
     void 이미_종료된_관계는_409로_응답하고_이벤트를_다시_발행하지_않는다() {
         Relationship ended = relationship(30L, Relationship.createMyPerson(1L, 2L, null));
         ended.end(LocalDateTime.of(2026, 11, 1, 10, 0));
-        when(relationshipRepository.findById(30L)).thenReturn(Optional.of(ended));
+        when(relationshipRepository.findParticipantsById(30L))
+                .thenReturn(Optional.of(new com.gyeot.domain.relation.repository.RelationshipParticipants(1L, 2L)));
         when(relationshipRepository.findByIdForUpdate(30L)).thenReturn(Optional.of(ended));
 
         BusinessException exception = assertThrows(
@@ -170,7 +173,8 @@ class RelationshipServiceTest {
     @Test
     void 다른_사용자가_등록한_방향의_관계는_존재하지_않는_관계처럼_거부한다() {
         Relationship relationship = relationship(40L, Relationship.createMyPerson(2L, 1L, null));
-        when(relationshipRepository.findById(40L)).thenReturn(Optional.of(relationship));
+        when(relationshipRepository.findParticipantsById(40L))
+                .thenReturn(Optional.of(new com.gyeot.domain.relation.repository.RelationshipParticipants(2L, 1L)));
 
         BusinessException exception = assertThrows(
                 BusinessException.class, () -> service.endRelationship(1L, 40L));

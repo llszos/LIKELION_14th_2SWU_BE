@@ -35,6 +35,8 @@ public class CareRequest extends BaseEntity {
 
     // 새 요청·시작 시간 수정 모두 시작까지 최소 1시간 (F-05, F-29)
     public static final Duration MIN_START_LEAD_TIME = Duration.ofHours(1);
+    public static final int MAX_PLACE_LENGTH = 100;        // 장소 최대 글자 수 (공백 포함, 요청 생성·수정)
+    public static final int MAX_DESCRIPTION_LENGTH = 500;  // 부탁 내용 최대 글자 수 (공백 포함, 요청 생성)
 
     // 요청 ID
     @Id
