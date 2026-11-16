@@ -22,14 +22,21 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Service
 public class InvitationService {
 
     private static final long INVITATION_VALID_DAYS = 7;
+    private static final long MAX_ACTIVE_GUARDIANS = 3;
+    private static final String INVITATION_DEFAULT_MESSAGE = "함께 해요";
+    private static final String AUTHENTICATION_REQUIRED = "AUTHENTICATION_REQUIRED";
+    private static final String SELF_INVITATION = "SELF_INVITATION";
 
     private final InvitationRepository invitationRepository;
     private final RelationshipRepository relationshipRepository;
+    private final EmergencyContactService emergencyContactService;
     private final UserRepository userRepository;
     private final InvitationTokenGenerator tokenGenerator;
     private final Clock serviceClock;
@@ -38,6 +45,7 @@ public class InvitationService {
     public InvitationService(
             InvitationRepository invitationRepository,
             RelationshipRepository relationshipRepository,
+            EmergencyContactService emergencyContactService,
             UserRepository userRepository,
             InvitationTokenGenerator tokenGenerator,
             Clock serviceClock,
@@ -45,6 +53,7 @@ public class InvitationService {
     ) {
         this.invitationRepository = invitationRepository;
         this.relationshipRepository = relationshipRepository;
+        this.emergencyContactService = emergencyContactService;
         this.userRepository = userRepository;
         this.tokenGenerator = tokenGenerator;
         this.serviceClock = serviceClock;
@@ -54,8 +63,25 @@ public class InvitationService {
     /** 새 초대를 만들고, 원문 토큰은 링크를 구성해 응답하는 데만 사용합니다. */
     @Transactional
     public InvitationCreateResponse createInvitation(Long inviterId, InvitationType invitationType) {
-        if (invitationType != InvitationType.MY_PERSON) {
-            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        return createInvitation(inviterId, invitationType, null, null, null);
+    }
+
+    /** 초대 유형별 입력을 확인하고 링크를 발급합니다. */
+    @Transactional
+    public InvitationCreateResponse createInvitation(
+            Long inviterId,
+            InvitationType invitationType,
+            String personalLabel,
+            String message,
+            Boolean promiseConfirmed
+    ) {
+        validateCreateRequest(invitationType, personalLabel, message, promiseConfirmed);
+
+        if (invitationType == InvitationType.GUARDIAN) {
+            User inviter = lockActiveUser(inviterId);
+            if (countActiveGuardians(inviter.getId()) >= MAX_ACTIVE_GUARDIANS) {
+                throw new BusinessException(InvitationErrorCode.GUARDIAN_LIMIT_REACHED);
+            }
         }
 
         InvitationTokenGenerator.IssuedInvitationToken issuedToken = tokenGenerator.issue();
@@ -64,15 +90,39 @@ public class InvitationService {
 
         Invitation invitation = Invitation.create(
                 inviterId,
-                InvitationType.MY_PERSON,
+                invitationType,
                 issuedToken.tokenHash(),
-                null,
+                message,
+                personalLabel,
                 expiresAt
         );
         Invitation savedInvitation = invitationRepository.save(invitation);
 
         String invitationUrl = invitationBaseUrl + "/" + issuedToken.token();
         return new InvitationCreateResponse(savedInvitation.getId(), invitationUrl, expiresAt);
+    }
+
+    private void validateCreateRequest(
+            InvitationType invitationType,
+            String personalLabel,
+            String message,
+            Boolean promiseConfirmed
+    ) {
+        if (invitationType == null) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+        if (invitationType == InvitationType.MY_PERSON) {
+            if (message != null || promiseConfirmed != null) {
+                throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+            }
+            if (personalLabel != null && (personalLabel.isBlank() || personalLabel.length() > 50)) {
+                throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+            }
+            return;
+        }
+        if (personalLabel != null || !Boolean.TRUE.equals(promiseConfirmed)) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
     }
 
     /** 발신자 본인의 대기 중 초대만 취소합니다. 다시 초대하면 새 토큰으로 별도 행을 생성합니다. */
@@ -94,10 +144,13 @@ public class InvitationService {
     /** 초대 링크로 들어온 화면에 발신자와 현재 처리 가능 여부를 돌려줍니다. */
     @Transactional(readOnly = true)
     public InvitationDetailsResponse getInvitation(String token) {
+        return getInvitation(token, null);
+    }
+
+    /** 보호자 링크는 로그인한 수신자에게 현재 인원 제한도 함께 알려줍니다. */
+    @Transactional(readOnly = true)
+    public InvitationDetailsResponse getInvitation(String token, Long viewerId) {
         Invitation invitation = findByToken(token, false);
-        if (invitation.getInvitationType() != InvitationType.MY_PERSON) {
-            throw new BusinessException(InvitationErrorCode.INVITATION_NOT_FOUND);
-        }
         User inviter = userRepository.findById(invitation.getInviterId())
                 .orElseThrow(() -> new BusinessException(InvitationErrorCode.INVITATION_NOT_FOUND));
         LocalDateTime now = LocalDateTime.now(serviceClock);
@@ -106,17 +159,36 @@ public class InvitationService {
                 ? InvitationStatus.EXPIRED
                 : invitation.getStatus();
 
+        boolean guardianLimitReached = invitation.getInvitationType() == InvitationType.GUARDIAN
+                && viewerId != null
+                && countActiveGuardians(viewerId) >= MAX_ACTIVE_GUARDIANS;
+        boolean canAccept = false;
+        String unavailableReason = null;
+        if (responseStatus == InvitationStatus.PENDING) {
+            if (viewerId == null) {
+                unavailableReason = AUTHENTICATION_REQUIRED;
+            } else if (viewerId.equals(invitation.getInviterId())) {
+                unavailableReason = SELF_INVITATION;
+            } else if (guardianLimitReached) {
+                unavailableReason = InvitationErrorCode.GUARDIAN_LIMIT_REACHED.getCode();
+            } else {
+                canAccept = true;
+            }
+        }
+
         return new InvitationDetailsResponse(
-                invitation.getId(),
                 invitation.getInvitationType(),
-                inviter.getName(),
-                responseStatus,
+                new InvitationDetailsResponse.Inviter(inviter.getId(), inviter.getName()),
+                INVITATION_DEFAULT_MESSAGE,
+                invitation.getInvitationType() == InvitationType.GUARDIAN ? invitation.getMessage() : null,
                 invitation.getExpiresAt(),
-                responseStatus == InvitationStatus.PENDING
+                responseStatus,
+                canAccept,
+                unavailableReason
         );
     }
 
-    /** 초대를 수락하고 발신자 → 수락자 방향의 나의 사람 관계를 만듭니다. */
+    /** 초대를 수락하고, 보호자 요청은 수락 직전 양쪽의 인원 제한을 다시 확인합니다. */
     @Transactional
     public void acceptInvitation(String token, Long inviteeId) {
         Invitation invitation = findByToken(token, true);
@@ -125,13 +197,26 @@ public class InvitationService {
         LocalDateTime respondedAt = LocalDateTime.now(serviceClock);
         validateNotExpired(invitation, respondedAt);
 
-        if (relationshipRepository.existsBySourceUserIdAndTargetUserIdAndRelationshipTypeAndStatus(
-                invitation.getInviterId(), inviteeId, RelationshipType.MY_PERSON, RelationshipStatus.ACTIVE)) {
-            throw new BusinessException(InvitationErrorCode.RELATIONSHIP_ALREADY_EXISTS);
+        if (invitation.getInvitationType() == InvitationType.MY_PERSON) {
+            List<Relationship> currentPair = relationshipRepository.findActiveBetweenUsers(
+                    invitation.getInviterId(), inviteeId, RelationshipStatus.ACTIVE);
+            if (currentPair.stream().anyMatch(r -> r.getRelationshipType() == RelationshipType.GUARDIAN)) {
+                throw new BusinessException(InvitationErrorCode.GUARDIAN_RELATIONSHIP_ALREADY_EXISTS);
+            }
+            if (currentPair.stream().anyMatch(r -> r.getRelationshipType() == RelationshipType.MY_PERSON
+                    && r.getSourceUserId().equals(invitation.getInviterId()))) {
+                throw new BusinessException(InvitationErrorCode.RELATIONSHIP_ALREADY_EXISTS);
+            }
+            invitation.respond(inviteeId, InvitationStatus.ACCEPTED, respondedAt);
+            relationshipRepository.save(Relationship.createMyPerson(
+                    invitation.getInviterId(), inviteeId, invitation.getPersonalLabel()));
+            emergencyContactService.addForMyPersonRelationship(invitation.getInviterId(), inviteeId);
+            return;
         }
 
+        validateGuardianCapacity(invitation.getInviterId(), inviteeId);
+        registerMutualGuardians(invitation.getInviterId(), inviteeId, respondedAt);
         invitation.respond(inviteeId, InvitationStatus.ACCEPTED, respondedAt);
-        relationshipRepository.save(Relationship.createMyPerson(invitation.getInviterId(), inviteeId, null));
     }
 
     /** 초대를 거절하고 응답 사용자를 초대에 기록합니다. */
@@ -169,6 +254,7 @@ public class InvitationService {
             throw new BusinessException(InvitationErrorCode.RELATIONSHIP_ALREADY_EXISTS);
         }
         relationshipRepository.save(Relationship.createMyPerson(userId, invitation.getInviterId(), null));
+        emergencyContactService.addForMyPersonRelationship(userId, invitation.getInviterId());
     }
 
     private Invitation findByToken(String token, boolean lock) {
@@ -185,9 +271,6 @@ public class InvitationService {
     private void validateCanRespond(Invitation invitation, Long inviteeId) {
         if (inviteeId == null) {
             throw new BusinessException(InvitationErrorCode.INVITATION_USER_NOT_AVAILABLE);
-        }
-        if (invitation.getInvitationType() != InvitationType.MY_PERSON) {
-            throw new BusinessException(InvitationErrorCode.INVITATION_NOT_FOUND);
         }
         if (invitation.getInviterId().equals(inviteeId)) {
             throw new BusinessException(InvitationErrorCode.INVITATION_SELF_RESPONSE);
@@ -209,10 +292,82 @@ public class InvitationService {
         Long higherId = Math.max(firstUserId, secondUserId);
         User lower = userRepository.findByIdForUpdate(lowerId)
                 .orElseThrow(() -> new BusinessException(InvitationErrorCode.INVITATION_USER_NOT_AVAILABLE));
-        User higher = userRepository.findByIdForUpdate(higherId)
-                .orElseThrow(() -> new BusinessException(InvitationErrorCode.INVITATION_USER_NOT_AVAILABLE));
+        User higher = lowerId.equals(higherId)
+                ? lower
+                : userRepository.findByIdForUpdate(higherId)
+                        .orElseThrow(() -> new BusinessException(InvitationErrorCode.INVITATION_USER_NOT_AVAILABLE));
         if (lower.getAccountStatus() != AccountStatus.ACTIVE || higher.getAccountStatus() != AccountStatus.ACTIVE) {
             throw new BusinessException(InvitationErrorCode.INVITATION_USER_NOT_AVAILABLE);
+        }
+    }
+
+    private User lockActiveUser(Long userId) {
+        User user = userRepository.findByIdForUpdate(userId)
+                .orElseThrow(() -> new BusinessException(InvitationErrorCode.INVITATION_USER_NOT_AVAILABLE));
+        if (user.getAccountStatus() != AccountStatus.ACTIVE) {
+            throw new BusinessException(InvitationErrorCode.INVITATION_USER_NOT_AVAILABLE);
+        }
+        return user;
+    }
+
+    private long countActiveGuardians(Long userId) {
+        return relationshipRepository.countBySourceUserIdAndRelationshipTypeAndStatus(
+                userId, RelationshipType.GUARDIAN, RelationshipStatus.ACTIVE);
+    }
+
+    private void validateGuardianCapacity(Long inviterId, Long inviteeId) {
+        if (countActiveGuardians(inviterId) >= MAX_ACTIVE_GUARDIANS
+                || countActiveGuardians(inviteeId) >= MAX_ACTIVE_GUARDIANS) {
+            throw new BusinessException(InvitationErrorCode.GUARDIAN_LIMIT_REACHED);
+        }
+    }
+
+    private void registerMutualGuardians(Long inviterId, Long inviteeId, LocalDateTime occurredAt) {
+        List<Relationship> currentPair = relationshipRepository.findActiveBetweenUsers(
+                inviterId, inviteeId, RelationshipStatus.ACTIVE);
+        if (currentPair.stream().anyMatch(r -> r.getRelationshipType() == RelationshipType.GUARDIAN)) {
+            throw new BusinessException(InvitationErrorCode.GUARDIAN_RELATIONSHIP_ALREADY_EXISTS);
+        }
+
+        // 보호자 관계가 생기면 두 방향의 기존 나의 사람 관계를 종료합니다.
+        // 관계 전환은 관계 해제가 아니므로 RelationshipEndedEvent를 발행하지 않습니다.
+        currentPair.stream()
+                .filter(r -> r.getRelationshipType() == RelationshipType.MY_PERSON)
+                .forEach(r -> r.end(occurredAt));
+        relationshipRepository.flush();
+        emergencyContactService.removeForMyPersonRelationship(inviterId, inviteeId);
+        emergencyContactService.removeForMyPersonRelationship(inviteeId, inviterId);
+
+        List<Relationship> inviterGuardians = findActiveGuardians(inviterId);
+        List<Relationship> inviteeGuardians = findActiveGuardians(inviteeId);
+        if (inviterGuardians.size() >= MAX_ACTIVE_GUARDIANS
+                || inviteeGuardians.size() >= MAX_ACTIVE_GUARDIANS) {
+            throw new BusinessException(InvitationErrorCode.GUARDIAN_LIMIT_REACHED);
+        }
+
+        // 기존 순위를 먼저 비우고 다시 매겨 새 보호자를 각 사용자의 묶음 끝에 추가합니다.
+        List<Relationship> existingGuardians = new ArrayList<>(inviterGuardians);
+        existingGuardians.addAll(inviteeGuardians);
+        existingGuardians.forEach(Relationship::clearGuardianPriorityForReorder);
+        relationshipRepository.saveAllAndFlush(existingGuardians);
+        assignSequentialPriorities(inviterGuardians);
+        assignSequentialPriorities(inviteeGuardians);
+        relationshipRepository.saveAllAndFlush(existingGuardians);
+
+        relationshipRepository.saveAllAndFlush(List.of(
+                Relationship.createGuardian(inviterId, inviteeId, inviterGuardians.size() + 1),
+                Relationship.createGuardian(inviteeId, inviterId, inviteeGuardians.size() + 1)
+        ));
+    }
+
+    private List<Relationship> findActiveGuardians(Long userId) {
+        return relationshipRepository.findAllBySourceUserIdAndRelationshipTypeAndStatusOrderByGuardianPriorityAsc(
+                userId, RelationshipType.GUARDIAN, RelationshipStatus.ACTIVE);
+    }
+
+    private void assignSequentialPriorities(List<Relationship> guardians) {
+        for (int index = 0; index < guardians.size(); index++) {
+            guardians.get(index).changeGuardianPriority(index + 1);
         }
     }
 
