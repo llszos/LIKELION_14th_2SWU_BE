@@ -67,4 +67,3 @@ C의 공개 projection record를 그대로 반환한다. Entity/민감정보를 
 - B 테스트는 실제 보안 필터/Controller/Service와 Mock C/D/User를 연결한다.
   실제 #98 구현, D 쿼리, MySQL, 최종 FE 통합 검증은 별도이며 통과로 표시하지 않는다.
 - 전체 F-34 완료 선언/Issue 자동 종료 전에 카드 및 신규 사용자 정책을 합의하고 누락을 구현해야 한다.
-
