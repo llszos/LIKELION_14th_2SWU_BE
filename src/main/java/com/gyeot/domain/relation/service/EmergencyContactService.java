@@ -8,6 +8,7 @@ import com.gyeot.domain.relation.entity.Relationship;
 import com.gyeot.domain.relation.entity.RelationshipStatus;
 import com.gyeot.domain.relation.entity.RelationshipType;
 import com.gyeot.domain.relation.exception.EmergencyContactErrorCode;
+import com.gyeot.domain.relation.query.EmergencyContactOrderReader;
 import com.gyeot.domain.relation.repository.EmergencyContactRepository;
 import com.gyeot.domain.relation.repository.RelationshipRepository;
 import com.gyeot.domain.user.entity.AccountStatus;
@@ -30,7 +31,7 @@ import java.util.stream.Collectors;
 /** 보호자와 추가 비상연락 대상을 통합 연락 순서로 조회하고 변경합니다. */
 @Service
 @RequiredArgsConstructor
-public class EmergencyContactService {
+public class EmergencyContactService implements EmergencyContactOrderReader {
 
     private final EmergencyContactRepository emergencyContactRepository;
     private final RelationshipRepository relationshipRepository;
@@ -40,6 +41,27 @@ public class EmergencyContactService {
     public EmergencyContactListResponse getEmergencyContacts(Long userId) {
         validateAuthenticatedUser(userId);
         return buildListResponse(userId);
+    }
+
+    /** 급한 요청에서 사용할 통합 연락 순서를 Entity 없이 반환합니다. */
+    @Override
+    @Transactional(readOnly = true)
+    public List<EmergencyContactOrderReader.Contact> findOrderedContacts(Long userId) {
+        if (userId == null) {
+            throw new IllegalArgumentException("사용자 ID는 필수입니다.");
+        }
+
+        List<EmergencyContactOrderReader.Contact> orderedContacts = new ArrayList<>();
+        int priority = 1;
+        for (Relationship guardian : findActiveGuardians(userId)) {
+            orderedContacts.add(new EmergencyContactOrderReader.Contact(
+                    guardian.getTargetUserId(), EmergencyContactOrderReader.ContactType.GUARDIAN, priority++));
+        }
+        for (EmergencyContact contact : emergencyContactRepository.findAllByUserIdOrderByPriorityAsc(userId)) {
+            orderedContacts.add(new EmergencyContactOrderReader.Contact(
+                    contact.getContactUserId(), EmergencyContactOrderReader.ContactType.MY_PERSON, priority++));
+        }
+        return List.copyOf(orderedContacts);
     }
 
     /** 현재 보호자와 추가 대상의 전체 목록을 모두 포함하는 경우에만 두 순서를 함께 변경합니다. */
