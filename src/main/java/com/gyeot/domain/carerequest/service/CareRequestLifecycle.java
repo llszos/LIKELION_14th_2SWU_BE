@@ -11,6 +11,7 @@ import com.gyeot.domain.carerequest.enums.InvalidationReason;
 import com.gyeot.domain.carerequest.enums.ProposalStatus;
 import com.gyeot.domain.carerequest.event.CareRequestCanceledEvent;
 import com.gyeot.domain.carerequest.event.CareRequestCompletedEvent;
+import com.gyeot.domain.carerequest.event.CareRequestExpiredEvent;
 import com.gyeot.domain.carerequest.repository.RequestAssignmentRepository;
 import com.gyeot.domain.carerequest.repository.RequestChangeEventRepository;
 import com.gyeot.domain.carerequest.repository.RequestChangeProposalRepository;
@@ -94,6 +95,28 @@ public class CareRequestLifecycle {
 
         // D: 요청의 모든 권한 회수 / B: 취소 당시 대상자, 담당자에게 알림
         eventPublisher.publishEvent(CareRequestCanceledEvent.of(request, openAssignment, now));
+    }
+
+    /**
+     * 만료: REQUESTED → EXPIRED (시작 시각까지 담당자가 없음, F-08)
+     * 시간이 되어 서버가 처리하는 일이라 수행자는 항상 없음(NULL)입니다. (스케줄러 #75)
+     * 열린 지정(응답 대기, 어려움 등)은 REQUEST_ENDED로 함께 마감합니다. (ERD 9.1)
+     * 지정 마감 이력, 이벤트는 따로 남기지 않고, 요청 상태 변경 이력과 만료 이벤트가 대신합니다. (취소와 같은 규칙)
+     */
+    public void expire(CareRequest request, LocalDateTime now) {
+        CareRequestStatus previousStatus = request.getStatus();
+        RequestAssignment openAssignment = currentOpenAssignment(request); // 만료 당시 대상자 (없으면 null)
+
+        if (openAssignment != null) {
+            openAssignment.close(AssignmentCloseReason.REQUEST_ENDED, now);
+        }
+        request.expire(now);
+
+        eventRepository.save(RequestChangeEvent.statusChanged(request, previousStatus, null, now));
+        invalidatePendingProposal(request, InvalidationReason.REQUEST_ENDED, null, now); // 요청됨엔 수정안이 없음 (방어)
+
+        // D: 요청의 모든 권한 회수(수락 전이라 PENDING뿐) / B: 만료 안내
+        eventPublisher.publishEvent(CareRequestExpiredEvent.of(request, openAssignment, now));
     }
 
     // === 내부 처리 ===
