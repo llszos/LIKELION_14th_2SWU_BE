@@ -41,6 +41,12 @@ public interface RequestAssignmentRepository extends JpaRepository<RequestAssign
     boolean existsByCareRequestIdAndTargetUserId(Long requestId, Long targetUserId);
 
     /**
+     * 이 사용자가 이 요청의 지금(마감되지 않은) 지정 대상인지 확인합니다. (D 전달받은 정보 조회, CareRequestSharingReader.isCurrentTarget)
+     * 행을 가져오지 않고 있는지만 확인합니다.
+     */
+    boolean existsByCareRequestIdAndTargetUserIdAndClosedAtIsNull(Long requestId, Long targetUserId);
+
+    /**
      * 여러 요청의 현재 담당자 지정을 한 번에 조회합니다. (D 공유 관리 카드)
      * 현재 담당자 = 마감되지 않았고, 수락한 지정
      * 요청당 열린 지정은 최대 1건이라 요청당 결과도 최대 1건입니다.
