@@ -26,6 +26,9 @@ public enum CareRequestErrorCode implements ErrorCode {
     REQUEST_SCHEDULE_INVALID(HttpStatus.BAD_REQUEST, "요청 일정을 다시 확인해 주세요."),
     REQUEST_DEADLINE_INVALID(HttpStatus.BAD_REQUEST, "응답 기한은 1시간에서 3일 사이로 정해 주세요."),
     REQUEST_NO_CHANGES(HttpStatus.BAD_REQUEST, "바뀐 내용이 없습니다."),
+    // 글자 수 초과는 프론트가 어느 입력창으로 이동할지 나눌 수 있도록 공통 INVALID_INPUT 대신 따로 둠
+    REQUEST_PLACE_TOO_LONG(HttpStatus.BAD_REQUEST, "장소는 100자 이내로 입력해 주세요."),
+    REQUEST_DESCRIPTION_TOO_LONG(HttpStatus.BAD_REQUEST, "부탁 내용은 500자 이내로 입력해 주세요."),
 
     // 409 Conflict
     REQUEST_SITUATION_ENDED(HttpStatus.CONFLICT, "이미 종료된 상황입니다."),
