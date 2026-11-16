@@ -40,6 +40,7 @@ public interface CareRequestSummaryReader {
      * - 요청자(정보 주인)가 보면 전체
      * - 그 외 참여자가 보면 본인이 대상자이거나 담당자인 요청 + 끝난 요청 중 본인이 기록상 담당자인 요청
      *   (다른 사람에게 넘어간 이전 대상, 수락 철회한 사람의 요청은 목록에서 빠짐. 상세는 계속 볼 수 있음)
+     * - 전제: 요청은 상황 OWNER만 만들 수 있어 요청자 = 상황 OWNER입니다. 그래서 요청자 기준 조회가 곧 OWNER 전체 조회입니다. (F-04)
      */
     List<RequestSummary> getSituationRequests(Long situationId, Long viewerId, LocalDateTime now);
 
@@ -64,6 +65,7 @@ public interface CareRequestSummaryReader {
      * 지난 상황의 요청별 결과 (시작 시각 순)
      * - 요청자(정보 주인)가 보면 전체
      * - 그 외 참여자가 보면 본인이 기록상 담당자인 요청만 (내가 도운 기록, 나중에 취소된 요청 포함)
+     * - 전제: 요청자 = 상황 OWNER (요청 생성 정책, F-04). 그래서 OWNER가 보면 전체 기록이 나옵니다.
      */
     List<PastRequestRecord> getPastRequestRecords(Long situationId, Long viewerId);
 
