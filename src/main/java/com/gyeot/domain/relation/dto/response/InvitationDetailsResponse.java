@@ -7,11 +7,17 @@ import java.time.LocalDateTime;
 
 /** 초대 링크 화면에 표시할 정보입니다. */
 public record InvitationDetailsResponse(
-        Long invitationId,
         InvitationType invitationType,
-        String inviterName,
-        InvitationStatus status,
+        Inviter inviter,
+        String defaultMessage,
+        String message,
         LocalDateTime expiresAt,
-        boolean canRespond
+        InvitationStatus status,
+        boolean canAccept,
+        String unavailableReason
 ) {
+
+    /** 초대 화면에 표시할 발신자 정보입니다. */
+    public record Inviter(Long userId, String name) {
+    }
 }

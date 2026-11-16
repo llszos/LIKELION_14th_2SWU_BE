@@ -26,6 +26,9 @@ public enum CareRequestErrorCode implements ErrorCode {
     REQUEST_SCHEDULE_INVALID(HttpStatus.BAD_REQUEST, "요청 일정을 다시 확인해 주세요."),
     REQUEST_DEADLINE_INVALID(HttpStatus.BAD_REQUEST, "응답 기한은 1시간에서 3일 사이로 정해 주세요."),
     REQUEST_NO_CHANGES(HttpStatus.BAD_REQUEST, "바뀐 내용이 없습니다."),
+    // 글자 수 초과는 프론트가 어느 입력창으로 이동할지 나눌 수 있도록 공통 INVALID_INPUT 대신 따로 둠
+    REQUEST_PLACE_TOO_LONG(HttpStatus.BAD_REQUEST, "장소는 100자 이내로 입력해 주세요."),
+    REQUEST_DESCRIPTION_TOO_LONG(HttpStatus.BAD_REQUEST, "부탁 내용은 500자 이내로 입력해 주세요."),
 
     // 409 Conflict
     REQUEST_SITUATION_ENDED(HttpStatus.CONFLICT, "이미 종료된 상황입니다."),
@@ -33,6 +36,7 @@ public enum CareRequestErrorCode implements ErrorCode {
     REQUEST_NOT_REASSIGNABLE(HttpStatus.CONFLICT, "지금은 다른 사람에게 부탁할 수 없는 요청입니다."),
     REQUEST_ASSIGNMENT_CLOSED(HttpStatus.CONFLICT, "다른 분께 요청이 넘어갔어요."),
     REQUEST_ALREADY_ACCEPTED(HttpStatus.CONFLICT, "이미 수락한 요청입니다."),
+    REQUEST_RESPONSE_NOT_CHANGEABLE(HttpStatus.CONFLICT, "이 응답으로는 바꿀 수 없습니다."),
     REQUEST_ALREADY_STARTED(HttpStatus.CONFLICT, "이미 시작된 요청입니다."),
     REQUEST_ALREADY_ENDED(HttpStatus.CONFLICT, "이미 끝난 요청입니다."),
     REQUEST_NOT_WITHDRAWABLE(HttpStatus.CONFLICT, "진행 중인 요청은 수락을 철회할 수 없습니다."),
