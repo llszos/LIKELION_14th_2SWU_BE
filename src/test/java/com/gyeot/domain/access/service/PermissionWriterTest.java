@@ -259,6 +259,41 @@ class PermissionWriterTest {
         assertThat(writer.lockOpenPermissionsById(7L)).isEmpty();
     }
 
+    // === 수정 확정용 권한 잠금 (#46) ===
+
+    @Test
+    void 수정_확정용_잠금은_열린_권한과_넘겨받은_항목의_REVOKED를_합쳐_전체_ID_오름차순으로_잠근다() {
+        // 열린 권한 102, 넘겨받은 항목(10, 11)의 REVOKED 100, 103 → 100, 102, 103 순서로 한 번에 잠금
+        RequestInformationPermission revokedFirst = active(100L, 10L);
+        revokedFirst.revoke(RevokeReason.OWNER_REVOKED, NOW);
+        RequestInformationPermission open = active(102L, 12L);
+        RequestInformationPermission revokedLater = active(103L, 11L);
+        revokedLater.revoke(RevokeReason.SHARING_EXCLUDED, NOW);
+        when(permissionRepository.findIdsByAssignmentIdAndStatusIn(7L, PermissionWriter.OPEN_STATUSES)).thenReturn(List.of(102L));
+        when(permissionRepository.findIdsByAssignmentIdAndStatusAndInformationIdIn(7L, PermissionStatus.REVOKED, List.of(10L, 11L)))
+                .thenReturn(List.of(100L, 103L));
+        when(permissionRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(revokedFirst));
+        when(permissionRepository.findByIdForUpdate(102L)).thenReturn(Optional.of(open));
+        when(permissionRepository.findByIdForUpdate(103L)).thenReturn(Optional.of(revokedLater));
+
+        List<RequestInformationPermission> locked = writer.lockChangePermissionsById(7L, Arrays.asList(10L, null, 11L, 10L));
+
+        assertThat(locked).containsExactly(revokedFirst, open, revokedLater); // 상태로 거르지 않고 잠근 그대로
+        InOrder order = inOrder(permissionRepository);
+        order.verify(permissionRepository).findByIdForUpdate(100L);
+        order.verify(permissionRepository).findByIdForUpdate(102L);
+        order.verify(permissionRepository).findByIdForUpdate(103L);
+    }
+
+    @Test
+    void 수정_확정용_잠금에_항목이_없으면_REVOKED는_조회하지_않는다() {
+        when(permissionRepository.findIdsByAssignmentIdAndStatusIn(7L, PermissionWriter.OPEN_STATUSES)).thenReturn(List.of());
+
+        assertThat(writer.lockChangePermissionsById(7L, null)).isEmpty();
+        verify(permissionRepository, never()).findIdsByAssignmentIdAndStatusAndInformationIdIn(any(), any(), any());
+        verify(permissionRepository, never()).findByIdForUpdate(any());
+    }
+
     // === 활성화 (수락) ===
 
     @Test

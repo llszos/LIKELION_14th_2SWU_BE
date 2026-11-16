@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 /**
@@ -102,6 +103,41 @@ public class PermissionWriter {
      */
     public List<RequestInformationPermission> lockOpenPermissionsById(Long assignmentId) {
         return lockPermissionsById(assignmentId, OPEN_STATUSES); // 끝나지 않은 권한(PENDING, ACTIVE)만
+    }
+
+    /**
+     * 수정 확정에 필요한 이 지정의 권한을 한 번에 잠가 돌려줍니다. (lockOpenPermissionsById의 수정 확정판, #46)
+     *
+     * - 끝나지 않은 권한(PENDING, ACTIVE) 전체와, 넘겨받은 항목의 회수된 권한(REVOKED)의 ID를 함께 모아
+     *   전체 ID 오름차순으로 하나씩 잠급니다. 열린 권한을 잠근 뒤 REVOKED를 따로 잠그면 같은 지정 안의 잠금 순서가 둘로 나뉘기 때문입니다.
+     * - REVOKED는 넘겨받은 항목의 것만 잠급니다. 호출 측이 그 항목을 lockItemsOfAssignment로 먼저 잠가 항목 → 권한 순서(#38)가 지켜집니다.
+     *   잠그지 않은 항목의 REVOKED 행까지 잠그면 그 항목을 삭제하는 트랜잭션과 서로 기다릴 수 있습니다.
+     * - REVOKED는 항목별 최신 권한이 직접 철회(OWNER_REVOKED)인지 판단하는 데만 씁니다. (PermissionGrantService.grantOnChangeConfirmed)
+     * - 조회 방식(ID만 먼저 읽고 기본 키로 하나씩 잠금)과 호출 전제(C 요청 행 잠금 뒤 스냅샷)는 lockOpenPermissionsById와 같습니다.
+     * - 상태로 거르지 않고 잠근 그대로 돌려줍니다. 호출 측이 상태로 나눠 씁니다.
+     *
+     * @param assignmentId   대상 지정 ID
+     * @param informationIds REVOKED 권한까지 볼 항목 ID (null이거나 비어 있으면 열린 권한만 잠금, 목록 안의 null은 무시)
+     * @return 잠근 권한 (권한 ID 오름차순)
+     */
+    public List<RequestInformationPermission> lockChangePermissionsById(Long assignmentId, Collection<Long> informationIds) {
+        Objects.requireNonNull(assignmentId, "assignmentId는 필수입니다.");
+
+        // 1. 잠그지 않고 권한 ID만 읽어 모음 (TreeSet: 중복 없이 오름차순)
+        Set<Long> permissionIds = new TreeSet<>(permissionRepository.findIdsByAssignmentIdAndStatusIn(assignmentId, OPEN_STATUSES));
+        List<Long> itemIds = informationIds == null ? List.of()
+                : informationIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (!itemIds.isEmpty()) {
+            permissionIds.addAll(permissionRepository.findIdsByAssignmentIdAndStatusAndInformationIdIn(
+                    assignmentId, PermissionStatus.REVOKED, itemIds));
+        }
+
+        // 2. 모은 ID 전체를 오름차순으로 하나씩 기본 키 잠금 (그 사이 지워진 행은 빠짐)
+        List<RequestInformationPermission> locked = new ArrayList<>();
+        for (Long permissionId : permissionIds) {
+            permissionRepository.findByIdForUpdate(permissionId).ifPresent(locked::add);
+        }
+        return locked;
     }
 
     /**

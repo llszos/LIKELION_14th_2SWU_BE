@@ -182,6 +182,23 @@ public interface RequestInformationPermissionRepository extends JpaRepository<Re
                                                 @Param("statuses") Collection<PermissionStatus> statuses);
 
     /**
+     * 대상 지정 하나에서 지정한 항목들의 한 상태 권한 ID를 오름차순으로 읽습니다. (#46 수정 확정의 직접 철회 판단)
+     * - 엔티티가 아니라 ID만 읽고, 호출 전제(C 요청 행 잠금 뒤 스냅샷)는 findIdsByAssignmentIdAndStatusIn과 같습니다.
+     * - 호출 측이 이 항목들을 먼저 잠근 뒤 부릅니다. (항목 → 권한 잠금 순서, PermissionWriter.lockChangePermissionsById)
+     */
+    @Query("""
+            select p.id
+            from RequestInformationPermission p
+            where p.assignmentId = :assignmentId
+              and p.status = :status
+              and p.informationId in :informationIds
+            order by p.id
+            """)
+    List<Long> findIdsByAssignmentIdAndStatusAndInformationIdIn(@Param("assignmentId") Long assignmentId,
+                                                                @Param("status") PermissionStatus status,
+                                                                @Param("informationIds") Collection<Long> informationIds);
+
+    /**
      * 권한 하나를 기본 키로 잠금 조회합니다. (#38 리뷰 반영)
      *
      * - 존재하는 권한을 기본 키로 조회하면 해당 행만 잠가 범위 조회의 갭 락을 줄입니다.

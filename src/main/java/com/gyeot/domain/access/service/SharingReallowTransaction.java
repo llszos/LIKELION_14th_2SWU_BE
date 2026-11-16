@@ -50,6 +50,8 @@ import java.util.Optional;
  *
  * - 섞인 카드: 철회 뒤 요청 수정으로 새 항목이 추가돼 ACTIVE가 생기면 카드는 SHARING이라 다시 허용은 409입니다.
  *   이때 전에 철회한 항목을 다시 열려면 카드 전체를 철회한 뒤 다시 허용해야 하며, 그러면 전에 철회한 항목도 함께 열립니다.
+ *   요청 수정(재확인 수락)으로 철회한 항목을 다시 골라도 열리지 않습니다. 직접 철회한 항목은 정보 주인의 다시 허용으로만 열립니다.
+ *   (PermissionGrantService.grantOnChangeConfirmed, #46)
  * - 다시 허용은 담당자 알림 이벤트를 발행하지 않습니다. (명세에 알림 없음, GRANTED 이력만 남김)
  * - 조회용 SharingCardReader의 카드 판단을 쓰지 않는 이유와 잠금 전 권한 엔티티를 읽지 않는 전제는 SharingRevokeTransaction과 같습니다.
  */
