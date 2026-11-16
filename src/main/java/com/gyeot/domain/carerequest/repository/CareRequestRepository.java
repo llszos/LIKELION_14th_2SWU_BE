@@ -1,18 +1,18 @@
 package com.gyeot.domain.carerequest.repository;
 
 import com.gyeot.domain.carerequest.entity.CareRequest;
-import com.gyeot.domain.carerequest.enums.CareRequestStatus;
-import jakarta.persistence.LockModeType;
 import com.gyeot.domain.carerequest.enums.AssignmentCloseReason;
+import com.gyeot.domain.carerequest.enums.CareRequestStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.Lock;
 
-import java.util.Collection;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -44,7 +44,7 @@ public interface CareRequestRepository extends JpaRepository<CareRequest, Long> 
     @Query("select r.id from CareRequest r where r.requesterId = :requesterId and r.status in :statuses order by r.id")
     List<Long> findIdsByRequesterIdAndStatusIn(@Param("requesterId") Long requesterId,
                                                @Param("statuses") Collection<CareRequestStatus> statuses);
-}
+
     // === #67 요약 조회 (B 화면) ===
 
     /** 여러 상황의 요청 중 특정 상태인 것 (상황 카드 통계, 인덱스 situation_id, status) */

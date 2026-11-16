@@ -125,6 +125,8 @@ public class CareRequestLifecycle {
 
         // D: 그 지정의 권한 회수 / B(알림): 없음 (요청자에게는 담당자 없음 모달, F-14)
         eventPublisher.publishEvent(CareRequestAssignmentClosedEvent.of(assignment, now));
+    }
+
     /**
      * 만료: REQUESTED → EXPIRED (시작 시각까지 담당자가 없음, F-08)
      * 시간이 되어 서버가 처리하는 일이라 수행자는 항상 없음(NULL)입니다. (스케줄러 #75)
