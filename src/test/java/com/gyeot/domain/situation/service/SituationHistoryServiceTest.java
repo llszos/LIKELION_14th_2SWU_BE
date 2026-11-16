@@ -108,7 +108,7 @@ class SituationHistoryServiceTest {
     }
 
     @Test
-    void C_요청_기록은_API_초안_필드로_매핑한다() {
+    void C_요청_기록은_startsAt의_의미를_유지해_매핑한다() {
         when(repository.findAccessibleHistory(1L, 10L)).thenReturn(Optional.of(ended()));
         when(provider.getIfAvailable()).thenReturn(reader);
         var scheduledAt = LocalDateTime.of(2026, 10, 10, 14, 0);
@@ -118,7 +118,7 @@ class SituationHistoryServiceTest {
                         com.gyeot.domain.carerequest.query.RequestDisplayStatus.COMPLETED)));
         var record = service.detail(1L, 10L).requests().getFirst();
         assertThat(record.requestId()).isEqualTo(9L);
-        assertThat(record.scheduledAt()).isEqualTo(scheduledAt);
+        assertThat(record.startsAt()).isEqualTo(scheduledAt);
         assertThat(record.assigneeId()).isEqualTo(20L);
         assertThat(record.helpType()).isEqualTo(com.gyeot.domain.carerequest.enums.HelpType.HOSPITAL);
         assertThat(record.status()).isEqualTo(com.gyeot.domain.carerequest.query.RequestDisplayStatus.COMPLETED);
@@ -165,8 +165,8 @@ class SituationHistoryServiceTest {
                 com.gyeot.domain.carerequest.query.RequestDisplayStatus.COMPLETED,
                 com.gyeot.domain.carerequest.query.RequestDisplayStatus.CANCELED,
                 com.gyeot.domain.carerequest.query.RequestDisplayStatus.EXPIRED);
-        assertThat(result.requests().getFirst().scheduledAt()).isEqualTo(start);
-        assertThat(result.requests().getLast().scheduledAt()).isNull();
+        assertThat(result.requests().getFirst().startsAt()).isEqualTo(start);
+        assertThat(result.requests().getLast().startsAt()).isNull();
         assertThat(result.requests().getLast().assigneeId()).isNull();
         verify(reader).getPastRequestRecords(1L, 20L);
         verifyNoMoreInteractions(reader);

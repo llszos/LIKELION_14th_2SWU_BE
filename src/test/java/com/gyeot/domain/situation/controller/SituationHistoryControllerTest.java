@@ -65,9 +65,13 @@ class SituationHistoryControllerTest {
     }
 
     @Test
-    void 미완료_상세_HTTP_성공_경로는_노출하지_않는다() throws Exception {
-        mvc.perform(get("/api/situations/1/history")).andExpect(status().isNotFound());
-        verifyNoInteractions(service);
+    void 권한이_없거나_존재하지_않는_상황은_동일한_404이다() throws Exception {
+        when(service.detail(1L, 10L)).thenThrow(new BusinessException(
+                com.gyeot.domain.situation.exception.SituationHistoryErrorCode.SITUATION_NOT_FOUND));
+        mvc.perform(get("/api/situations/1/history")).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("SITUATION_NOT_FOUND"))
+                .andExpect(jsonPath("$.data").isEmpty());
+        verify(service).detail(1L, 10L);
     }
     @Test
     void 목록_HTTP_기간은_명세의_startAt_endAt_시각_필드로_반환한다() throws Exception {
@@ -84,5 +88,56 @@ class SituationHistoryControllerTest {
                 .andExpect(jsonPath("$.data.items[0].endedAt").value("2027-01-01T00:05:00"))
                 .andExpect(jsonPath("$.data.items[0].startDate").doesNotExist())
                 .andExpect(jsonPath("$.data.items[0].endDate").doesNotExist());
+    }
+    @Test
+    void 상세는_기본_상황과_C_기록만_시각_손실없이_반환한다() throws Exception {
+        var start = java.time.LocalDateTime.of(2026, 12, 31, 23, 59, 59, 123456000);
+        var end = java.time.LocalDateTime.of(2027, 1, 1, 0, 0);
+        var actual = end.plusMinutes(5);
+        var info = new com.gyeot.domain.situation.dto.response.SituationHistoryDetailResponse.Info(
+                1L, "연말 돌봄", com.gyeot.domain.situation.entity.SituationStatus.ENDED, actual, start, end);
+        var record = new com.gyeot.domain.situation.dto.response.SituationHistoryDetailResponse.RequestRecord(
+                9L, com.gyeot.domain.carerequest.enums.HelpType.HOSPITAL,
+                com.gyeot.domain.carerequest.query.RequestDisplayStatus.COMPLETED, start, 20L);
+        when(service.detail(1L, 10L)).thenReturn(
+                new com.gyeot.domain.situation.dto.response.SituationHistoryDetailResponse(info, List.of(record)));
+        mvc.perform(get("/api/situations/1/history").param("userId", "999"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.situation.*", org.hamcrest.Matchers.hasSize(6)))
+                .andExpect(jsonPath("$.data.situation.situationId").value(1))
+                .andExpect(jsonPath("$.data.situation.name").value("연말 돌봄"))
+                .andExpect(jsonPath("$.data.situation.status").value("ENDED"))
+                .andExpect(jsonPath("$.data.situation.startAt").value("2026-12-31T23:59:59.123456"))
+                .andExpect(jsonPath("$.data.situation.endAt").value("2027-01-01T00:00:00"))
+                .andExpect(jsonPath("$.data.situation.endedAt").value("2027-01-01T00:05:00"))
+                .andExpect(jsonPath("$.data.requests[0].*", org.hamcrest.Matchers.hasSize(5)))
+                .andExpect(jsonPath("$.data.requests[0].requestId").value(9))
+                .andExpect(jsonPath("$.data.requests[0].helpType").value("HOSPITAL"))
+                .andExpect(jsonPath("$.data.requests[0].status").value("COMPLETED"))
+                .andExpect(jsonPath("$.data.requests[0].startsAt").value("2026-12-31T23:59:59.123456"))
+                .andExpect(jsonPath("$.data.requests[0].assigneeId").value(20))
+                .andExpect(jsonPath("$.data.requests[0].scheduledAt").doesNotExist())
+                .andExpect(jsonPath("$.data.requests[0].requesterId").doesNotExist())
+                .andExpect(jsonPath("$.data.situation.participantCount").doesNotExist())
+                .andExpect(jsonPath("$.data.situation.isOwner").doesNotExist());
+        verify(service).detail(1L, 10L);
+    }
+
+    @Test
+    void 상세의_C_부재나_실패는_빈_성공이_아닌_공통_500이다() throws Exception {
+        when(service.detail(1L, 10L)).thenThrow(new IllegalStateException("internal C failure"));
+        mvc.perform(get("/api/situations/1/history"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("INTERNAL_SERVER_ERROR"))
+                .andExpect(jsonPath("$.data").isEmpty())
+                .andExpect(jsonPath("$.message").value(CommonErrorCode.INTERNAL_SERVER_ERROR.getMessage()));
+    }
+
+    @Test
+    void 상세_ID_형식_오류는_400이며_Service를_호출하지_않는다() throws Exception {
+        mvc.perform(get("/api/situations/not-a-number/history"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        verifyNoInteractions(service);
     }
 }

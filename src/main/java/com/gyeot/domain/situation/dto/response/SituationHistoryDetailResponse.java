@@ -9,7 +9,7 @@ import com.gyeot.domain.situation.entity.SituationStatus;
 import java.time.LocalDateTime;
 import java.util.List;
 
-/** 검토용 내부 DTO. 응답 필드·권한 합의 전에는 상세 HTTP API를 공개하지 않습니다. */
+/** 지난 상황 기본 정보와 C가 조회자별로 필터링한 최소 요청 기록입니다. */
 public record SituationHistoryDetailResponse(Info situation, List<RequestRecord> requests) {
     public static SituationHistoryDetailResponse from(Situation situation, List<PastRequestRecord> requests) {
         return new SituationHistoryDetailResponse(new Info(situation.getId(), situation.getTitle(),
@@ -21,7 +21,7 @@ public record SituationHistoryDetailResponse(Info situation, List<RequestRecord>
     public record Info(Long situationId, String name, SituationStatus status, LocalDateTime endedAt,
                        LocalDateTime startAt, LocalDateTime endAt) {}
 
-    /** startsAt → scheduledAt은 API 초안에 맞춘 잠정 매핑입니다. */
+    /** C startsAt과 실제 assigneeId의 의미를 유지하며 추가 개인정보는 포함하지 않습니다. */
     public record RequestRecord(Long requestId, HelpType helpType, RequestDisplayStatus status,
-                                LocalDateTime scheduledAt, Long assigneeId) {}
+                                LocalDateTime startsAt, Long assigneeId) {}
 }

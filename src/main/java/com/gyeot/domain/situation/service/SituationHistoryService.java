@@ -33,7 +33,7 @@ public class SituationHistoryService {
         return SituationHistoryListResponse.from(repository.findHistory(userId, pageable));
     }
 
-    /** 내부 연동 준비용. C 구현·정책 확인 전 상세 Controller는 추가하지 않습니다. */
+    /** 기존 ENDED·접근 조건을 검증한 뒤 실제 조회자 ID로 C의 기록을 조회합니다. */
     public SituationHistoryDetailResponse detail(Long situationId, Long userId) {
         var situation = repository.findAccessibleHistory(situationId, userId)
                 .orElseThrow(() -> new BusinessException(SITUATION_NOT_FOUND));
