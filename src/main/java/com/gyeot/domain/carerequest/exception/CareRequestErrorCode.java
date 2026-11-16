@@ -33,6 +33,7 @@ public enum CareRequestErrorCode implements ErrorCode {
     REQUEST_NOT_REASSIGNABLE(HttpStatus.CONFLICT, "지금은 다른 사람에게 부탁할 수 없는 요청입니다."),
     REQUEST_ASSIGNMENT_CLOSED(HttpStatus.CONFLICT, "다른 분께 요청이 넘어갔어요."),
     REQUEST_ALREADY_ACCEPTED(HttpStatus.CONFLICT, "이미 수락한 요청입니다."),
+    REQUEST_RESPONSE_NOT_CHANGEABLE(HttpStatus.CONFLICT, "이 응답으로는 바꿀 수 없습니다."),
     REQUEST_ALREADY_STARTED(HttpStatus.CONFLICT, "이미 시작된 요청입니다."),
     REQUEST_ALREADY_ENDED(HttpStatus.CONFLICT, "이미 끝난 요청입니다."),
     REQUEST_NOT_WITHDRAWABLE(HttpStatus.CONFLICT, "진행 중인 요청은 수락을 철회할 수 없습니다."),
