@@ -1,9 +1,10 @@
 spring:
-  flyway:
-    enabled: false  # 테스트 스키마는 아직 Hibernate create-drop으로 만듦. Flyway 전환은 다음 커밋에서 (#47)
+  # 테스트 스키마도 운영과 같이 Flyway 마이그레이션(V1, V2...)으로 만듭니다. (#47)
+  # 지금 통합 테스트는 Testcontainers로 빈 MySQL을 띄우므로, 그 DB에 마이그레이션 전체가 적용됩니다. (컨테이너 구성에 따른 동작)
+  # Hibernate는 만들지 않고 엔티티와 테이블이 맞는지만 확인합니다. (생성 컬럼, CHECK, UNIQUE 차이는 잡지 못하므로 제약 동작은 테스트로 확인)
   jpa:
     hibernate:
-      ddl-auto: create-drop
+      ddl-auto: validate
 
 gyeot:
   security:
