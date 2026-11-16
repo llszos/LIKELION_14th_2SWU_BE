@@ -239,7 +239,7 @@ class SharingReallowConcurrencyTest {
     /** 작업 결과를 "성공" 또는 업무 오류 코드 이름으로 바꿉니다. (업무 오류가 아닌 예외는 그대로 던져 원인이 가려지지 않게 함) */
     private static String outcome(Future<?> result) throws Exception {
         try {
-            result.get(10, TimeUnit.SECONDS);
+            result.get(30, TimeUnit.SECONDS); // 나중 쪽은 먼저 쪽 커밋까지 기다리므로 여유 있게 (CI가 느린 경우)
             return SUCCESS;
         } catch (ExecutionException exception) {
             if (exception.getCause() instanceof BusinessException businessException) {
@@ -251,7 +251,8 @@ class SharingReallowConcurrencyTest {
 
     private static void await(CountDownLatch latch) {
         try {
-            if (!latch.await(10, TimeUnit.SECONDS)) {
+            // 잠금 대기 확인(최대 10초)보다 길게 기다림. 같으면 CI가 느릴 때 먼저 쪽이 먼저 시간 초과될 수 있음
+            if (!latch.await(30, TimeUnit.SECONDS)) {
                 throw new IllegalStateException("먼저 쪽을 풀어 주는 신호가 오지 않았습니다.");
             }
         } catch (InterruptedException exception) {
