@@ -27,6 +27,8 @@ public interface SituationParticipantReader {
     /**
      * 생성자·기간·상태 검증에 필요한 상황 정보를 조회합니다. 종료된 상황도 반환합니다.
      * 반환된 Asia/Seoul 날짜시각을 기준으로 요청 기간과 자격은 C가 검증합니다.
+     * #117: 상황 구간은 [startAt, endAt), 요청 기간은 startAt <= 요청.startsAt < 요청.endsAt <= endAt입니다.
+     * endAt 경과만으로 이 Reader가 상황을 종료하거나 참여 상태를 변경하지는 않습니다.
      *
      * @param situationId 상황 ID, null 불가
      * @return 상황이 있으면 요약 정보, 없으면 Optional.empty(). Optional 자체는 null 불가

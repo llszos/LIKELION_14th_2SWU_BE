@@ -119,6 +119,31 @@ class SituationParticipantReaderImplTest {
                 SITUATION_ID, USER_ID, SituationParticipantStatus.ACTIVE)).thenReturn(exists);
     }
 
+    @Test
+    void 상황_요약은_필수_필드의_null을_거부한다() {
+        assertThatThrownBy(() -> new SituationParticipantReader.SituationSummary(null, START, END, "ACTIVE"))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new SituationParticipantReader.SituationSummary(10L, null, END, "ACTIVE"))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new SituationParticipantReader.SituationSummary(10L, START, null, "ACTIVE"))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new SituationParticipantReader.SituationSummary(10L, START, END, null))
+                .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void 연말_자정_경계를_날짜로_축소하거나_종료_시각을_늘리지_않는다() {
+        LocalDateTime start = LocalDateTime.of(2026, 12, 31, 23, 59, 59, 123456000);
+        LocalDateTime end = LocalDateTime.of(2027, 1, 1, 0, 0);
+        Situation situation = Situation.create(10L, "돌봄", "연말 동행", start, end);
+        when(situationRepository.findById(SITUATION_ID)).thenReturn(Optional.of(situation));
+
+        assertThat(reader.findSituation(SITUATION_ID)).contains(
+                new SituationParticipantReader.SituationSummary(10L, start, end, "ACTIVE"));
+        assertThat(situation.getEndedAt()).isNull();
+        verifyNoInteractions(participantRepository);
+    }
+
     private Situation situation() {
         return Situation.create(10L, "돌봄", "병원 동행", START, END);
     }
