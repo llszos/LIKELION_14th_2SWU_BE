@@ -12,7 +12,7 @@ import org.springframework.data.domain.SliceImpl;
 import org.springframework.data.domain.Sort;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -47,8 +47,8 @@ class SituationHistoryServiceTest {
         assertThat(item.situationId()).isEqualTo(1L);
         assertThat(item.name()).isEqualTo("지난 돌봄");
         assertThat(item.situationType()).isEqualTo("돌봄");
-        assertThat(item.startDate()).isEqualTo(situation.getStartDate());
-        assertThat(item.endDate()).isEqualTo(situation.getEndDate());
+        assertThat(item.startAt()).isEqualTo(situation.getStartAt());
+        assertThat(item.endAt()).isEqualTo(situation.getEndAt());
         assertThat(item.endedAt()).isEqualTo(situation.getEndedAt());
         verifyNoInteractions(provider, reader);
     }
@@ -93,6 +93,8 @@ class SituationHistoryServiceTest {
         assertThat(result.situation().situationId()).isEqualTo(1L);
         assertThat(result.situation().name()).isEqualTo("지난 돌봄");
         assertThat(result.situation().endedAt()).isEqualTo(situation.getEndedAt());
+        assertThat(result.situation().startAt()).isEqualTo(situation.getStartAt());
+        assertThat(result.situation().endAt()).isEqualTo(situation.getEndAt());
         var order = inOrder(repository, provider, reader);
         order.verify(repository).findAccessibleHistory(1L, 10L);
         order.verify(provider).getIfAvailable();
@@ -109,7 +111,7 @@ class SituationHistoryServiceTest {
     void C_요청_기록은_API_초안_필드로_매핑한다() {
         when(repository.findAccessibleHistory(1L, 10L)).thenReturn(Optional.of(ended()));
         when(provider.getIfAvailable()).thenReturn(reader);
-        var scheduledAt = LocalDate.of(2026, 10, 10).atTime(14, 0);
+        var scheduledAt = LocalDateTime.of(2026, 10, 10, 14, 0);
         when(reader.getPastRequestRecords(1L, 10L)).thenReturn(List.of(
                 new CareRequestSummaryReader.PastRequestRecord(9L,
                         com.gyeot.domain.carerequest.enums.HelpType.HOSPITAL, scheduledAt, 10L, 20L,
@@ -139,11 +141,42 @@ class SituationHistoryServiceTest {
         assertThatThrownBy(() -> service.detail(1L, 10L)).isInstanceOf(NullPointerException.class);
     }
 
+    @Test
+    void 참여자_조회도_실제_조회자_ID를_C에_전달하고_C의_결과_순서를_유지한다() {
+        when(repository.findAccessibleHistory(1L, 20L)).thenReturn(Optional.of(ended()));
+        when(provider.getIfAvailable()).thenReturn(reader);
+        var start = LocalDateTime.of(2026, 10, 10, 14, 0, 0, 123456000);
+        var records = List.of(
+                new CareRequestSummaryReader.PastRequestRecord(91L,
+                        com.gyeot.domain.carerequest.enums.HelpType.HOSPITAL, start, 10L, 20L,
+                        com.gyeot.domain.carerequest.query.RequestDisplayStatus.COMPLETED),
+                new CareRequestSummaryReader.PastRequestRecord(92L,
+                        com.gyeot.domain.carerequest.enums.HelpType.HOSPITAL, start.plusMinutes(1), 10L, 20L,
+                        com.gyeot.domain.carerequest.query.RequestDisplayStatus.CANCELED),
+                new CareRequestSummaryReader.PastRequestRecord(93L,
+                        com.gyeot.domain.carerequest.enums.HelpType.HOSPITAL, null, 20L, null,
+                        com.gyeot.domain.carerequest.query.RequestDisplayStatus.EXPIRED));
+        when(reader.getPastRequestRecords(1L, 20L)).thenReturn(records);
+
+        var result = service.detail(1L, 20L);
+
+        assertThat(result.requests()).extracting(r -> r.requestId()).containsExactly(91L, 92L, 93L);
+        assertThat(result.requests()).extracting(r -> r.status()).containsExactly(
+                com.gyeot.domain.carerequest.query.RequestDisplayStatus.COMPLETED,
+                com.gyeot.domain.carerequest.query.RequestDisplayStatus.CANCELED,
+                com.gyeot.domain.carerequest.query.RequestDisplayStatus.EXPIRED);
+        assertThat(result.requests().getFirst().scheduledAt()).isEqualTo(start);
+        assertThat(result.requests().getLast().scheduledAt()).isNull();
+        assertThat(result.requests().getLast().assigneeId()).isNull();
+        verify(reader).getPastRequestRecords(1L, 20L);
+        verifyNoMoreInteractions(reader);
+    }
+
     private Situation ended() {
         Situation situation = Situation.create(10L, "돌봄", "지난 돌봄",
-                LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 31));
+                LocalDateTime.of(2026, 10, 1, 9, 15, 30, 123456000), LocalDateTime.of(2026, 10, 31, 18, 45, 30, 654321000));
         ReflectionTestUtils.setField(situation, "id", 1L);
-        situation.end(LocalDate.of(2026, 11, 1).atStartOfDay());
+        situation.end(LocalDateTime.of(2026, 11, 1, 0, 0));
         return situation;
     }
 }

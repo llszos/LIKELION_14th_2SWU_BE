@@ -11,7 +11,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.SliceImpl;
 import org.springframework.data.domain.Sort;
 
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -45,8 +45,8 @@ class SituationHistoryContextTest {
         runner.run(context -> {
             assertThat(context).hasNotFailed().doesNotHaveBean(CareRequestSummaryReader.class);
             Situation situation = Situation.create(10L, "돌봄", "지난 상황",
-                    LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 31));
-            situation.end(LocalDate.of(2026, 11, 1).atStartOfDay());
+                    LocalDateTime.of(2026, 10, 1, 0, 0), LocalDateTime.of(2026, 11, 1, 0, 0));
+            situation.end(LocalDateTime.of(2026, 11, 1, 0, 0));
             when(context.getBean(SituationHistoryQueryRepository.class).findAccessibleHistory(1L, 10L))
                     .thenReturn(Optional.of(situation));
             assertThatThrownBy(() -> context.getBean(SituationHistoryService.class).detail(1L, 10L))

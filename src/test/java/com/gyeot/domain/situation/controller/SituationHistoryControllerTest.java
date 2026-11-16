@@ -69,4 +69,20 @@ class SituationHistoryControllerTest {
         mvc.perform(get("/api/situations/1/history")).andExpect(status().isNotFound());
         verifyNoInteractions(service);
     }
+    @Test
+    void 목록_HTTP_기간은_명세의_startAt_endAt_시각_필드로_반환한다() throws Exception {
+        var start = java.time.LocalDateTime.of(2026, 12, 31, 23, 30);
+        var end = java.time.LocalDateTime.of(2027, 1, 1, 0, 0);
+        var actual = end.plusMinutes(5);
+        var item = new SituationHistoryListResponse.Item(1L, "연말 돌봄", "돌봄", start, end, actual);
+        when(service.list(10L, 0, 20)).thenReturn(
+                new SituationHistoryListResponse(List.of(item), 0, 20, false));
+        mvc.perform(get("/api/situations/history"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].startAt").value("2026-12-31T23:30:00"))
+                .andExpect(jsonPath("$.data.items[0].endAt").value("2027-01-01T00:00:00"))
+                .andExpect(jsonPath("$.data.items[0].endedAt").value("2027-01-01T00:05:00"))
+                .andExpect(jsonPath("$.data.items[0].startDate").doesNotExist())
+                .andExpect(jsonPath("$.data.items[0].endDate").doesNotExist());
+    }
 }

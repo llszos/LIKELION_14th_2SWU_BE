@@ -18,7 +18,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mysql.MySQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.*;
@@ -85,13 +84,45 @@ class SituationHistoryQueryRepositoryTest {
         assertThat(second.hasNext()).isFalse();
     }
 
+    @Test
+    void 상세도_LEFT_REMOVED_이력만_있는_참여자는_허용하지_않는다() {
+        Situation leftOnly = save(10L, ENDED);
+        Situation removedOnly = save(10L, ENDED);
+        join(leftOnly, 20L).leave(ENDED.minusHours(1));
+        join(removedOnly, 20L).remove(ENDED.minusHours(1));
+        em.flush(); em.clear();
+        assertThat(repository.findAccessibleHistory(leftOnly.getId(), 20L)).isEmpty();
+        assertThat(repository.findAccessibleHistory(removedOnly.getId(), 20L)).isEmpty();
+        assertThat(repository.findAccessibleHistory(leftOnly.getId(), 10L)).isPresent();
+    }
+
+    @Test
+    void 상세는_예정_종료일이_아닌_ENDED_상태를_사용하고_시각을_그대로_읽는다() {
+        LocalDateTime start = LocalDateTime.of(2026, 12, 31, 23, 59, 59, 123456000);
+        LocalDateTime end = LocalDateTime.of(2027, 1, 1, 0, 0);
+        LocalDateTime actual = start.plusNanos(1000);
+        Situation ended = Situation.create(10L, "돌봄", "연말 기록", start, end);
+        ended.end(actual);
+        em.persist(ended);
+        Situation activePastPeriod = Situation.create(10L, "돌봄", "미처리 상황", start.minusYears(1), end.minusYears(1));
+        em.persist(activePastPeriod);
+        em.flush(); em.clear();
+
+        Situation found = repository.findAccessibleHistory(ended.getId(), 10L).orElseThrow();
+        assertThat(found.getStartAt()).isEqualTo(start);
+        assertThat(found.getEndAt()).isEqualTo(end);
+        assertThat(found.getEndedAt()).isEqualTo(actual);
+        assertThat(repository.findAccessibleHistory(activePastPeriod.getId(), 10L)).isEmpty();
+        assertThat(em.find(Situation.class, activePastPeriod.getId()).getStatus()).isEqualTo(SituationStatus.ACTIVE);
+    }
+
     private PageRequest page(int page, int size) {
         return PageRequest.of(page, size, Sort.by(Sort.Order.desc("endedAt"), Sort.Order.desc("id")));
     }
 
     private Situation save(Long creatorId, LocalDateTime endedAt) {
         Situation situation = Situation.create(creatorId, "돌봄", "지난 상황",
-                LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 31));
+                LocalDateTime.of(2026, 10, 1, 0, 0), LocalDateTime.of(2026, 11, 1, 0, 0));
         if (endedAt != null) situation.end(endedAt);
         em.persist(situation);
         return situation;
