@@ -17,7 +17,7 @@ gyeot:
       secure: false
       same-site: Lax
     cors:
-      allowed-origins: http://localhost:3000
+      allowed-origins: http://localhost:5173
 
 # 공개된 테스트 전용 안심카드 암호화 키입니다. 로컬·운영에서는 사용하지 않습니다.
 safety-info:
