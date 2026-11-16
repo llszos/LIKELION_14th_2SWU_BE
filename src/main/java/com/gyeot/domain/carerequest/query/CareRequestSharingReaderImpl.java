@@ -49,12 +49,15 @@ public class CareRequestSharingReaderImpl implements CareRequestSharingReader {
         Objects.requireNonNull(requestId, "requestId는 필수입니다.");
 
         // 1. 요청 행 잠금 (SELECT ... FOR UPDATE)
-        // 같은 트랜잭션에서 이미 읽어 둔 엔티티가 있으면 잠그기만 하고 값은 예전 그대로일 수 있어서,
-        // refresh로 잠금과 함께 마지막으로 커밋된 값을 다시 읽습니다. (잠금 읽기는 스냅샷이 아니라 최신 값을 읽음)
-        CareRequest request = entityManager.find(CareRequest.class, requestId);
+        // 처음부터 잠금 조회로 읽습니다. 일반 조회를 먼저 하면 MySQL(REPEATABLE READ)은 그 시점에 트랜잭션 스냅샷을 만들고,
+        // 잠금을 기다리는 사이 다른 트랜잭션이 커밋한 변경이 이후 호출 측(D)의 일반 조회에 보이지 않습니다.
+        // 잠금 조회는 스냅샷을 만들지 않으므로, 이후 첫 일반 조회의 스냅샷은 요청 잠금을 얻은 뒤에 만들어집니다.
+        CareRequest request = entityManager.find(CareRequest.class, requestId, LockModeType.PESSIMISTIC_WRITE);
         if (request == null) {
             return Optional.empty(); // 잠글 행이 없음
         }
+        // 같은 트랜잭션에서 이미 읽어 둔 엔티티라면 find는 잠그기만 하고 값은 예전 그대로일 수 있어,
+        // refresh로 잠금과 함께 마지막으로 커밋된 값을 다시 읽습니다.
         entityManager.refresh(request, LockModeType.PESSIMISTIC_WRITE);
 
         // 2. 현재 담당자 (잠금 읽기로 최신 값)
