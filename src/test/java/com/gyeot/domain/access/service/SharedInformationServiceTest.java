@@ -129,12 +129,24 @@ class SharedInformationServiceTest {
     // === 볼 수 없는 이유 ===
 
     @Test
-    void 요청됨이면_NOT_ACCEPTED이다() {
-        // 수락 전이라 C의 현재 담당자 값이 없음 (isCurrentTarget 연결 전까지는 예전 대상도 NOT_ACCEPTED)
+    void 요청됨이고_지금_대상이면_NOT_ACCEPTED이다() {
+        // 수락 전이라 C의 현재 담당자 값이 없음. 지금 대상인지는 isCurrentTarget으로 따로 확인
         givenRequest(new SharingRequestInfo(REQUEST_ID, REQUESTER_ID, null, CareRequestStatus.REQUESTED,
                 RequestType.GENERAL, STARTS_AT, ENDS_AT, SITUATION_ID, null, null, HelpType.HOSPITAL));
+        when(careRequestSharingReader.isCurrentTarget(REQUEST_ID, ASSIGNEE_ID)).thenReturn(true);
 
         assertUnavailable(UnavailableReason.NOT_ACCEPTED);
+        verifyNoInteractions(permissionRepository); // 지금 담당자가 아니면 권한을 읽지 않음
+    }
+
+    @Test
+    void 요청됨이고_예전_대상이면_ASSIGNMENT_CLOSED이다() {
+        // 대상 변경이나 수락 철회로 내 지정이 마감된 뒤 다시 요청됨 상태 (다른 사람에게 넘어감)
+        givenRequest(new SharingRequestInfo(REQUEST_ID, REQUESTER_ID, null, CareRequestStatus.REQUESTED,
+                RequestType.GENERAL, STARTS_AT, ENDS_AT, SITUATION_ID, null, null, HelpType.HOSPITAL));
+        when(careRequestSharingReader.isCurrentTarget(REQUEST_ID, ASSIGNEE_ID)).thenReturn(false);
+
+        assertUnavailable(UnavailableReason.ASSIGNMENT_CLOSED);
         verifyNoInteractions(permissionRepository); // 지금 담당자가 아니면 권한을 읽지 않음
     }
 

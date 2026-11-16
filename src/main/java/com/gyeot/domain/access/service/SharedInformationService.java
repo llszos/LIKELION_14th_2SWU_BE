@@ -122,9 +122,12 @@ public class SharedInformationService {
         // 볼 수 있는 상태(수락됨, 진행 중)만 아래 확인으로 넘어감
         switch (request.status()) {
             case REQUESTED:
-                // TODO: C의 isCurrentTarget(requestId, userId)가 들어오면, 지금 대상이 아닌 예전 대상(거절, 수락 철회 후
-                //       다른 사람에게 넘어감)은 ASSIGNMENT_CLOSED로 구분합니다. 그 전까지는 모두 NOT_ACCEPTED (유빈 님께 요청)
-                return UnavailableReason.NOT_ACCEPTED;
+                // 수락 전에는 C의 현재 담당자 값이 없어, 지금 대상인지는 C의 isCurrentTarget으로 따로 확인합니다. (#114)
+                // - 지금 대상(응답 대기, 어려움으로 답했지만 아직 다른 사람에게 넘어가기 전): 아직 수락 전이라 NOT_ACCEPTED
+                // - 예전 대상(대상 변경, 수락 철회 후 다시 요청됨): 내 지정이 끝났으므로 ASSIGNMENT_CLOSED
+                return careRequestSharingReader.isCurrentTarget(request.requestId(), userId)
+                        ? UnavailableReason.NOT_ACCEPTED
+                        : UnavailableReason.ASSIGNMENT_CLOSED;
             case COMPLETED:
                 return UnavailableReason.REQUEST_COMPLETED; // 사용자 완료와 스케줄러 자동 완료 모두 (FE는 같은 '완료' 문구)
             case CANCELED:
