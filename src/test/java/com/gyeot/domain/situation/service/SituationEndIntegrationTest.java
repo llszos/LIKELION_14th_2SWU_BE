@@ -31,7 +31,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mysql.MySQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -149,26 +148,27 @@ class SituationEndIntegrationTest {
 
     private Situation saveSituation() {
         Situation situation = Situation.create(10L, "돌봄", "병원 동행",
-                LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 30));
+                LocalDateTime.of(2026, 11, 1, 0, 0), LocalDateTime.of(2026, 12, 1, 0, 0));
         entityManager.persist(situation);
         return situation;
     }
 
     @Test
-    void 만료_후보는_ACTIVE이면서_오늘보다_이전인_상황만_포함한다() {
-        LocalDate today = LocalDate.of(2026, 11, 12);
-        Situation yesterday = Situation.create(10L, "돌봄", "어제", today.minusDays(10), today.minusDays(1));
-        Situation old = Situation.create(10L, "돌봄", "누적 만료", today.minusDays(10), today.minusDays(5));
-        Situation current = Situation.create(10L, "돌봄", "오늘", today.minusDays(10), today);
-        Situation future = Situation.create(10L, "돌봄", "미래", today, today.plusDays(1));
-        Situation ended = Situation.create(10L, "돌봄", "종료됨", today.minusDays(10), today.minusDays(1));
-        ended.end(today.atStartOfDay());
-        for (Situation situation : List.of(yesterday, old, current, future, ended)) {
+    void 만료_후보는_ACTIVE이면서_종료_시각에_도달한_상황만_포함한다() {
+        LocalDateTime now = LocalDateTime.of(2026, 11, 12, 12, 30);
+        Situation yesterday = Situation.create(10L, "돌봄", "어제", now.minusDays(10), now.minusDays(1));
+        Situation old = Situation.create(10L, "돌봄", "누적 만료", now.minusDays(10), now.minusDays(5));
+        Situation justExpired = Situation.create(10L, "돌봄", "직전 만료", now.minusDays(1), now.minusNanos(1000));
+        Situation current = Situation.create(10L, "돌봄", "오늘", now.minusDays(10), now);
+        Situation future = Situation.create(10L, "돌봄", "미래", now.minusDays(1), now.plusNanos(1000));
+        Situation ended = Situation.create(10L, "돌봄", "종료됨", now.minusDays(10), now.minusDays(1));
+        ended.end(now);
+        for (Situation situation : List.of(yesterday, old, justExpired, current, future, ended)) {
             entityManager.persist(situation);
         }
         entityManager.flush();
         entityManager.clear();
-        assertThat(repository.findExpiredIds(today, 0L, org.springframework.data.domain.PageRequest.of(0, 100))).containsExactlyInAnyOrder(yesterday.getId(), old.getId());
+        assertThat(repository.findExpiredIds(now, 0L, org.springframework.data.domain.PageRequest.of(0, 100))).containsExactlyInAnyOrder(yesterday.getId(), old.getId(), justExpired.getId(), current.getId());
     }
 
     @Test
@@ -176,9 +176,9 @@ class SituationEndIntegrationTest {
     void 한_대상_롤백_후에도_다른_대상은_종료하고_다음_실행에서_재시도한다() {
         TransactionTemplate transaction = new TransactionTemplate(transactionManager);
         List<Long> ids = transaction.execute(status -> {
-            LocalDate today = LocalDate.now(java.time.ZoneId.of("Asia/Seoul"));
-            Situation first = Situation.create(10L, "돌봄", "실패 대상", today.minusDays(10), today.minusDays(1));
-            Situation second = Situation.create(10L, "돌봄", "성공 대상", today.minusDays(10), today.minusDays(2));
+            LocalDateTime now = LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul"));
+            Situation first = Situation.create(10L, "돌봄", "실패 대상", now.minusDays(10), now.minusDays(1));
+            Situation second = Situation.create(10L, "돌봄", "성공 대상", now.minusDays(10), now.minusDays(2));
             entityManager.persist(first);
             entityManager.persist(second);
             entityManager.flush();
@@ -216,22 +216,22 @@ class SituationEndIntegrationTest {
 
     @Test
     void 만료_후보는_100개씩_ID_오름차순으로_누락없이_조회한다() {
-        LocalDate today = LocalDate.of(2026, 11, 12);
+        LocalDateTime now = LocalDateTime.of(2026, 11, 12, 12, 30);
         var expected = new java.util.ArrayList<Long>();
         for (int i = 0; i < 105; i++) {
             Situation situation = Situation.create(10L, "돌봄", "만료 후보",
-                    today.minusDays(10), today.minusDays(1));
+                    now.minusDays(10), now.minusDays(1));
             entityManager.persist(situation);
             expected.add(situation.getId());
         }
         entityManager.flush();
         entityManager.clear();
         var page = org.springframework.data.domain.PageRequest.of(0, 100);
-        var first = repository.findExpiredIds(today, 0L, page);
+        var first = repository.findExpiredIds(now, 0L, page);
         assertThat(first).containsExactlyElementsOf(expected.subList(0, 100));
-        var last = repository.findExpiredIds(today, first.getLast(), page);
+        var last = repository.findExpiredIds(now, first.getLast(), page);
         assertThat(last).containsExactlyElementsOf(expected.subList(100, 105));
-        assertThat(repository.findExpiredIds(today, last.getLast(), page)).isEmpty();
+        assertThat(repository.findExpiredIds(now, last.getLast(), page)).isEmpty();
     }
 
     @TestConfiguration

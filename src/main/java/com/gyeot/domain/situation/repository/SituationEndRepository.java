@@ -10,18 +10,18 @@ import org.springframework.data.domain.Pageable;
 
 import java.util.Optional;
 import java.util.List;
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 /** 종료 전용 저장소. 미병합 #89의 JpaRepository와 중복 정의하지 않습니다. */
 public interface SituationEndRepository extends Repository<Situation, Long> {
     @Query("""
             select s.id from Situation s
             where s.status = com.gyeot.domain.situation.entity.SituationStatus.ACTIVE
-              and s.endDate < :today
+              and s.endAt <= :now
               and s.id > :afterId
             order by s.id
             """)
-    List<Long> findExpiredIds(@Param("today") LocalDate today, @Param("afterId") Long afterId, Pageable pageable);
+    List<Long> findExpiredIds(@Param("now") LocalDateTime now, @Param("afterId") Long afterId, Pageable pageable);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from Situation s where s.id = :situationId")

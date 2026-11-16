@@ -21,7 +21,6 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.time.Clock;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.Optional;
@@ -45,7 +44,7 @@ class SituationEndServiceTest {
         // UTC Clock을 받아도 도메인 종료 시각은 한국 시간으로 기록합니다.
         processor = new SituationEndProcessor(Clock.fixed(Instant.parse("2026-11-12T03:00:00Z"), ZoneOffset.UTC), publisher);
         service = new SituationEndService(repository, processor);
-        situation = Situation.create(10L, "돌봄", "병원 동행", LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 30));
+        situation = Situation.create(10L, "돌봄", "병원 동행", LocalDateTime.of(2026, 11, 1, 0, 0), LocalDateTime.of(2026, 12, 1, 0, 0));
         ReflectionTestUtils.setField(situation, "id", 1L);
         when(repository.findByIdForUpdate(1L)).thenReturn(Optional.of(situation));
     }

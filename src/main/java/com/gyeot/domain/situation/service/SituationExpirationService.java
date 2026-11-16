@@ -9,7 +9,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
 
@@ -23,21 +23,22 @@ public class SituationExpirationService {
 
     @Transactional(readOnly = true)
     public List<Long> findCandidates(long afterId) {
-        return repository.findExpiredIds(today(), afterId, PageRequest.of(0, BATCH_SIZE));
+        return repository.findExpiredIds(now(), afterId, PageRequest.of(0, BATCH_SIZE));
     }
 
     /** 후보 조회의 스냅샷을 신뢰하지 않고, 대상별 새 트랜잭션과 잠금으로 재검증합니다. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public boolean expire(Long situationId) {
         var situation = repository.findByIdForUpdate(situationId).orElse(null);
+        // [startAt, endAt): endAt과 같아지는 순간부터 자동 종료 대상입니다.
         if (situation == null || situation.getStatus() != SituationStatus.ACTIVE
-                || !situation.getEndDate().isBefore(today())) {
+                || situation.getEndAt().isAfter(now())) {
             return false;
         }
         return processor.endIfActive(situation);
     }
 
-    private LocalDate today() {
-        return LocalDate.now(clock.withZone(ZoneId.of("Asia/Seoul")));
+    private LocalDateTime now() {
+        return LocalDateTime.now(clock.withZone(ZoneId.of("Asia/Seoul")));
     }
 }
