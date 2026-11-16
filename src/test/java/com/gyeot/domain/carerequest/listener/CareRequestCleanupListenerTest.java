@@ -249,6 +249,7 @@ class CareRequestCleanupListenerTest {
             CareRequest passedOn = request(SITUATION_ID);     // 민재에게서 이미 넘어간 요청
             assignmentRepository.save(RequestAssignment.assign(passedOn, MINJAE, 1, NOW.plusHours(12)))
                     .close(AssignmentCloseReason.TARGET_CHANGED, NOW.minusHours(1));
+            entityManager.flush();  // 마감을 먼저 반영 (요청당 열린 지정 1건 제약)
             assignmentRepository.save(RequestAssignment.assign(passedOn, SEOYEON, 2, NOW.plusHours(12)));
             CareRequest otherSituation = request(OTHER_SITUATION_ID); // 다른 상황의 민재 지정
             assign(otherSituation, MINJAE);
