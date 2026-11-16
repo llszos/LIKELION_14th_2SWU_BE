@@ -55,10 +55,12 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static com.gyeot.domain.carerequest.service.RequestAction.*;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -125,7 +127,7 @@ public class CareRequestDetailServiceTest {
     @BeforeEach
     void setUp() {
         situation("ACTIVE");
-        when(userProfileQuery.findProfilesByUserIds(anyCollection())).thenReturn(List.of(
+        when(userProfileQuery.findProfilesByUserIds(anyCollection())).thenReturn(profiles(
                 new UserProfile(REQUESTER_ID, "김지우", false),
                 new UserProfile(MINJAE, "박민재", false),
                 new UserProfile(SEOYEON, "이서연", false)));
@@ -184,6 +186,7 @@ public class CareRequestDetailServiceTest {
             RequestAssignment first = assignmentRepository.save(RequestAssignment.assign(request, MINJAE, 1, NOW.plusHours(24)));
             first.respond(AssignmentResponseStatus.UNAVAILABLE, NOW.minusHours(2));
             first.close(AssignmentCloseReason.TARGET_CHANGED, NOW.minusHours(1));
+            entityManager.flush();  // 마감을 먼저 반영 (요청당 열린 지정 1건 제약)
             RequestAssignment second = assignmentRepository.save(
                     RequestAssignment.assign(request, SEOYEON, 2, NOW.plusHours(12), 12));
             flushAndClear();
@@ -257,7 +260,7 @@ public class CareRequestDetailServiceTest {
 
         @Test
         void 탈퇴한_대상자는_탈퇴한_사용자로_보여준다() {
-            when(userProfileQuery.findProfilesByUserIds(anyCollection())).thenReturn(List.of(
+            when(userProfileQuery.findProfilesByUserIds(anyCollection())).thenReturn(profiles(
                     new UserProfile(REQUESTER_ID, "김지우", false),
                     new UserProfile(MINJAE, null, true)));
             CareRequest request = request();
@@ -371,6 +374,7 @@ public class CareRequestDetailServiceTest {
             CareRequest request = request();
             assignmentRepository.save(RequestAssignment.assign(request, MINJAE, 1, NOW.plusHours(24)))
                     .close(AssignmentCloseReason.TARGET_CHANGED, NOW.minusMinutes(5));
+            entityManager.flush();  // 마감을 먼저 반영 (요청당 열린 지정 1건 제약)
             assignmentRepository.save(RequestAssignment.assign(request, SEOYEON, 2, NOW.plusHours(24)));
             flushAndClear();
 
@@ -486,6 +490,7 @@ public class CareRequestDetailServiceTest {
             RequestAssignment first = accepted(request, MINJAE);
             first.close(AssignmentCloseReason.ACCEPTANCE_WITHDRAWN, NOW.minusHours(3));
             request.revertToRequested();
+            entityManager.flush();  // 마감을 먼저 반영 (요청당 열린 지정 1건 제약)
             RequestAssignment second = assignmentRepository.save(RequestAssignment.assign(request, SEOYEON, 2, NOW.plusHours(12)));
             second.respond(AssignmentResponseStatus.AVAILABLE, NOW.minusHours(2));
             request.accept();
@@ -603,6 +608,11 @@ public class CareRequestDetailServiceTest {
         request.start(NOW.minusHours(3));
         request.complete(NOW.minusHours(1));
         return request;
+    }
+
+    /** A 조회 결과 형태(사용자 ID → 프로필)로 바꿉니다. */
+    private static Map<Long, UserProfile> profiles(UserProfile... profiles) {
+        return Arrays.stream(profiles).collect(Collectors.toMap(UserProfile::userId, profile -> profile));
     }
 
     private void flushAndClear() {

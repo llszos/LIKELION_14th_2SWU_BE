@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -28,9 +29,9 @@ class RequestUserNamesTest {
 
     @Test
     void 활성_사용자는_이름_탈퇴했거나_A_결과에_없는_사용자는_탈퇴한_사용자다() {
-        when(userProfileQuery.findProfilesByUserIds(any())).thenReturn(List.of(
-                new UserProfile(1L, "박민재", false),
-                new UserProfile(2L, null, true)));
+        when(userProfileQuery.findProfilesByUserIds(any())).thenReturn(Map.of(
+                1L, new UserProfile(1L, "박민재", false),
+                2L, new UserProfile(2L, null, true)));
 
         assertThat(userNames.namesOf(Arrays.asList(1L, 2L, 3L, null)))
                 .containsEntry(1L, "박민재")
