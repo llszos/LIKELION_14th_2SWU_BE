@@ -68,6 +68,13 @@ public class CareRequestSharingReaderImpl implements CareRequestSharingReader {
         return assignmentRepository.existsByCareRequestIdAndTargetUserId(requestId, userId);
     }
 
+    @Override
+    public boolean isCurrentTarget(Long requestId, Long userId) {
+        Objects.requireNonNull(requestId, "requestId는 필수입니다.");
+        Objects.requireNonNull(userId, "userId는 필수입니다.");
+        return assignmentRepository.existsByCareRequestIdAndTargetUserIdAndClosedAtIsNull(requestId, userId);
+    }
+
     /**
      * 현재 담당자가 없으면(currentAssignee == null) 담당자 관련 세 값은 null
      */
