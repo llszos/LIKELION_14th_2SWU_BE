@@ -116,6 +116,8 @@ IntelliJ에서는 `GyeotApplication` 실행 버튼으로 시작할 수 있습니
 
 테스트 DB 연결은 Testcontainers가 제공합니다. 모든 프로필에서 테이블은 Flyway 마이그레이션이 만들고, Hibernate는 엔티티와 테이블이 맞는지만 확인합니다. 자세한 내용은 [DB 스키마와 마이그레이션](#db-스키마와-마이그레이션-flyway)을 참고합니다.
 
+회원가입 개인정보 동의 기록 기능을 배포할 때는 운영 DB에 `user_consents` 테이블과 Entity에 선언된 유니크 제약을 먼저 생성하고, 스키마가 준비된 것을 확인한 뒤 애플리케이션을 배포합니다. 테이블이 없으면 `validate` 단계에서 애플리케이션이 시작되지 않습니다.
+
 서비스 시각 기준은 `Asia/Seoul`입니다. 날짜는 `DATE`, 시각은 `DATETIME(6)`을 기준으로 설계하며, JVM·Hibernate·테스트에도 한국 시간대 설정이 있습니다.
 
 ## DB 스키마와 마이그레이션 (Flyway)
