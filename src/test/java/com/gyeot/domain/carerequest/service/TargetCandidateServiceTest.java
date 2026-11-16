@@ -40,8 +40,11 @@ import org.testcontainers.utility.DockerImageName;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -103,7 +106,7 @@ public class TargetCandidateServiceTest {
                 .thenReturn(List.of(REQUESTER_ID, MINJAE, JIHO, STRANGER, SEOYEON, HANA));
         when(situationReader.isActiveParticipant(eq(SITUATION_ID), anyLong())).thenAnswer(invocation ->
                 List.of(REQUESTER_ID, MINJAE, JIHO, STRANGER, SEOYEON, HANA).contains(invocation.<Long>getArgument(1)));
-        when(userProfileQuery.findProfilesByUserIds(anyCollection())).thenReturn(List.of(
+        when(userProfileQuery.findProfilesByUserIds(anyCollection())).thenReturn(profiles(
                 new UserProfile(MINJAE, "박민재", false), new UserProfile(SEOYEON, "이서연", false),
                 new UserProfile(JIHO, "최지호", false), new UserProfile(HANA, null, true))); // 하나는 탈퇴
 
@@ -228,6 +231,7 @@ public class TargetCandidateServiceTest {
             RequestAssignment first = assignmentRepository.save(RequestAssignment.assign(request, MINJAE, 1, NOW.plusHours(12)));
             first.respond(AssignmentResponseStatus.UNAVAILABLE, NOW.minusHours(2));
             first.close(AssignmentCloseReason.TARGET_CHANGED, NOW.minusHours(1));
+            entityManager.flush();  // 마감을 먼저 반영 (요청당 열린 지정 1건 제약)
             assignmentRepository.save(RequestAssignment.assign(request, HANA, 2, NOW.plusHours(12))); // 현재 대상
             flushAndClear();
 
@@ -290,6 +294,11 @@ public class TargetCandidateServiceTest {
     private CareRequest request(Long situationId) {
         return careRequestRepository.save(CareRequest.createGeneral(situationId, REQUESTER_ID, HelpType.HOSPITAL,
                 null, "○○병원", NOW.plusDays(2), NOW.plusDays(2).plusHours(3), null));
+    }
+
+    /** A 조회 결과 형태(사용자 ID → 프로필)로 바꿉니다. */
+    private static Map<Long, UserProfile> profiles(UserProfile... profiles) {
+        return Arrays.stream(profiles).collect(Collectors.toMap(UserProfile::userId, profile -> profile));
     }
 
     private void flushAndClear() {
