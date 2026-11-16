@@ -86,6 +86,40 @@ public class Situation extends BaseEntity {
         this.endedAt = endedAt;
     }
 
+    /**
+     * 기존 날짜 계약을 위한 임시 생성 어댑터. 종료 날짜는 포함입니다.
+     * #116 마이그레이션과 같이 서울 현지 시각의 [시작일 00:00, 종료일 다음 날 00:00)으로 변환합니다.
+     * 날짜 기반 호출부 전환 후 제거하며 새 코드는 LocalDateTime 오버로드를 사용합니다.
+     */
+    @Deprecated
+    public static Situation create(Long creatorId, String situationType, String title,
+                                   java.time.LocalDate startDate, java.time.LocalDate endDate) {
+        if (startDate == null || endDate == null || startDate.isAfter(endDate)
+                || endDate.equals(java.time.LocalDate.MAX)) {
+            throw new IllegalArgumentException("상황 시작·종료 날짜와 변환 가능한 포함 종료일이 필요합니다.");
+        }
+        return create(creatorId, situationType, title,
+                startDate.atStartOfDay(), endDate.plusDays(1).atStartOfDay());
+    }
+
+    /**
+     * 기존 Reader의 한국 날짜 요약 전용입니다. 시각 기반 자격 검증에는 getStartAt()을 사용합니다.
+     * 저장된 LocalDateTime은 이미 서울 현지 시각이므로 별도의 UTC 변환을 하지 않습니다.
+     */
+    @Deprecated
+    public java.time.LocalDate getStartDate() {
+        return startAt.toLocalDate();
+    }
+
+    /**
+     * 배타적 endAt 직전의 마지막 포함 날짜입니다. 자정 종료 시 다음 날을 포함하지 않습니다.
+     * 날짜 요약은 시각 정밀도를 잃으므로 실제 종료 판정에는 getEndAt()을 사용합니다.
+     */
+    @Deprecated
+    public java.time.LocalDate getEndDate() {
+        return endAt.minusNanos(1).toLocalDate();
+    }
+
     private static void validateText(String value, int maxLength, String name) {
         if (value == null || value.isBlank() || value.codePointCount(0, value.length()) > maxLength) {
             throw new IllegalArgumentException(name + "은 비어 있지 않은 " + maxLength + "자 이내 값이어야 합니다.");
