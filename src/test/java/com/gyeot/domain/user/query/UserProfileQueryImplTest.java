@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -33,12 +34,12 @@ class UserProfileQueryImplTest {
         UserProfileProjection withdrawn = profile(2L, null, AccountStatus.WITHDRAWN);
         when(userRepository.findProfilesByIds(List.of(1L, 2L, 99L))).thenReturn(List.of(active, withdrawn));
 
-        List<UserProfileQuery.UserProfile> result = query.findProfilesByUserIds(
+        Map<Long, UserProfileQuery.UserProfile> result = query.findProfilesByUserIds(
                 Arrays.asList(1L, 2L, 99L, 1L, null));
 
-        assertThat(result).containsExactly(
-                new UserProfileQuery.UserProfile(1L, "김민주", false),
-                new UserProfileQuery.UserProfile(2L, null, true));
+        assertThat(result).containsOnly(
+                Map.entry(1L, new UserProfileQuery.UserProfile(1L, "김민주", false)),
+                Map.entry(2L, new UserProfileQuery.UserProfile(2L, null, true)));
         verify(userRepository).findProfilesByIds(List.of(1L, 2L, 99L));
     }
 
@@ -48,11 +49,11 @@ class UserProfileQueryImplTest {
         when(userRepository.findProfilesByIds(List.of(2L))).thenReturn(List.of(withdrawn));
 
         assertThat(query.findProfilesByUserIds(List.of(2L)))
-                .containsExactly(new UserProfileQuery.UserProfile(2L, null, true));
+                .containsOnly(Map.entry(2L, new UserProfileQuery.UserProfile(2L, null, true)));
     }
 
     @Test
-    void 입력이_null이거나_비어_있으면_빈_목록을_반환하고_조회하지_않는다() {
+    void 입력이_null이거나_비어_있으면_빈_맵을_반환하고_조회하지_않는다() {
         assertThat(query.findProfilesByUserIds(null)).isEmpty();
         assertThat(query.findProfilesByUserIds(List.of())).isEmpty();
         assertThat(query.findProfilesByUserIds(Arrays.asList(null, null))).isEmpty();

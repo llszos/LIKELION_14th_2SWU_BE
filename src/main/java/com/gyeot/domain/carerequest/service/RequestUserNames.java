@@ -34,7 +34,7 @@ public class RequestUserNames {
         if (userIds == null || userIds.isEmpty()) {
             return names;
         }
-        for (UserProfile profile : userProfileQuery.findProfilesByUserIds(userIds)) {
+        for (UserProfile profile : userProfileQuery.findProfilesByUserIds(userIds).values())  {
             names.put(profile.userId(), profile.withdrawn() ? WITHDRAWN_USER_NAME : profile.name());
         }
         userIds.stream()

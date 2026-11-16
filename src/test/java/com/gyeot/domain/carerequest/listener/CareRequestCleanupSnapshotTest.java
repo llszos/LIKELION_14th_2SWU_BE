@@ -114,6 +114,7 @@ class CareRequestCleanupSnapshotTest {
                 RequestAssignment minjae = assignmentRepository.findOpenByRequestIdForUpdate(requestId).orElseThrow();
                 minjae.close(AssignmentCloseReason.ACCEPTANCE_WITHDRAWN, NOW.minusMinutes(10));
                 request.revertToRequested();
+                assignmentRepository.flush();  // 마감을 먼저 반영 (요청당 열린 지정 1건 제약)
                 assignmentRepository.save(RequestAssignment.assign(request, SEOYEON, 2, NOW.plusHours(12)));
             });
             // 별도 트랜잭션이라 이 시점에 커밋까지 끝남 (B 트랜잭션의 일반 SELECT로는 아직 민재가 담당자로 보임)

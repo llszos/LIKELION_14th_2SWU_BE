@@ -15,6 +15,7 @@ import com.gyeot.domain.safetycard.query.SafetyInformationSharingReader;
 import com.gyeot.global.exception.BusinessException;
 import com.gyeot.global.exception.CommonErrorCode;
 import lombok.RequiredArgsConstructor;
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -40,7 +41,7 @@ import static com.gyeot.domain.carerequest.exception.CareRequestErrorCode.*;
  *    - 이 요청에서 이미 부탁했던 사람 → 409 REQUEST_TARGET_ALREADY_ASSIGNED
  *    - 본인, 상황 참여자 아님, 나의 사람·서로의 보호자 아님 → 400 REQUEST_TARGET_INVALID
  * 5. 공개 항목 확인: D가 검증 (400 SAFETY_INFO_INVALID_SELECTION, 예외 그대로)
- * 6. 이전 지정이 열려 있으면 마감(TARGET_CHANGED) → 새 지정 저장(순서 +1) → 이력 TARGET_CHANGED → 이벤트
+ * 6. 이전 지정이 열려 있으면 마감(TARGET_CHANGED)하고 먼저 DB에 반영 → 새 지정 저장(순서 +1) → 이력 TARGET_CHANGED → 이벤트
  *    (D: 이전 지정 권한 회수 + 새 지정 공유 예정 권한 생성 / B: 새 대상에게 요청 알림)
  *
  * 새 요청과 달리 시작까지 1시간 미만이어도 보낼 수 있습니다. 응답 기한은 시작 시각으로 제한됩니다. (F-05)
@@ -49,6 +50,7 @@ import static com.gyeot.domain.carerequest.exception.CareRequestErrorCode.*;
 @RequiredArgsConstructor
 @Transactional
 public class CareRequestReassignService {
+    static final String SAME_TARGET_CONSTRAINT = "uk_request_assignments_target"; // RequestAssignment 엔티티의 UNIQUE 이름
 
     private final CareRequestFinder careRequestFinder;
     private final RequestAssignmentRepository assignmentRepository;
@@ -89,6 +91,9 @@ public class CareRequestReassignService {
         // 6. 이전 지정 마감 → 새 지정 저장
         if (previous.isOpen()) {
             previous.close(AssignmentCloseReason.TARGET_CHANGED, now); // 어려움·기한 지남으로 아직 열려 있던 지정
+            // 마감 UPDATE를 먼저 DB에 반영합니다. 새 지정은 IDENTITY라 저장 즉시 INSERT되는데,
+            // 마감이 아직 반영되지 않았으면 "요청당 열린 지정 1건" UNIQUE(uk_request_assignments_open_request)에 걸림
+            assignmentRepository.flush();
         }
         RequestAssignment next = saveNewAssignment(request, previous, body, deadlineHours, now);
 
@@ -120,6 +125,7 @@ public class CareRequestReassignService {
     /**
      * 지정 순서는 마지막 지정 + 1입니다. 요청 행을 잠근 상태라 동시에 다시 부탁해도 순서가 겹치지 않습니다.
      * 같은 요청·같은 대상 UNIQUE 위반은 잠금 때문에 보통 생기지 않지만, 생기면 이미 부탁한 사람으로 안내합니다.
+     * 다른 제약 위반(예: 열린 지정 1건)은 업무 오류가 아니라 버그라서 바꾸지 않고 그대로 던집니다.
      */
     private RequestAssignment saveNewAssignment(CareRequest request, RequestAssignment previous, ReassignRequest body,
                                                 int deadlineHours, LocalDateTime now) {
@@ -130,7 +136,25 @@ public class CareRequestReassignService {
         try {
             return assignmentRepository.saveAndFlush(next);
         } catch (DataIntegrityViolationException e) {
-            throw new BusinessException(REQUEST_TARGET_ALREADY_ASSIGNED);
+            if (isSameTargetViolation(e)) {
+                throw new BusinessException(REQUEST_TARGET_ALREADY_ASSIGNED);
+            }
+            throw e;
         }
+    }
+
+    /**
+     * 같은 요청·같은 대상 UNIQUE(uk_request_assignments_target) 위반인지 확인합니다.
+     * Hibernate가 DB 오류에서 꺼낸 제약 이름으로 판단합니다. (MySQL은 "테이블명.제약명"으로 줄 수 있어 둘 다 허용)
+     */
+    static boolean isSameTargetViolation(DataIntegrityViolationException e) {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof ConstraintViolationException violation) {
+                String name = violation.getConstraintName();
+                return name != null && (name.equalsIgnoreCase(SAME_TARGET_CONSTRAINT)
+                        || name.toLowerCase().endsWith("." + SAME_TARGET_CONSTRAINT));
+            }
+        }
+        return false;
     }
 }

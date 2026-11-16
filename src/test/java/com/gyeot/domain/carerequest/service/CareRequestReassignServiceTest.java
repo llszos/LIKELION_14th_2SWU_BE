@@ -38,6 +38,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.event.ApplicationEvents;
@@ -47,6 +48,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mysql.MySQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
+import javax.sql.DataSource;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -64,6 +66,7 @@ import static org.mockito.Mockito.when;
 /**
  * 다시 부탁하기(#71)의 규칙을 실제 MySQL로 확인합니다.
  * A 관계는 실제 관계 행으로, B(참여자)와 D(공개 항목 검증)는 목으로 대신합니다.
+ * 운영과 같이 "요청당 열린 지정 1건" 제약(OpenAssignmentConstraint)을 걸어 두고 확인합니다.
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -111,12 +114,15 @@ public class CareRequestReassignServiceTest {
     @Autowired private RelationshipRepository relationshipRepository;
     @Autowired private EntityManager entityManager;
     @Autowired private ApplicationEvents events;
+    @Autowired private DataSource dataSource;
 
     @MockitoBean private SituationParticipantReader situationReader;
     @MockitoBean private SafetyInformationSharingReader sharingReader;
 
     @BeforeEach
     void setUp() {
+        // @Nested 클래스마다 테스트 컨텍스트가 새로 떠 테이블이 다시 만들어지므로 테스트마다 확인합니다. (없을 때만 생성)
+        OpenAssignmentConstraint.createIfAbsentOutsideTransaction(dataSource);
         when(situationReader.isActiveParticipant(eq(SITUATION_ID), anyLong())).thenReturn(true); // 모두 참여 중
         relationshipRepository.save(Relationship.createMyPerson(REQUESTER_ID, MINJAE, "동생"));
         relationshipRepository.save(Relationship.createMyPerson(REQUESTER_ID, SEOYEON, "친구"));
@@ -443,6 +449,42 @@ public class CareRequestReassignServiceTest {
             assertThat(assignmentRepository.findById(first.getId()).orElseThrow().isOpen()).isTrue();
             assertThat(assignmentRepository.count()).isEqualTo(1);
             assertThat(events.stream(CareRequestTargetChangedEvent.class)).isEmpty();
+        }
+    }
+
+    // === 저장 오류 구분 ===
+
+    @Nested
+    class 저장_오류_구분 {
+
+        @Test
+        void 같은_대상_UNIQUE_위반은_이미_부탁한_사람으로_구분한다() {
+            CareRequest request = request(STARTS_AT);
+            RequestAssignment first = unavailable(request, MINJAE);
+            first.close(AssignmentCloseReason.TARGET_CHANGED, NOW);
+            flushAndClear();
+            CareRequest found = careRequestRepository.findById(request.getId()).orElseThrow();
+
+            assertThatThrownBy(() -> assignmentRepository.saveAndFlush(
+                    RequestAssignment.assign(found, MINJAE, 2, NOW.plusHours(12))))
+                    .isInstanceOfSatisfying(DataIntegrityViolationException.class, e ->
+                            assertThat(CareRequestReassignService.isSameTargetViolation(e)).isTrue());
+        }
+
+        @Test
+        void 열린_지정_1건_위반은_이미_부탁한_사람으로_바꾸지_않는다() {
+            // 마감을 반영하지 않고 새 지정을 넣은 경우 (flush 순서를 지키지 않으면 생기는 오류)
+            CareRequest request = request(STARTS_AT);
+            unavailable(request, MINJAE);
+            flushAndClear();
+            CareRequest found = careRequestRepository.findById(request.getId()).orElseThrow();
+
+            assertThatThrownBy(() -> assignmentRepository.saveAndFlush(
+                    RequestAssignment.assign(found, SEOYEON, 2, NOW.plusHours(12))))
+                    .isInstanceOfSatisfying(DataIntegrityViolationException.class, e -> {
+                        assertThat(e).hasMessageContaining(OpenAssignmentConstraint.INDEX_NAME);
+                        assertThat(CareRequestReassignService.isSameTargetViolation(e)).isFalse();
+                    });
         }
     }
 

@@ -45,6 +45,12 @@ public interface RequestAssignmentRepository extends JpaRepository<RequestAssign
     boolean existsByCareRequestIdAndTargetUserId(Long requestId, Long targetUserId);
 
     /**
+     * 이 사용자가 이 요청의 지금(마감되지 않은) 지정 대상인지 확인합니다. (D 전달받은 정보 조회, CareRequestSharingReader.isCurrentTarget)
+     * 행을 가져오지 않고 있는지만 확인합니다.
+     */
+    boolean existsByCareRequestIdAndTargetUserIdAndClosedAtIsNull(Long requestId, Long targetUserId);
+
+    /**
      * 여러 요청의 현재 담당자 지정을 한 번에 조회합니다. (D 공유 관리 카드)
      * 현재 담당자 = 마감되지 않았고, 수락한 지정
      * 요청당 열린 지정은 최대 1건이라 요청당 결과도 최대 1건입니다.
@@ -94,4 +100,19 @@ public interface RequestAssignmentRepository extends JpaRepository<RequestAssign
     List<Long> findOpenRequestIdsByRequesterAndTarget(@Param("requesterId") Long requesterId,
                                                       @Param("userId") Long userId,
                                                       @Param("requestType") RequestType requestType);
+    // === #67 요약 조회 (B 화면) ===
+
+    /**
+     * 여러 요청의 지정 전체 (마감 여부 무관)
+     * 화면 상태 계산(가장 최근 지정), 기록상 담당자 계산에 씁니다. 요청 수와 상관없이 쿼리 1번입니다.
+     */
+    List<RequestAssignment> findAllByCareRequestIdIn(Collection<Long> requestIds);
+
+    /**
+     * 내가 지금 대상자·담당자인 지정 (마감되지 않은 지정) + 그 요청을 함께 가져옵니다. (홈)
+     * join fetch: 지정마다 요청을 따로 조회하지 않도록(N+1 방지) 한 번에 가져옵니다.
+     */
+    @Query("select a from RequestAssignment a join fetch a.careRequest "
+            + "where a.targetUserId = :userId and a.closedAt is null")
+    List<RequestAssignment> findOpenAssignmentsWithRequest(@Param("userId") Long userId);
 }
