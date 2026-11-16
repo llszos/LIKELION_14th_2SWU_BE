@@ -68,7 +68,8 @@ class AuthControllerTest {
                                 {
                                   "email": "user@example.com",
                                   "password": "password",
-                                  "name": "사용자"
+                                  "name": "사용자",
+                                  "privacyConsent": true
                                 }
                                 """))
                 .andExpect(status().isCreated())
@@ -77,7 +78,7 @@ class AuthControllerTest {
 
         verify(authService).signup(
                 new SignupRequest(
-                        "user@example.com", "password", "사용자"));
+                        "user@example.com", "password", "사용자", true));
     }
 
     @Test
@@ -131,7 +132,24 @@ class AuthControllerTest {
                                 {
                                   "email": "invalid-email",
                                   "password": "",
-                                  "name": ""
+                                  "name": "",
+                                  "privacyConsent": true
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(authService);
+    }
+
+    @Test
+    void signupRequiresPrivacyConsentField() throws Exception {
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "email": "user@example.com",
+                                  "password": "password",
+                                  "name": "사용자"
                                 }
                                 """))
                 .andExpect(status().isBadRequest());

@@ -9,6 +9,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /** 사용자 엔티티를 외부에 노출하지 않고 최소 프로필만 일괄 조회합니다. */
 @Service
@@ -19,9 +22,9 @@ public class UserProfileQueryImpl implements UserProfileQuery {
     private final UserRepository userRepository;
 
     @Override
-    public List<UserProfile> findProfilesByUserIds(Collection<Long> userIds) {
+    public Map<Long, UserProfile> findProfilesByUserIds(Collection<Long> userIds) {
         if (userIds == null || userIds.isEmpty()) {
-            return List.of();
+            return Map.of();
         }
 
         List<Long> distinctUserIds = userIds.stream()
@@ -29,12 +32,12 @@ public class UserProfileQueryImpl implements UserProfileQuery {
                 .distinct()
                 .toList();
         if (distinctUserIds.isEmpty()) {
-            return List.of();
+            return Map.of();
         }
 
         return userRepository.findProfilesByIds(distinctUserIds).stream()
                 .map(this::toUserProfile)
-                .toList();
+                .collect(Collectors.toUnmodifiableMap(UserProfile::userId, Function.identity()));
     }
 
     private UserProfile toUserProfile(UserProfileProjection profile) {

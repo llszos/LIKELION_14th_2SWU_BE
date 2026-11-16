@@ -29,6 +29,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Propagation;
@@ -56,6 +57,7 @@ import static org.mockito.Mockito.when;
 /**
  * 다시 부탁하기(#71)가 다른 작업과 동시에 들어와도 결과가 어긋나지 않는지 확인합니다.
  * 모든 작업이 같은 요청 행을 먼저 잠그므로 차례로 처리됩니다. 서비스마다 진짜 커밋이 필요해 트랜잭션 밖에서 실행합니다.
+ * 운영과 같이 "요청당 열린 지정 1건" 제약(OpenAssignmentConstraint)을 걸어 두고 확인합니다.
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -100,12 +102,14 @@ public class CareRequestReassignConcurrencyTest {
     @Autowired private RequestChangeProposalRepository proposalRepository;
     @Autowired private RequestChangeEventRepository eventRepository;
     @Autowired private RelationshipRepository relationshipRepository;
+    @Autowired private JdbcTemplate jdbcTemplate;
 
     @MockitoBean private SituationParticipantReader situationReader;
     @MockitoBean private SafetyInformationSharingReader sharingReader;
 
     @BeforeEach
     void setUp() {
+        OpenAssignmentConstraint.createIfAbsent(jdbcTemplate); // 테스트 트랜잭션이 없어 여기서 DDL을 실행해도 됨
         when(situationReader.isActiveParticipant(eq(SITUATION_ID), anyLong())).thenReturn(true);
         relationshipRepository.save(Relationship.createMyPerson(REQUESTER_ID, MINJAE, "동생"));
         relationshipRepository.save(Relationship.createMyPerson(REQUESTER_ID, SEOYEON, "친구"));

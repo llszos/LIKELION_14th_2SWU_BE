@@ -29,14 +29,14 @@ class AuthRequestValidationTest {
     @Test
     void acceptsValidSignupRequest() {
         SignupRequest request =
-                new SignupRequest("user@example.com", "password", "사용자");
+                new SignupRequest("user@example.com", "password", "사용자", true);
 
         assertTrue(validator.validate(request).isEmpty());
     }
 
     @Test
     void rejectsBlankSignupFields() {
-        SignupRequest request = new SignupRequest(" ", " ", " ");
+        SignupRequest request = new SignupRequest(" ", " ", " ", true);
 
         assertHasViolation(request, "email");
         assertHasViolation(request, "password");
@@ -45,17 +45,18 @@ class AuthRequestValidationTest {
 
     @Test
     void rejectsNullSignupFields() {
-        SignupRequest request = new SignupRequest(null, null, null);
+        SignupRequest request = new SignupRequest(null, null, null, null);
 
         assertHasViolation(request, "email");
         assertHasViolation(request, "password");
         assertHasViolation(request, "name");
+        assertHasViolation(request, "privacyConsent");
     }
 
     @Test
     void rejectsInvalidEmailFormat() {
         assertHasViolation(
-                new SignupRequest("invalid-email", "password", "사용자"),
+                new SignupRequest("invalid-email", "password", "사용자", true),
                 "email"
         );
 
@@ -69,7 +70,7 @@ class AuthRequestValidationTest {
     void rejectsNameLongerThanFiftyCharacters() {
         SignupRequest request =
                 new SignupRequest(
-                        "user@example.com", "password", "가".repeat(51));
+                        "user@example.com", "password", "가".repeat(51), true);
 
         assertHasViolation(request, "name");
     }
@@ -98,7 +99,7 @@ class AuthRequestValidationTest {
         String password = "secret-test-password";
 
         assertFalse(new SignupRequest(
-                "user@example.com", password, "사용자"
+                "user@example.com", password, "사용자", true
         ).toString().contains(password));
 
         assertFalse(new LoginRequest(
