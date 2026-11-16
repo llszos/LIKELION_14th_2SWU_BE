@@ -180,6 +180,7 @@ public class CareRequestSummaryReaderImplTest {
             RequestAssignment first = assignmentRepository.save(RequestAssignment.assign(request, MINJAE, 1, NOW.plusHours(12)));
             first.respond(AssignmentResponseStatus.UNAVAILABLE, NOW.minusHours(2));
             first.close(AssignmentCloseReason.TARGET_CHANGED, NOW.minusHours(1));
+            entityManager.flush();  // 마감을 먼저 반영 (요청당 열린 지정 1건 제약)
             assignmentRepository.save(RequestAssignment.assign(request, SEOYEON, 2, NOW.plusHours(12)));
             CareRequest noAssignment = request(SITUATION_ID, 30);
             flushAndClear();
@@ -213,6 +214,7 @@ public class CareRequestSummaryReaderImplTest {
             CareRequest passedOn = request(SITUATION_ID, 28);       // 나에서 다른 사람에게 넘어감 → 제외
             assignmentRepository.save(RequestAssignment.assign(passedOn, MINJAE, 1, NOW.plusHours(12)))
                     .close(AssignmentCloseReason.TARGET_CHANGED, NOW.minusHours(1));
+            entityManager.flush();  // 마감을 먼저 반영 (요청당 열린 지정 1건 제약)
             assignmentRepository.save(RequestAssignment.assign(passedOn, SEOYEON, 2, NOW.plusHours(12)));
             CareRequest withdrawn = request(SITUATION_ID, 29);      // 내가 수락을 철회함 → 제외
             accepted(withdrawn, MINJAE).close(AssignmentCloseReason.ACCEPTANCE_WITHDRAWN, NOW.minusMinutes(30));
@@ -444,6 +446,7 @@ public class CareRequestSummaryReaderImplTest {
             RequestAssignment first = accepted(request, MINJAE);
             first.close(AssignmentCloseReason.ACCEPTANCE_WITHDRAWN, NOW.minusHours(2));
             request.revertToRequested();
+            entityManager.flush();  // 마감을 먼저 반영 (요청당 열린 지정 1건 제약)
             RequestAssignment second = assignmentRepository.save(RequestAssignment.assign(request, SEOYEON, 2, NOW.plusHours(5)));
             second.respond(AssignmentResponseStatus.AVAILABLE, NOW.minusHours(1));
             request.accept();
