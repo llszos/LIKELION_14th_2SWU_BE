@@ -162,6 +162,7 @@ public class NoAssigneeNoticeServiceTest {
             RequestAssignment first = assign(request, MINJAE, 1, NOW.plusHours(12));
             first.respond(AssignmentResponseStatus.UNAVAILABLE, NOW);
             first.close(AssignmentCloseReason.TARGET_CHANGED, NOW);
+            entityManager.flush();  // 마감을 먼저 반영 (요청당 열린 지정 1건 제약)
             assign(request, SEOYEON, 2, NOW.plusHours(12)); // 서연에게 다시 부탁 → 응답 대기
             flush();
 
