@@ -61,6 +61,20 @@ public interface CareRequestSharingReader {
     boolean hasBeenAssigned(Long requestId, Long userId);
 
     /**
+     * 사용자가 이 요청의 지금 대상인지 확인합니다. (D 전달받은 정보 조회)
+     * 응답을 기다리는 지금 대상(NOT_ACCEPTED)과, 요청이 다른 사람에게 넘어갔거나 수락을 철회한 예전 대상(ASSIGNMENT_CLOSED)을 구분하는 데 사용합니다.
+     * - 마감되지 않은 지정의 대상이면 true (수락 전, 수락 후 모두). 요청당 열린 지정은 최대 1건입니다.
+     * - 마감된 지정만 있거나, 지정된 적 없거나, 요청이 없으면 false
+     *
+     * 함께 알아 둘 C 규칙입니다!
+     * - "어려움"으로 답해도 지정은 바로 마감되지 않고, 요청자가 다른 사람에게 다시 부탁할 때 마감됩니다(TARGET_CHANGED).
+     *   그래서 어려움으로 답했지만 아직 다른 사람에게 넘어가지 않은 대상은 true입니다. (대상이 바뀌기 전까지 수락으로 바꿀 수 있음, F-06)
+     * - 완료된 요청은 지정을 마감하지 않아 마지막 담당자가 true로 남고, 취소·만료된 요청은 지정이 함께 마감돼 모두 false입니다.
+     *   요청됨 외의 상태에서 쓸 때는 SharingRequestInfo.status와 함께 판단합니다.
+     */
+    boolean isCurrentTarget(Long requestId, Long userId);
+
+    /**
      * 공유 판단용 요청 정보
      * - situationId: 급한 요청은 null
      * - startsAt, endsAt: 급한 요청은 null (일반 요청 접근 기한은 endsAt, 급한 요청은 D의 expires_at)
