@@ -14,7 +14,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Optional;
 
-/** Processor의 트랜잭션 안에서 상황, 참여 이력 순서로 잠금 조회합니다. */
+/**
+ * Processor의 트랜잭션 안에서 상황, 참여 이력 순서로 잠금 조회합니다.
+ * 기존 참조는 detach되므로 호출자는 반환된 관리 엔티티를 사용해야 합니다.
+ * refresh와 마찬가지로 대상의 미반영 로컬 변경을 보존하는 용도가 아닙니다.
+ */
 @Repository
 @RequiredArgsConstructor
 @Transactional(propagation = Propagation.MANDATORY)
@@ -26,16 +30,19 @@ public class JpaSituationLeaveStore implements SituationLeaveStore {
     @Override
     public Optional<Situation> findSituationForUpdate(Long situationId) {
         return situationRepository.findForUpdate(situationId).map(situation -> {
-            // 이미 로딩된 엔티티도 잠금 획득 후 최신 DB 상태로 갱신합니다.
-            entityManager.refresh(situation, LockModeType.PESSIMISTIC_WRITE);
-            return situation;
+            // Reload into a fresh managed instance: same-lock refresh may use a snapshot read.
+            entityManager.detach(situation);
+            return entityManager.find(Situation.class, situationId, LockModeType.PESSIMISTIC_WRITE);
         });
     }
 
     @Override
     public List<SituationParticipant> findParticipantsForUpdate(Long situationId, Long userId) {
         List<SituationParticipant> history = participantRepository.findHistoryForUpdate(situationId, userId);
-        history.forEach(p -> entityManager.refresh(p, LockModeType.PESSIMISTIC_WRITE));
-        return history;
+        return history.stream().map(participant -> {
+            Long participantId = participant.getId();
+            entityManager.detach(participant);
+            return entityManager.find(SituationParticipant.class, participantId, LockModeType.PESSIMISTIC_WRITE);
+        }).toList();
     }
 }

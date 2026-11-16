@@ -136,6 +136,30 @@ class SituationLeaveIntegrationTest {
         }
     }
 
+    @Test
+    void reloadsOnlyTargetAndPreservesUnrelatedManagedChanges() {
+        Long otherId = new TransactionTemplate(transactionManager).execute(tx -> {
+            var previousReference = participants.findById(participantId).orElseThrow();
+            var unrelated = situations.save(Situation.create(9L, "돌봄", "다른 상황",
+                    LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 30)));
+            var endedAt = LocalDateTime.of(2026, 11, 15, 10, 0);
+            unrelated.end(endedAt);
+            var response = processor.leave(situationId, 2L);
+            assertThat(diagnosticEntityManager.contains(previousReference)).isFalse();
+            var current = participants.findById(participantId).orElseThrow();
+            assertThat(current).isNotSameAs(previousReference);
+            assertThat(diagnosticEntityManager.contains(current)).isTrue();
+            assertThat(current.getStatus()).isEqualTo(SituationParticipantStatus.LEFT);
+            assertThat(current.getLeftAt()).isEqualTo(response.leftAt());
+            assertThat(diagnosticEntityManager.contains(unrelated)).isTrue();
+            return unrelated.getId();
+        });
+        var savedOther = situations.findById(otherId).orElseThrow();
+        assertThat(savedOther.getStatus()).isEqualTo(SituationStatus.ENDED);
+        assertThat(savedOther.getEndedAt()).isEqualTo(LocalDateTime.of(2026, 11, 15, 10, 0));
+        assertThat(events.count.get()).isEqualTo(1);
+    }
+
     // Diagnostics only: metadata reads, no entity read/flush/refresh/isolation change.
     private void logContext(String phase) {
         var session = diagnosticEntityManager.unwrap(org.hibernate.Session.class);
