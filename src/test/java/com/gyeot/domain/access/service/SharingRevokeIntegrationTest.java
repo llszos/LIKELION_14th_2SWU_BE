@@ -60,7 +60,7 @@ import static org.mockito.Mockito.when;
  * - 관계(A)와 상황 참여(B)도 가짜로 바꿔 canReallow를 정합니다. (실제 확인 규칙은 SharingCardReaderTest)
  * - 발행된 PermissionRevokedEvent는 @RecordApplicationEvents로 모아 확인합니다.
  *   동기 이벤트 처리 실패는 아직 받는 쪽(B 알림)이 없어, 테스트용 리스너가 실패하게 만들어 롤백을 확인합니다.
- * - C 요청 행 잠금과 동시 철회, 동시 삭제 경합은 C 잠금 계약 반영 뒤 별도 동시성 테스트에서 확인합니다.
+ * - C 요청 조회가 가짜라 요청 행 잠금은 걸리지 않습니다. 실제 잠금 대기는 SharingReallowConcurrencyTest와 CareRequestSharingReaderLockTest에서 확인합니다.
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -228,7 +228,7 @@ class SharingRevokeIntegrationTest {
     /** C 요청: 이 카드의 지정이 지금 담당자의 지정인 일반 요청. 종료 시각은 서비스 시계 기준 지금보다 2시간 뒤 */
     private void givenRequest(CareRequestStatus status) {
         LocalDateTime now = LocalDateTime.now(clock);
-        when(careRequestSharingReader.findById(REQUEST_ID)).thenReturn(Optional.of(new SharingRequestInfo(
+        when(careRequestSharingReader.findByIdForUpdate(REQUEST_ID)).thenReturn(Optional.of(new SharingRequestInfo(
                 REQUEST_ID, OWNER_ID, ASSIGNMENT_ID, status, RequestType.GENERAL,
                 now.minusHours(1), now.plusHours(2), SITUATION_ID, ASSIGNEE_ID, now.minusDays(1), HelpType.HOSPITAL)));
     }

@@ -45,7 +45,7 @@ import static org.mockito.Mockito.when;
  * - 잠금 단계(SharingCardLocker)는 실제 객체를 써서, 분리 전과 같은 잠금 순서와 결과인지 함께 확인합니다.
  * - 최신 권한 기준 회수 대상, 잠금 순서(요청 확인 → 항목 → 권한 → 회수)
  * - 권한 회수와 이력 규칙 자체는 PermissionWriterTest, 판단 규칙 자체는 SharingCardReaderTest에서 확인합니다.
- * - C 요청 행 잠금과 실제 DB 동시성은 C 잠금 계약 반영 뒤 통합 테스트에서 확인합니다.
+ * - C 요청 행 잠금은 호출 순서만 확인합니다. 실제 DB 잠금 대기는 SharingReallowConcurrencyTest와 CareRequestSharingReaderLockTest에서 확인합니다.
  */
 class SharingRevokeTransactionTest {
 
@@ -157,7 +157,7 @@ class SharingRevokeTransactionTest {
 
     @Test
     void 요청이_없으면_404다() {
-        when(careRequestSharingReader.findById(REQUEST_ID)).thenReturn(Optional.empty());
+        when(careRequestSharingReader.findByIdForUpdate(REQUEST_ID)).thenReturn(Optional.empty());
 
         assertNotFound();
     }
@@ -194,16 +194,17 @@ class SharingRevokeTransactionTest {
     // === 잠금 순서 ===
 
     @Test
-    void 요청_확인_뒤_항목을_잠그고_권한을_잠근_다음_회수한다() {
+    void 요청_행을_잠근_뒤_항목을_잠그고_권한을_잠근_다음_회수한다() {
         transaction.revoke(OWNER_ID, ASSIGNMENT_ID, REQUEST_ID);
 
-        // 잠금 순서 C 요청 → 항목 → 권한 (#38). C 요청 행 잠금은 C 계약 반영 뒤 맨 앞에 추가
+        // 잠금 순서 C 요청 → 항목 → 권한 (#38). C 요청은 잠금 조회로만 읽음 (일반 조회를 먼저 하면 스냅샷이 잠금 전에 만들어짐)
         InOrder order = inOrder(careRequestSharingReader, permissionRepository, permissionWriter);
-        order.verify(careRequestSharingReader).findById(REQUEST_ID);
+        order.verify(careRequestSharingReader).findByIdForUpdate(REQUEST_ID);
         order.verify(permissionRepository).findInformationIdsByAssignmentIdAndStatusIn(ASSIGNMENT_ID, CARD_STATUSES); // ID만
         order.verify(permissionWriter).lockItems(List.of(ITEM_ID, OTHER_ITEM_ID));
         order.verify(permissionWriter).lockPermissionsById(ASSIGNMENT_ID, CARD_STATUSES);
         order.verify(permissionWriter).revokeByOwner(anyList(), any(), any());
+        verify(careRequestSharingReader, never()).findById(any()); // 잠금 없는 요청 조회는 쓰지 않음
     }
 
     // === 도우미 ===
@@ -218,7 +219,7 @@ class SharingRevokeTransactionTest {
 
     /** 이 카드의 지정이 지금 담당자의 지정인 일반 요청 (종료 17:00) */
     private void givenRequest(CareRequestStatus status) {
-        when(careRequestSharingReader.findById(REQUEST_ID)).thenReturn(Optional.of(new SharingRequestInfo(
+        when(careRequestSharingReader.findByIdForUpdate(REQUEST_ID)).thenReturn(Optional.of(new SharingRequestInfo(
                 REQUEST_ID, OWNER_ID, ASSIGNMENT_ID, status, RequestType.GENERAL,
                 NOW.minusHours(1), NOW.plusHours(2), 5L, ASSIGNEE_ID, NOW.minusDays(1), HelpType.HOSPITAL)));
     }

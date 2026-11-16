@@ -56,7 +56,7 @@ import static org.mockito.Mockito.when;
  *   요청 ID 조회와 쓰기가 다른 트랜잭션으로 나뉘어 있어, 테스트 메서드에는 트랜잭션을 걸지 않습니다. (각 테스트는 커밋되므로 끝나면 직접 지움)
  * - 직접 철회 상태는 실제 철회 API(SharingRevokeService)로 만듭니다. 철회와 다시 허용이 이어서 동작하는지까지 확인하기 위함입니다.
  * - C 요청 조회, 관계(A), 상황 참여(B)는 가짜로 바꿉니다. (실제 확인 규칙은 SharingCardReaderTest)
- * - C 요청 행 잠금과 동시 다시 허용, 동시 삭제 경합은 C 잠금 계약 반영 뒤 별도 동시성 테스트에서 확인합니다.
+ * - C 요청 조회가 가짜라 요청 행 잠금은 걸리지 않습니다. 실제 잠금에서의 동시 다시 허용은 SharingReallowConcurrencyTest에서 확인합니다.
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -223,7 +223,7 @@ class SharingReallowIntegrationTest {
     /** C 요청: 이 카드의 지정이 지금 담당자의 지정인 일반 요청. 종료 시각은 서비스 시계 기준 지금보다 2시간 뒤 */
     private void givenRequest(CareRequestStatus status) {
         LocalDateTime now = LocalDateTime.now(clock);
-        when(careRequestSharingReader.findById(REQUEST_ID)).thenReturn(Optional.of(new SharingRequestInfo(
+        when(careRequestSharingReader.findByIdForUpdate(REQUEST_ID)).thenReturn(Optional.of(new SharingRequestInfo(
                 REQUEST_ID, OWNER_ID, ASSIGNMENT_ID, status, RequestType.GENERAL,
                 now.minusHours(1), now.plusHours(2), SITUATION_ID, ASSIGNEE_ID, now.minusDays(1), HelpType.HOSPITAL)));
     }

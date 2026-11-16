@@ -134,7 +134,7 @@ class SharingReallowTransactionTest {
 
     @Test
     void 요청이_없으면_404다() {
-        when(careRequestSharingReader.findById(REQUEST_ID)).thenReturn(Optional.empty());
+        when(careRequestSharingReader.findByIdForUpdate(REQUEST_ID)).thenReturn(Optional.empty());
 
         assertReallowError(SafetyCardErrorCode.SHARING_NOT_FOUND);
     }
@@ -218,17 +218,18 @@ class SharingReallowTransactionTest {
     // === 확인과 잠금 순서 ===
 
     @Test
-    void 요청과_관계를_확인한_뒤_항목을_잠그고_권한을_잠근_다음_권한을_만든다() {
+    void 요청_행을_잠근_뒤_관계를_확인하고_항목과_권한을_잠근_다음_권한을_만든다() {
         transaction.reallow(OWNER_ID, ASSIGNMENT_ID, REQUEST_ID);
 
-        // 잠금 순서 C 요청 → 항목 → 권한 (#38). C 요청 행 잠금은 C 계약 반영 뒤 맨 앞에 추가
+        // 잠금 순서 C 요청 → 항목 → 권한 (#38). C 요청은 잠금 조회로만 읽음 (일반 조회를 먼저 하면 스냅샷이 잠금 전에 만들어짐)
         InOrder order = inOrder(careRequestSharingReader, sharingCardReader, permissionRepository, permissionWriter);
-        order.verify(careRequestSharingReader).findById(REQUEST_ID);
+        order.verify(careRequestSharingReader).findByIdForUpdate(REQUEST_ID);
         order.verify(sharingCardReader).canReopen(any(), any());
         order.verify(permissionRepository).findInformationIdsByAssignmentIdAndStatusIn(ASSIGNMENT_ID, CARD_STATUSES); // ID만
         order.verify(permissionWriter).lockItems(List.of(ITEM_ID, OTHER_ITEM_ID));
         order.verify(permissionWriter).lockPermissionsById(ASSIGNMENT_ID, CARD_STATUSES);
         order.verify(permissionWriter).createActive(any(), any(), any(), any(), anyList(), any(), any());
+        verify(careRequestSharingReader, never()).findById(any()); // 잠금 없는 요청 조회는 쓰지 않음
     }
 
     // === 도우미 ===
@@ -251,7 +252,7 @@ class SharingReallowTransactionTest {
      * @param currentAssignmentId 지금 담당자의 지정 ID (카드 40번과 다르면 담당자가 바뀐 것)
      */
     private void givenRequest(CareRequestStatus status, RequestType type, Long requesterId, Long currentAssignmentId) {
-        when(careRequestSharingReader.findById(REQUEST_ID)).thenReturn(Optional.of(new SharingRequestInfo(
+        when(careRequestSharingReader.findByIdForUpdate(REQUEST_ID)).thenReturn(Optional.of(new SharingRequestInfo(
                 REQUEST_ID, requesterId, currentAssignmentId, status, type,
                 NOW.minusHours(1), NOW.plusHours(2), 5L, ASSIGNEE_ID, NOW.minusDays(1), HelpType.HOSPITAL)));
     }

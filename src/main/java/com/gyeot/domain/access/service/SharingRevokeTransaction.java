@@ -25,9 +25,13 @@ import java.util.List;
  * SharingRevokeService가 요청 ID를 확보한 뒤 이 빈을 부르며, 카드 판단부터 회수까지 한 트랜잭션에서 처리합니다.
  *
  * 처리 순서 (잠금 순서 C 요청 → 항목 → 권한, #38)
- * 0. C 요청 행 잠금: C의 잠금 계약이 들어온 뒤 이 자리에 추가합니다. 트랜잭션의 첫 조회여야 합니다.
- *    아직 없으므로 지금은 최종 동시성 보장 전 상태입니다. (같은 요청의 C 변경과 직렬화되지 않음)
- * 1. 요청 조건: SharingCardRules.isOpenSharing. 통과하지 못하면 404 (끝난 요청, 다른 사람의 공유, 담당자 변경 등)
+ * 0. C 요청 행 잠금: CareRequestSharingReader.findByIdForUpdate (#124). 이 트랜잭션의 첫 조회입니다.
+ *    - C가 요청 상태나 지정을 바꾸는 작업도 같은 요청 행을 먼저 잠급니다. (#124 계약)
+ *      그래서 그 작업과 같은 카드의 다른 철회, 다시 허용이 이 잠금에서 차례로 실행됩니다.
+ *    - 잠금 조회는 스냅샷을 만들지 않아, 잠금을 얻은 뒤의 첫 일반 조회에서 스냅샷이 만들어집니다.
+ *      그래서 뒤의 조회에는 먼저 끝난 쪽의 변경이 보입니다. (그 전에 다른 일반 조회를 하면 안 됨)
+ *    - 항목 삭제는 요청 잠금을 거치지 않으므로, 항목과 권한은 2~4에서 따로 잠급니다.
+ * 1. 요청 조건: 0에서 읽은 요청으로 SharingCardRules.isOpenSharing. 통과하지 못하면 404 (끝난 요청, 다른 사람의 공유, 담당자 변경 등)
  * 2~4. 항목과 권한 잠금: SharingCardLocker (항목 ID만 조회 → 항목 잠금 → 권한 잠금. 다시 허용과 같은 단계)
  * 5. 판단: SharingCardRules의 최신 권한, 원본 확인 뒤 상태 결정 (공유 중 목록과 같은 규칙)
  *    - SHARING: 보여 주던 ACTIVE 권한을 모두 OWNER_REVOKED로 회수하고, 실제로 회수했으면 담당자 알림 이벤트를 1건 발행
@@ -46,7 +50,7 @@ import java.util.List;
 @Transactional           // 쓰기 트랜잭션. SharingRevokeService가 트랜잭션 없이 부르므로 항상 새로 시작
 public class SharingRevokeTransaction {
 
-    private final CareRequestSharingReader careRequestSharingReader;          // C: 요청 상태, 지금 담당자
+    private final CareRequestSharingReader careRequestSharingReader;          // C: 요청 행 잠금, 요청 상태, 지금 담당자
     private final SharingCardLocker sharingCardLocker;                        // 항목, 권한 잠금 (다시 허용과 공통)
     private final PermissionWriter permissionWriter;                          // 회수와 이력
     private final SharingCardReader sharingCardReader;                        // canReallow 계산 (관계, 상황 참여)
@@ -61,12 +65,13 @@ public class SharingRevokeTransaction {
      */
     public SharingRevokeResponse revoke(Long ownerUserId, Long assignmentId, Long requestId) {
 
-        // 0. C 요청 행 잠금 자리 (C 잠금 계약 반영 시 이 메서드의 첫 조회로 추가)
+        // 0. C 요청 행 잠금 (이 트랜잭션의 첫 조회. 같은 요청을 바꾸는 다른 트랜잭션이 있으면 끝날 때까지 기다림)
+        //    요청이 없으면 빈 Optional이라 아래 요청 조건에서 404
+        SharingRequestInfo request = careRequestSharingReader.findByIdForUpdate(requestId).orElse(null);
 
-        LocalDateTime now = LocalDateTime.now(clock); // 요청 조건 비교와 철회 시각에 같은 값 사용
+        LocalDateTime now = LocalDateTime.now(clock); // 잠금을 얻은 뒤의 시각. 요청 조건 비교와 철회 시각에 같은 값 사용
 
         // 1. 요청 조건 (목록과 같은 규칙). 끝났거나 다른 사람의 공유면 카드가 없는 것과 같은 404
-        SharingRequestInfo request = careRequestSharingReader.findById(requestId).orElse(null);
         if (!SharingCardRules.isOpenSharing(request, ownerUserId, assignmentId, null, now)) {
             throw notFound();
         }

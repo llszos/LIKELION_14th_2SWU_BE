@@ -82,7 +82,7 @@ class SharingReallowRollbackTest {
         saveRevoked(saveItem("당뇨약"));
 
         LocalDateTime now = LocalDateTime.now(clock);
-        when(careRequestSharingReader.findById(REQUEST_ID)).thenReturn(Optional.of(new SharingRequestInfo(
+        when(careRequestSharingReader.findByIdForUpdate(REQUEST_ID)).thenReturn(Optional.of(new SharingRequestInfo(
                 REQUEST_ID, OWNER_ID, ASSIGNMENT_ID, CareRequestStatus.IN_PROGRESS, RequestType.GENERAL,
                 now.minusHours(1), now.plusHours(2), SITUATION_ID, ASSIGNEE_ID, now.minusDays(1), HelpType.HOSPITAL)));
         when(relationshipQueryRepository.existsBySourceUserIdAndTargetUserIdAndStatus(any(), any(), any())).thenReturn(true);

@@ -26,9 +26,11 @@ import java.util.Optional;
  * SharingReallowService가 요청 ID를 확보한 뒤 이 빈을 부르며, 판단부터 권한 생성까지 한 트랜잭션에서 처리합니다.
  *
  * 처리 순서 (잠금 순서 C 요청 → 항목 → 권한, #38)
- * 0. C 요청 행 잠금: C의 잠금 계약이 들어온 뒤 이 자리에 추가합니다. 트랜잭션의 첫 조회여야 합니다.
- *    아직 없으므로 지금은 최종 동시성 보장 전 상태입니다. (같은 요청의 C 변경과 직렬화되지 않음)
- * 1. 카드 확인: 요청이 없거나, 정보 주인의 요청이 아니거나, 급한 요청이면 404 (공유 관리에 카드로 나오지 않는 경우)
+ * 0. C 요청 행 잠금: CareRequestSharingReader.findByIdForUpdate (#124). 이 트랜잭션의 첫 조회입니다.
+ *    - 잠금으로 막는 범위와 스냅샷 전제는 SharingRevokeTransaction의 0단계와 같습니다.
+ *    - 같은 카드를 동시에 다시 허용하면 나중 쪽은 먼저 쪽이 커밋할 때까지 기다린 뒤, 먼저 쪽이 만든 ACTIVE를 보고 409가 됩니다.
+ *      (잠금이 없을 때는 나중 쪽도 성공해 권한과 이력이 중복됐음. SharingReallowConcurrencyTest)
+ * 1. 카드 확인: 0에서 읽은 요청이 없거나, 정보 주인의 요청이 아니거나, 급한 요청이면 404 (공유 관리에 카드로 나오지 않는 경우)
  * 2. 요청 조건: SharingCardRules.isOpenSharing. 통과하지 못하면 409 SHARING_REALLOW_NOT_ALLOWED
  *    (수락됨, 진행 중이 아님, 종료 시각 지남, 담당자 변경)
  * 3. 다시 열 수 있는 상태: 요청자 → 담당자 관계와 담당자의 상황 참여. 아니면 409 SHARING_REALLOW_NOT_ALLOWED
@@ -56,7 +58,7 @@ import java.util.Optional;
 @Transactional           // 쓰기 트랜잭션. SharingReallowService가 트랜잭션 없이 부르므로 항상 새로 시작
 public class SharingReallowTransaction {
 
-    private final CareRequestSharingReader careRequestSharingReader; // C: 요청 상태, 지금 담당자
+    private final CareRequestSharingReader careRequestSharingReader; // C: 요청 행 잠금, 요청 상태, 지금 담당자
     private final SharingCardReader sharingCardReader;               // 다시 열 수 있는 상태 (관계, 상황 참여)
     private final SharingCardLocker sharingCardLocker;               // 항목, 권한 잠금 (철회와 공통)
     private final PermissionWriter permissionWriter;                 // 새 ACTIVE 권한과 GRANTED 이력
@@ -70,12 +72,13 @@ public class SharingReallowTransaction {
      */
     public SharingReallowResponse reallow(Long ownerUserId, Long assignmentId, Long requestId) {
 
-        // 0. C 요청 행 잠금 자리 (C 잠금 계약 반영 시 이 메서드의 첫 조회로 추가)
+        // 0. C 요청 행 잠금 (이 트랜잭션의 첫 조회. 같은 요청을 바꾸는 다른 트랜잭션이 있으면 끝날 때까지 기다림)
+        //    요청이 없으면 빈 Optional이라 아래 카드 확인에서 404
+        SharingRequestInfo request = careRequestSharingReader.findByIdForUpdate(requestId).orElse(null);
 
-        LocalDateTime now = LocalDateTime.now(clock); // 요청 조건 비교와 권한 부여 시각에 같은 값 사용
+        LocalDateTime now = LocalDateTime.now(clock); // 잠금을 얻은 뒤의 시각. 요청 조건 비교와 권한 부여 시각에 같은 값 사용
 
         // 1. 공유 관리에 나오는 카드인지 (아니면 카드가 없는 것과 같은 404)
-        SharingRequestInfo request = careRequestSharingReader.findById(requestId).orElse(null);
         if (request == null
                 || !Objects.equals(request.requesterId(), ownerUserId)  // 다른 사람의 공유
                 || request.requestType() != RequestType.GENERAL) {     // 급한 요청은 이번 범위에서 카드가 아님
