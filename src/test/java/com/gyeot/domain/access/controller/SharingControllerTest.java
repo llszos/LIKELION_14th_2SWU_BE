@@ -3,7 +3,12 @@ package com.gyeot.domain.access.controller;
 import com.gyeot.domain.access.dto.response.ReceivedSharingResponse;
 import com.gyeot.domain.access.dto.response.ReceivedSharingResponse.ReceivedSharing;
 import com.gyeot.domain.access.dto.response.SharedItemName;
+import com.gyeot.domain.access.dto.response.SharingListResponse;
+import com.gyeot.domain.access.dto.response.SharingListResponse.Receiver;
+import com.gyeot.domain.access.dto.response.SharingListResponse.SharingCard;
+import com.gyeot.domain.access.dto.response.SharingStatus;
 import com.gyeot.domain.access.service.ReceivedSharingService;
+import com.gyeot.domain.access.service.SharingListService;
 import com.gyeot.domain.carerequest.enums.HelpType;
 import com.gyeot.domain.safetycard.entity.InformationType;
 import com.gyeot.global.exception.GlobalExceptionHandler;
@@ -32,15 +37,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 class SharingControllerTest {
 
-    private static final Long USER_ID = 20L; // 로그인한 사용자 (받는 사람)
+    private static final Long USER_ID = 20L; // 로그인한 사용자 (공유 중 목록에서는 정보 주인, 받은 정보에서는 받는 사람)
 
+    private SharingListService sharingListService;
     private ReceivedSharingService receivedSharingService;
     private MockMvc mvc;
 
     @BeforeEach
     void setUp() {
+        sharingListService = mock(SharingListService.class);
         receivedSharingService = mock(ReceivedSharingService.class);
-        mvc = MockMvcBuilders.standaloneSetup(new SharingController(receivedSharingService))
+        mvc = MockMvcBuilders.standaloneSetup(new SharingController(sharingListService, receivedSharingService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver()) // @AuthenticationPrincipal 값을 채워 주는 처리기
                 .build();
@@ -54,6 +61,52 @@ class SharingControllerTest {
     void tearDown() {
         SecurityContextHolder.clearContext(); // 다른 테스트에 로그인 상태가 남지 않게 정리
     }
+
+    // === 공유 중 목록 조회 ===
+
+    @Test
+    void 공유_중_목록을_명세_형태로_내려준다() throws Exception {
+        // 로그인 사용자(정보 주인)와 userId 없음(전체)이 Service에 그대로 넘어올 때만 응답을 돌려줌
+        when(sharingListService.getSharings(USER_ID, null)).thenReturn(new SharingListResponse(List.of(
+                new SharingCard(40L, 31L, new Receiver(7L, "민재"), HelpType.HOSPITAL,
+                        LocalDateTime.of(2026, 10, 2, 14, 0), LocalDateTime.of(2026, 10, 2, 18, 0),
+                        SharingStatus.REVOKED, true,
+                        List.of(SharedItemName.of(InformationType.MEDICATION, "혈압약"))))));
+
+        mvc.perform(get("/api/sharings"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("success"))
+                .andExpect(jsonPath("$.data.items[0].assignmentId").value(40))
+                .andExpect(jsonPath("$.data.items[0].requestId").value(31))
+                .andExpect(jsonPath("$.data.items[0].receiver.userId").value(7))
+                .andExpect(jsonPath("$.data.items[0].receiver.name").value("민재"))
+                .andExpect(jsonPath("$.data.items[0].helpType").value("HOSPITAL"))
+                .andExpect(jsonPath("$.data.items[0].startsAt").value("2026-10-02T14:00:00"))
+                .andExpect(jsonPath("$.data.items[0].accessUntil").value("2026-10-02T18:00:00"))
+                .andExpect(jsonPath("$.data.items[0].status").value("REVOKED"))
+                .andExpect(jsonPath("$.data.items[0].canReallow").value(true))
+                .andExpect(jsonPath("$.data.items[0].sharedItems[0].informationType").value("MEDICATION"))
+                .andExpect(jsonPath("$.data.items[0].sharedItems[0].typeName").value(InformationType.MEDICATION.getDescription()))
+                .andExpect(jsonPath("$.data.items[0].sharedItems[0].title").value("혈압약"));
+    }
+
+    @Test
+    void 공유_중_목록에_userId를_넣으면_그_사람_기준으로_조회한다() throws Exception {
+        when(sharingListService.getSharings(USER_ID, 7L)).thenReturn(new SharingListResponse(List.of()));
+
+        mvc.perform(get("/api/sharings").param("userId", "7"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items").isEmpty());
+    }
+
+    @Test
+    void 공유_중_목록의_userId가_숫자가_아니면_400이다() throws Exception {
+        mvc.perform(get("/api/sharings").param("userId", "abc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+    }
+
+    // === 받은 정보 조회 ===
 
     @Test
     void 받은_정보를_명세_형태로_내려준다() throws Exception {
