@@ -18,7 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
  * - API 진입 전용이며, 다른 트랜잭션 안에서 다시 허용을 함께 처리하는 용도가 아닙니다.
  * - 요청 ID가 없으면(권한이 없는 지정) 404입니다. 다른 사람의 공유인지는 쓰기 트랜잭션에서 확인하며, 그때도 같은 404입니다.
  */
-@Service                                               // 컨트롤러가 주입받아 씀 (컨트롤러는 C 잠금 연결 뒤 추가)
+@Service                                               // SharingController가 주입받아 씀
 @RequiredArgsConstructor                               // 아래 final 필드를 채우는 생성자 자동 생성
 @Transactional(propagation = Propagation.NOT_SUPPORTED) // 트랜잭션 없이 실행 (SharingRevokeService 설명과 같음)
 public class SharingReallowService {

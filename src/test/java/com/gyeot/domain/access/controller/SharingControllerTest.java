@@ -6,11 +6,17 @@ import com.gyeot.domain.access.dto.response.SharedItemName;
 import com.gyeot.domain.access.dto.response.SharingListResponse;
 import com.gyeot.domain.access.dto.response.SharingListResponse.Receiver;
 import com.gyeot.domain.access.dto.response.SharingListResponse.SharingCard;
+import com.gyeot.domain.access.dto.response.SharingReallowResponse;
+import com.gyeot.domain.access.dto.response.SharingRevokeResponse;
 import com.gyeot.domain.access.dto.response.SharingStatus;
 import com.gyeot.domain.access.service.ReceivedSharingService;
 import com.gyeot.domain.access.service.SharingListService;
+import com.gyeot.domain.access.service.SharingReallowService;
+import com.gyeot.domain.access.service.SharingRevokeService;
 import com.gyeot.domain.carerequest.enums.HelpType;
 import com.gyeot.domain.safetycard.entity.InformationType;
+import com.gyeot.domain.safetycard.exception.SafetyCardErrorCode;
+import com.gyeot.global.exception.BusinessException;
 import com.gyeot.global.exception.GlobalExceptionHandler;
 import com.gyeot.global.security.auth.AuthenticatedUser;
 import org.junit.jupiter.api.AfterEach;
@@ -28,6 +34,7 @@ import java.util.List;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -37,17 +44,22 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 class SharingControllerTest {
 
-    private static final Long USER_ID = 20L; // 로그인한 사용자 (공유 중 목록에서는 정보 주인, 받은 정보에서는 받는 사람)
+    private static final Long USER_ID = 20L; // 로그인한 사용자 (받은 정보에서는 받는 사람, 그 외에는 정보 주인)
 
     private SharingListService sharingListService;
     private ReceivedSharingService receivedSharingService;
+    private SharingRevokeService sharingRevokeService;
+    private SharingReallowService sharingReallowService;
     private MockMvc mvc;
 
     @BeforeEach
     void setUp() {
         sharingListService = mock(SharingListService.class);
         receivedSharingService = mock(ReceivedSharingService.class);
-        mvc = MockMvcBuilders.standaloneSetup(new SharingController(sharingListService, receivedSharingService))
+        sharingRevokeService = mock(SharingRevokeService.class);
+        sharingReallowService = mock(SharingReallowService.class);
+        mvc = MockMvcBuilders.standaloneSetup(new SharingController(
+                        sharingListService, receivedSharingService, sharingRevokeService, sharingReallowService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver()) // @AuthenticationPrincipal 값을 채워 주는 처리기
                 .build();
@@ -149,5 +161,66 @@ class SharingControllerTest {
         mvc.perform(get("/api/sharings/received").param("userId", "abc"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+    }
+
+    // === 공유 직접 철회 ===
+
+    @Test
+    void 직접_철회하면_철회된_카드_상태를_명세_형태로_내려준다() throws Exception {
+        // 로그인 사용자(정보 주인)와 URL의 카드 ID가 Service에 그대로 넘어올 때만 응답을 돌려줌
+        when(sharingRevokeService.revoke(USER_ID, 40L)).thenReturn(SharingRevokeResponse.revoked(40L, true));
+
+        mvc.perform(post("/api/sharings/40/revoke"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("success"))
+                .andExpect(jsonPath("$.message").value("공유를 철회했습니다."))
+                .andExpect(jsonPath("$.data.assignmentId").value(40))
+                .andExpect(jsonPath("$.data.status").value("REVOKED"))
+                .andExpect(jsonPath("$.data.canReallow").value(true));
+    }
+
+    @Test
+    void 철회할_카드가_없으면_404다() throws Exception {
+        when(sharingRevokeService.revoke(USER_ID, 40L))
+                .thenThrow(new BusinessException(SafetyCardErrorCode.SHARING_NOT_FOUND));
+
+        mvc.perform(post("/api/sharings/40/revoke"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("SHARING_NOT_FOUND"));
+    }
+
+    @Test
+    void 철회의_assignmentId가_숫자가_아니면_400이다() throws Exception {
+        mvc.perform(post("/api/sharings/abc/revoke"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+    }
+
+    // === 공유 다시 허용 ===
+
+    @Test
+    void 다시_허용하면_공유_중_상태와_다시_공개된_항목을_명세_형태로_내려준다() throws Exception {
+        when(sharingReallowService.reallow(USER_ID, 40L)).thenReturn(SharingReallowResponse.reallowed(40L,
+                List.of(SharedItemName.of(InformationType.MEDICATION, "혈압약"))));
+
+        mvc.perform(post("/api/sharings/40/reallow"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("success"))
+                .andExpect(jsonPath("$.message").value("다시 허용했습니다."))
+                .andExpect(jsonPath("$.data.assignmentId").value(40))
+                .andExpect(jsonPath("$.data.status").value("SHARING"))
+                .andExpect(jsonPath("$.data.sharedItems[0].informationType").value("MEDICATION"))
+                .andExpect(jsonPath("$.data.sharedItems[0].typeName").value(InformationType.MEDICATION.getDescription()))
+                .andExpect(jsonPath("$.data.sharedItems[0].title").value("혈압약"));
+    }
+
+    @Test
+    void 다시_허용할_수_없으면_409다() throws Exception {
+        when(sharingReallowService.reallow(USER_ID, 40L))
+                .thenThrow(new BusinessException(SafetyCardErrorCode.SHARING_REALLOW_NOT_ALLOWED));
+
+        mvc.perform(post("/api/sharings/40/reallow"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("SHARING_REALLOW_NOT_ALLOWED"));
     }
 }
