@@ -1,14 +1,15 @@
 -- V1: 초기 스키마 (#47)
 --
--- 기준: 이 파일을 작성한 시점의 develop 엔티티가 만드는 스키마 + ERD 6.2의 DB 제약 중 엔티티에 매핑되지 않은 것
--- - 테이블, 컬럼, 인덱스, UNIQUE: 일회용 MySQL에서 Hibernate(ddl-auto=create)로 만든 DDL을 그대로 옮겼습니다.
+-- 기준: develop d8be7f0의 엔티티가 만드는 스키마 + ERD 6.2의 DB 제약 중 엔티티에 매핑되지 않은 것
+-- - 테이블, 컬럼, 인덱스, UNIQUE: 일회용 MySQL에서 Hibernate(ddl-auto=create)로 만든 DDL을 그대로 옮겼습니다. (처음 작성 기준 develop af9ada6)
+--   그 뒤 develop에 추가된 user_consents(#106)는 아직 공유 DB에 V1을 적용하기 전이라 V1에 함께 넣었습니다. (UserConsent 엔티티와 같은 정의)
 -- - FK: 엔티티가 연관관계로 매핑해 Hibernate가 만드는 7개만 둡니다. ERD의 나머지 FK(users.id 참조 등)는
 --   지금 삭제 로직과 데이터 모델(서비스가 명시적으로 정리, 권한의 information_id를 코드가 비움 등)을 유지하는 임시 범위로 빼고,
 --   ERD와의 차이는 팀에 공유해 후속으로 검토합니다.
 -- - FK 삭제 정책: ON DELETE를 지정하지 않습니다. (기본 RESTRICT, ERD 6.6 "삭제는 FK CASCADE에 맡기지 않고 서비스에서 명시적으로 삭제")
 -- - 이름: Hibernate가 임의로 만든 FK, UNIQUE 이름만 읽기 쉬운 이름으로 바꿨습니다. 엔티티에 이름을 적은 제약은 그대로입니다.
 -- - 엔티티가 없는 테이블(알림, 감사 메시지)은 포함하지 않습니다.
--- - 이후 스키마 변경은 V2부터 새 파일로 추가합니다. 이미 적용된 V1은 수정하지 않습니다.
+-- - 이후 스키마 변경은 V2부터 새 파일로 추가합니다. (V2 #122, V3 #116, V4 #118 배정) 공유 DB에 적용된 뒤에는 V1을 수정하지 않습니다.
 
 -- === 사용자, 초대, 관계 (A) ===
 
@@ -85,6 +86,17 @@ CREATE TABLE `refresh_tokens` (
   UNIQUE KEY `uk_refresh_tokens_token_hash` (`token_hash`),
   KEY `idx_refresh_tokens_session_id` (`session_id`),
   KEY `idx_refresh_tokens_user_id` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- 개인정보 제공 동의 기록 (#106). 탈퇴 후에도 동의 증빙을 보존하므로 users FK 없이 사용자 ID만 저장
+CREATE TABLE `user_consents` (
+  `consented_at` datetime(6) NOT NULL,
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `user_id` bigint NOT NULL,
+  `consent_type` varchar(30) NOT NULL,
+  `policy_version` varchar(30) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_user_consents_user_type_version` (`user_id`,`consent_type`,`policy_version`) -- 같은 사용자, 동의 유형, 정책 버전의 중복 기록 금지
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- === 상황 (B) ===
