@@ -1,4 +1,6 @@
 spring:
+  flyway:
+    enabled: false  # 테스트 스키마는 아직 Hibernate create-drop으로 만듦. Flyway 전환은 다음 커밋에서 (#47)
   jpa:
     hibernate:
       ddl-auto: create-drop
