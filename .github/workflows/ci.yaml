@@ -27,4 +27,16 @@ jobs:
         uses: gradle/actions/setup-gradle@v5
 
       - name: Build and Test
-        run: ./gradlew build
+        run: ./gradlew -I .ci/ci103-diagnostics.init.gradle build
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci103-test-evidence
+          path: |
+            build/test-results/test/TEST-com.gyeot.domain.situation.service.SituationLeaveIntegrationTest.xml
+            build/reports/tests/test/classes/com.gyeot.domain.situation.service.SituationLeaveIntegrationTest.html
+            build/reports/tests/test/css/**
+            build/reports/tests/test/js/**
+          if-no-files-found: warn
+          retention-days: 7

@@ -1,0 +1,14 @@
+// Diagnostic only. No test exclusion, assertion, transaction or DB configuration changes.
+allprojects {
+    tasks.withType(org.gradle.api.tasks.testing.Test).configureEach {
+        testLogging {
+            events 'failed'
+            exceptionFormat 'full'
+            showExceptions = true
+            showCauses = true
+            showStackTraces = true
+            // Per-test stdout remains in XML/HTML artifacts; do not stream all tests.
+            showStandardStreams = false
+        }
+    }
+}
