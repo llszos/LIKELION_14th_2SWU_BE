@@ -49,7 +49,7 @@ class SituationLeaveIntegrationTest {
     @Autowired SituationParticipantRepository participants;
     @Autowired PlatformTransactionManager transactionManager;
     @Autowired Events events;
-    @Autowired jakarta.persistence.EntityManager diagnosticEntityManager;
+    @Autowired jakarta.persistence.EntityManager entityManager;
     private Long situationId;
     private Long participantId;
 
@@ -102,38 +102,16 @@ class SituationLeaveIntegrationTest {
 
     @Test
     void refreshesPreviouslyLoadedParticipation() {
-        // Only this synthetic-data test enables SQL/bind diagnostics, and restores levels on failure.
-        var sqlLogger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger("org.hibernate.SQL");
-        var bindLogger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger("org.hibernate.orm.jdbc.bind");
-        var previousSqlLevel = sqlLogger.getLevel();
-        var previousBindLevel = bindLogger.getLevel();
-        sqlLogger.setLevel(ch.qos.logback.classic.Level.DEBUG);
-        bindLogger.setLevel(ch.qos.logback.classic.Level.TRACE);
-        try {
         var originalLeftAt = LocalDateTime.of(2026, 11, 15, 9, 0);
         new TransactionTemplate(transactionManager).executeWithoutResult(tx -> {
             participants.findById(participantId).orElseThrow();
-            logContext("outer-before-inner");
             var independent = new TransactionTemplate(transactionManager);
             independent.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
-            independent.executeWithoutResult(other -> {
-                logContext("inner");
-                var changed = participants.findById(participantId).orElseThrow();
-                changed.leave(originalLeftAt);
-                System.out.printf("CI103 inner-before-commit participant=%s status=%s leftAt=%s%n",
-                        participantId, changed.getStatus(), changed.getLeftAt());
-            });
-            logContext("outer-resumed");
-            var response = processor.leave(situationId, 2L);
-            System.out.printf("CI103 expected=%s actual=%s status=%s events=%s%n",
-                    originalLeftAt, response.leftAt(), response.status(), events.count.get());
-            assertThat(response.leftAt()).isEqualTo(originalLeftAt);
+            independent.executeWithoutResult(other ->
+                    participants.findById(participantId).orElseThrow().leave(originalLeftAt));
+            assertThat(processor.leave(situationId, 2L).leftAt()).isEqualTo(originalLeftAt);
         });
         assertThat(events.count.get()).isZero();
-        } finally {
-            sqlLogger.setLevel(previousSqlLevel);
-            bindLogger.setLevel(previousBindLevel);
-        }
     }
 
     @Test
@@ -145,33 +123,19 @@ class SituationLeaveIntegrationTest {
             var endedAt = LocalDateTime.of(2026, 11, 15, 10, 0);
             unrelated.end(endedAt);
             var response = processor.leave(situationId, 2L);
-            assertThat(diagnosticEntityManager.contains(previousReference)).isFalse();
+            assertThat(entityManager.contains(previousReference)).isFalse();
             var current = participants.findById(participantId).orElseThrow();
             assertThat(current).isNotSameAs(previousReference);
-            assertThat(diagnosticEntityManager.contains(current)).isTrue();
+            assertThat(entityManager.contains(current)).isTrue();
             assertThat(current.getStatus()).isEqualTo(SituationParticipantStatus.LEFT);
             assertThat(current.getLeftAt()).isEqualTo(response.leftAt());
-            assertThat(diagnosticEntityManager.contains(unrelated)).isTrue();
+            assertThat(entityManager.contains(unrelated)).isTrue();
             return unrelated.getId();
         });
         var savedOther = situations.findById(otherId).orElseThrow();
         assertThat(savedOther.getStatus()).isEqualTo(SituationStatus.ENDED);
         assertThat(savedOther.getEndedAt()).isEqualTo(LocalDateTime.of(2026, 11, 15, 10, 0));
         assertThat(events.count.get()).isEqualTo(1);
-    }
-
-    // Diagnostics only: metadata reads, no entity read/flush/refresh/isolation change.
-    private void logContext(String phase) {
-        var session = diagnosticEntityManager.unwrap(org.hibernate.Session.class);
-        session.doWork(connection -> {
-            try (var statement = connection.createStatement();
-                 var result = statement.executeQuery("SELECT CONNECTION_ID(), @@transaction_isolation")) {
-                result.next();
-                System.out.printf("CI103 phase=%s session=%s connection=%s isolation=%s jdbcIsolation=%s%n",
-                        phase, System.identityHashCode(session), result.getLong(1), result.getString(2),
-                        connection.getTransactionIsolation());
-            }
-        });
     }
 
     static class Events {
