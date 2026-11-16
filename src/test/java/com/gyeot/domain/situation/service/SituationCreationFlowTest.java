@@ -218,6 +218,15 @@ class SituationCreationFlowTest {
         @Bean SituationCreateWriter writer(SituationRepository s, SituationParticipantRepository p, Clock c) { return new SituationCreateWriter(s, p, c); }
         @Bean SituationCreateService service(Validator v, SituationCreationTypeResolver t, SituationCreateParticipantValidator pv,
                 SituationCreateWriter w, SituationRepository s, SituationParticipantRepository p, Clock c) { return new SituationCreateService(v, t, pv, w, s, p, c); }
-        @Bean SituationQueryService queries(SituationRepository s, SituationParticipantRepository p) { return new SituationQueryService(s, p); }
+        @Bean com.gyeot.domain.carerequest.query.CareRequestSummaryReader requestReader() {
+            var reader = mock(com.gyeot.domain.carerequest.query.CareRequestSummaryReader.class);
+            when(reader.getSituationStats(any(), any())).thenReturn(Map.of(7L,
+                    com.gyeot.domain.carerequest.query.CareRequestSummaryReader.SituationRequestStats.empty()));
+            when(reader.getSituationRequests(anyLong(), anyLong(), any())).thenReturn(List.of());
+            return reader;
+        }
+        @Bean SituationQueryService queries(SituationRepository s, SituationParticipantRepository p,
+                org.springframework.beans.factory.ObjectProvider<com.gyeot.domain.carerequest.query.CareRequestSummaryReader> readers,
+                Clock clock) { return new SituationQueryService(s, p, readers, clock); }
     }
 }

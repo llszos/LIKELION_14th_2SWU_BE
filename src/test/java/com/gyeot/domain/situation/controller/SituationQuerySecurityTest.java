@@ -60,7 +60,7 @@ class SituationQuerySecurityTest {
         when(service.listActive(20L, 0, 20)).thenReturn(new SituationListResponse(List.of(), 0, 20, false));
         var start = LocalDateTime.of(2026, 11, 20, 9, 0);
         when(service.detailActive(1L, 20L)).thenReturn(new SituationDetailResponse(
-                1L, "상황", "유형", start, start.plusHours(1), SituationStatus.ACTIVE, 10L, null, null));
+                1L, "상황", "유형", start, start.plusHours(1), SituationStatus.ACTIVE, 10L, null, null, 0, List.of()));
         for (String uri : List.of("/api/situations", "/api/situations/1")) {
             mvc.perform(get(uri).header("Authorization", "Bearer valid").param("userId", "999"))
                     .andExpect(status().isOk())

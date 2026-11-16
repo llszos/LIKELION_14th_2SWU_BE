@@ -21,7 +21,8 @@ import static org.mockito.Mockito.*;
 class SituationQueryServiceTest {
     private final SituationRepository repository = mock(SituationRepository.class);
     private final SituationParticipantRepository participantRepository = mock(SituationParticipantRepository.class);
-    private final SituationQueryService service = new SituationQueryService(repository, participantRepository);
+    private final SituationQueryService service = new SituationQueryService(repository, participantRepository,
+            mock(org.springframework.beans.factory.ObjectProvider.class), java.time.Clock.systemUTC());
 
     @Test
     void mapsBasicFieldsAndSliceMetadataUsingFixedDescendingOrder() {

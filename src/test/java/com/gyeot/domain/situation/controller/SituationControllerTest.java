@@ -95,7 +95,7 @@ class SituationControllerTest {
     void detailUsesAuthenticatedIdAndReturnsOnlyBasicFields() throws Exception {
         LocalDateTime start = LocalDateTime.of(2026, 11, 20, 9, 0);
         when(service.detailActive(1L, 20L)).thenReturn(new SituationDetailResponse(
-                1L, "상세", "유형", start, start.plusHours(1), SituationStatus.ACTIVE, 10L, null, null));
+                1L, "상세", "유형", start, start.plusHours(1), SituationStatus.ACTIVE, 10L, null, null, 0, List.of()));
 
         mvc.perform(get("/api/situations/1").param("userId", "999"))
                 .andExpect(status().isOk())
@@ -109,8 +109,8 @@ class SituationControllerTest {
                           }
                         }
                         """))
-                .andExpect(jsonPath("$.data.requests").doesNotExist())
-                .andExpect(jsonPath("$.data.activeRequestCount").doesNotExist())
+                .andExpect(jsonPath("$.data.requests").isArray())
+                .andExpect(jsonPath("$.data.activeRequestCount").value(0))
                 .andExpect(jsonPath("$.data.activeParticipantCount").doesNotExist())
                 .andExpect(jsonPath("$.data.targetUserName").doesNotExist());
         verify(service).detailActive(1L, 20L);
@@ -127,6 +127,31 @@ class SituationControllerTest {
                         {"status":"error", "code":"SITUATION_NOT_FOUND",
                          "message":"상황을 찾을 수 없습니다.", "data":null}
                         """));
+    }
+
+    @Test
+    void detailSerializesConfirmedCFieldsWithoutInventedNames() throws Exception {
+        var start = LocalDateTime.of(2026, 11, 20, 9, 0);
+        var request = new com.gyeot.domain.carerequest.query.CareRequestSummaryReader.RequestSummary(
+                8L, com.gyeot.domain.carerequest.enums.RequestType.GENERAL,
+                com.gyeot.domain.carerequest.enums.HelpType.HOSPITAL, start, start.plusHours(1), 10L, 30L,
+                com.gyeot.domain.carerequest.query.RequestDisplayStatus.NO_ASSIGNEE);
+        when(service.detailActive(1L, 20L)).thenReturn(new SituationDetailResponse(
+                1L, "상황", "RECOVERY", start, start.plusHours(2), SituationStatus.ACTIVE, 10L, null, null,
+                4, List.of(request)));
+
+        mvc.perform(get("/api/situations/1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.activeRequestCount").value(4))
+                .andExpect(jsonPath("$.data.requests[0].requestId").value(8))
+                .andExpect(jsonPath("$.data.requests[0].startsAt").value("2026-11-20T09:00:00"))
+                .andExpect(jsonPath("$.data.requests[0].endsAt").value("2026-11-20T10:00:00"))
+                .andExpect(jsonPath("$.data.requests[0].targetUserId").value(30))
+                .andExpect(jsonPath("$.data.requests[0].displayStatus").value("NO_ASSIGNEE"))
+                .andExpect(jsonPath("$.data.requests[0].scheduledAt").doesNotExist())
+                .andExpect(jsonPath("$.data.requests[0].assigneeId").doesNotExist())
+                .andExpect(jsonPath("$.data.requests[0].targetUserName").doesNotExist())
+                .andExpect(jsonPath("$.data.isOwner").doesNotExist());
     }
 
     @Test

@@ -27,7 +27,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 /** 일회용 MySQL에서 EXISTS 필터·중복 제거·정렬·Slice 경계를 검증합니다. */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({JpaAuditingConfig.class, SafetyInformationCipher.class, SituationQueryService.class})
+@Import({JpaAuditingConfig.class, SafetyInformationCipher.class, SituationQueryService.class,
+        com.gyeot.global.config.ClockConfiguration.class})
 @ActiveProfiles("test")
 @Testcontainers
 class SituationListRepositoryIntegrationTest {

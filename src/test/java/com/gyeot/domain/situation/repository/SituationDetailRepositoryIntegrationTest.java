@@ -32,7 +32,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 /** 일회용 MySQL의 실제 Repository로 상세 접근 조건을 검증합니다. HTTP 테스트는 아닙니다. */
 @DataJpaTest(properties = "spring.flyway.enabled=false")
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({JpaAuditingConfig.class, SafetyInformationCipher.class, SituationQueryService.class})
+@Import({JpaAuditingConfig.class, SafetyInformationCipher.class, SituationQueryService.class,
+        com.gyeot.global.config.ClockConfiguration.class})
 @ActiveProfiles("test")
 @Testcontainers
 class SituationDetailRepositoryIntegrationTest {
@@ -46,6 +47,21 @@ class SituationDetailRepositoryIntegrationTest {
     @Autowired private SituationParticipantRepository participants;
     @Autowired private SituationQueryService service;
     @Autowired private EntityManager em;
+    @org.springframework.test.context.bean.override.mockito.MockitoBean
+    private com.gyeot.domain.carerequest.query.CareRequestSummaryReader requestReader;
+
+    @org.junit.jupiter.api.BeforeEach
+    void emptyCRequests() {
+        org.mockito.Mockito.when(requestReader.getSituationStats(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> {
+                    java.util.List<Long> ids = invocation.getArgument(0);
+                    return java.util.Map.of(ids.getFirst(),
+                            com.gyeot.domain.carerequest.query.CareRequestSummaryReader.SituationRequestStats.empty());
+                });
+        org.mockito.Mockito.when(requestReader.getSituationRequests(org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(java.util.List.of());
+    }
 
     @Test
     void allowsActiveOwnerAndMapsPersistedFields() {
