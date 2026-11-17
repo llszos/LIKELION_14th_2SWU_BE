@@ -3,8 +3,9 @@ spring:
     name: gyeot
   profiles:
     default: local
-  flyway:
-    enabled: false  # #47에서 V1 작성 후 활성화
+  # DB 스키마는 Flyway가 만듭니다. (#47, src/main/resources/db/migration의 V1, V2...)
+  # Spring Boot 기본값으로 켜져 있어, 앱이 뜰 때 아직 적용하지 않은 마이그레이션만 순서대로 실행합니다.
+  # Hibernate는 만들지 않고 엔티티와 테이블이 맞는지만 확인합니다. (프로필별 ddl-auto: validate)
   jpa:
     open-in-view: false
     properties:
