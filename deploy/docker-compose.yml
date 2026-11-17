@@ -25,16 +25,21 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # 외부 요청(80)을 app(8080)으로 전달하는 리버스 프록시. HTTPS도 여기서 처리할 예정
+  # 외부 요청을 app(8080)으로 전달하는 리버스 프록시. HTTPS(api.gyeot.shop)도 여기서 처리 (#81)
   nginx:
     image: nginx:1.27-alpine
     container_name: gyeot-nginx
     restart: unless-stopped
     depends_on:
       - app
-    # 서버 80번 포트 → nginx (보안 그룹에서 80·443 허용)
+    # 서버 80, 443번 포트 → nginx (보안 그룹에서 80, 443 허용)
     ports:
       - "80:80"
-    # 서버의 nginx 설정 파일을 읽기 전용으로 연결
+      - "443:443"
+    # 서버의 nginx 설정 파일과 인증서 폴더를 읽기 전용으로 연결
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      # Let's Encrypt 도메인 확인 파일 (certbot이 씀)
+      - ./certbot/www:/var/www/certbot:ro
+      # 인증서와 키 (저장소에 커밋하지 않음)
+      - ./certbot/conf:/etc/letsencrypt:ro
