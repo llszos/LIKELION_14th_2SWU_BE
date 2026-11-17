@@ -220,7 +220,7 @@ export JWT_SECRET="$(openssl rand -base64 32)"
 | `COOKIE_DOMAIN` | 빈 값 | 미설정 시 host-only. 배포 도메인 기준 설정 |
 | `COOKIE_SECURE` | local false / prod true | HTTPS 운영 환경에서는 true |
 | `COOKIE_SAME_SITE` | Lax | 배포 구조에 맞게 결정. cross-site 쿠키의 None 설정에는 Secure 필요 |
-| `CORS_ALLOWED_ORIGINS` | local http://localhost:3000 / prod 기본값 없음 | 허용할 프론트 origin. prod에서는 반드시 주입 |
+| `CORS_ALLOWED_ORIGINS` | local http://localhost:5173 / prod 기본값 없음 | 허용할 프론트 origin. prod에서는 반드시 주입 |
 
 #33의 쿠키 인증 요청에는 브라우저의 `credentials: "include"`와 CSRF 연동이 필요합니다. Access Token은 메모리에 보관하고 Refresh Token은 HttpOnly 쿠키로 전달하며 프론트에서 읽거나 저장하지 않습니다. CORS에는 실제 프론트 origin을 지정하고 운영 주소·쿠키 속성을 배포 구조와 함께 확인합니다.
 
