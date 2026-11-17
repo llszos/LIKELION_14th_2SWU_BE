@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -25,18 +26,42 @@ import java.util.Optional;
 public interface RequestInformationPermissionRepository extends JpaRepository<RequestInformationPermission, Long> { // JpaRepository<다룰 엔티티, 그 엔티티의 ID 타입>
 
     /**
-     * 정보 주인이 지금 공유 중인 건수를 셉니다. (F-30, 홈 F-34, 안심카드 메인 C-00)
-     * 공유 1건 = (요청, 담당자) 묶음이고, 담당 지정 하나는 요청 하나와 담당자 한 명으로 정해지므로 담당 지정 ID 개수로 셉니다.
-     * 권한에는 정보 주인 ID가 없어서, 공유한 안심카드 항목(safety_information)의 주인으로 찾습니다.
+     * 정보 주인의 항목을 공유했거나 직접 철회한 대상 지정 ID를 조회합니다. (공유 관리 카드 후보, #46)
+     *
+     * - 공유 관리 화면에 나올 수 있는 카드는 지금 공유 중(ACTIVE)이거나, 정보 주인이 직접 철회(OWNER_REVOKED)한 카드입니다.
+     *   수락 전(PENDING)과 그 밖의 이유로 끝난 권한만 있는 지정은 후보가 아닙니다.
+     * - 권한에는 정보 주인 ID가 없어서, 공유한 안심카드 항목의 주인으로 찾습니다.
+     *   삭제한 항목의 권한은 information_id가 NULL이라 join에서 빠집니다. (삭제 항목은 카드에 보여 주지 않음)
+     * - 후보일 뿐 최종 카드가 아닙니다. 과거 철회 기록이 남아 있을 수 있어, 항목별 최신 권한과 요청 상태로 서비스에서 다시 판단합니다.
+     * - 잠그지 않는 조회입니다. 화면에 보여 줄 값만 계산하고 권한을 바꾸지 않습니다.
      */
     @Query("""
-            select count(distinct p.assignmentId)
+            select distinct p.assignmentId
             from RequestInformationPermission p
             join SafetyInformation s on s.id = p.informationId
-            where s.ownerId = :ownerUserId and p.status = :status
+            where s.ownerId = :ownerUserId
+              and (p.status = com.gyeot.domain.access.entity.PermissionStatus.ACTIVE
+                   or p.revokeReason = com.gyeot.domain.access.entity.RevokeReason.OWNER_REVOKED)
             """)
+    List<Long> findSharingCandidateAssignmentIds(@Param("ownerUserId") Long ownerUserId);
 
-    long countSharings(@Param("ownerUserId") Long ownerUserId, @Param("status") PermissionStatus status);
+    /**
+     * 여러 대상 지정의 권한을 상태와 상관없이 모두 조회합니다. 삭제한 항목의 권한은 뺍니다. (공유 관리 카드 판단, #46)
+     *
+     * - 항목별 최신 권한으로 카드 상태를 판단하려면 끝난 권한(공개 항목 제외, 직접 철회 등)도 함께 필요합니다.
+     *   예: 철회 → 다시 허용 → 공개 항목 제외면, 그 항목의 최신 행은 SHARING_EXCLUDED라 예전 철회 기록으로 보지 않습니다.
+     * - 삭제한 항목의 권한은 information_id가 NULL이라 조건에서 빠집니다. (삭제는 그 항목의 모든 권한 행을 NULL로 바꿈, ERD 9.5)
+     * - ID 오름차순이라 같은 항목에서는 나중에 만든 권한이 뒤에 옵니다.
+     * - 잠그지 않는 조회입니다. 빈 목록을 넘기지 않도록 호출 측에서 먼저 확인합니다.
+     */
+    @Query("""
+            select p
+            from RequestInformationPermission p
+            where p.assignmentId in :assignmentIds
+              and p.informationId is not null
+            order by p.id
+            """)
+    List<RequestInformationPermission> findItemPermissionsByAssignmentIds(@Param("assignmentIds") Collection<Long> assignmentIds);
 
     /**
      * 요청에 지금 공개 중인 항목 ID를 조회합니다. (F-03 요청 수정, 공개 항목 선택지 조회)
@@ -73,6 +98,24 @@ public interface RequestInformationPermissionRepository extends JpaRepository<Re
             """)
     List<Long> findLastSharedInformationIds(@Param("requestId") Long requestId,
                                             @Param("excludedReasons") Collection<RevokeReason> excludedReasons);
+
+    /**
+     * 공유 카드(대상 지정)가 속한 요청 ID를 조회합니다. (공유 직접 철회, 다시 허용의 바깥 단계, #46)
+     *
+     * - 쓰기 트랜잭션 밖에서 부릅니다. 쓰기 트랜잭션은 C 요청 행 잠금을 첫 조회로 해야 하는데,
+     *   그 잠금에 필요한 요청 ID를 같은 트랜잭션에서 일반 조회로 먼저 읽으면 잠금 전에 스냅샷이 만들어지기 때문입니다.
+     * - 권한의 request_id는 만든 뒤 바뀌지 않아, 잠금 전에 따로 읽은 값이어도 그대로 쓸 수 있습니다.
+     * - 한 지정의 권한은 모두 같은 요청이라 distinct로 하나만 돌려줍니다. 권한이 없는 지정이면 빈 Optional입니다.
+     * - 읽기 전용 트랜잭션을 명시합니다. 호출하는 쪽에 트랜잭션이 없으면 이 조회만의 짧은 트랜잭션으로 시작하고 끝나,
+     *   뒤이은 쓰기 트랜잭션에 스냅샷이 남지 않습니다.
+     */
+    @Transactional(readOnly = true)
+    @Query("""
+            select distinct p.requestId
+            from RequestInformationPermission p
+            where p.assignmentId = :assignmentId
+            """)
+    Optional<Long> findRequestIdByAssignmentId(@Param("assignmentId") Long assignmentId);
 
     /**
      * 대상 지정 하나의 열린 권한이 가리키는 항목 ID만 조회합니다. (#38 잠금 순서, 잠그기 전 단계)
@@ -137,6 +180,23 @@ public interface RequestInformationPermissionRepository extends JpaRepository<Re
             """)
     List<Long> findIdsByAssignmentIdAndStatusIn(@Param("assignmentId") Long assignmentId,
                                                 @Param("statuses") Collection<PermissionStatus> statuses);
+
+    /**
+     * 대상 지정 하나에서 지정한 항목들의 한 상태 권한 ID를 오름차순으로 읽습니다. (#46 수정 확정의 직접 철회 판단)
+     * - 엔티티가 아니라 ID만 읽고, 호출 전제(C 요청 행 잠금 뒤 스냅샷)는 findIdsByAssignmentIdAndStatusIn과 같습니다.
+     * - 호출 측이 이 항목들을 먼저 잠근 뒤 부릅니다. (항목 → 권한 잠금 순서, PermissionWriter.lockChangePermissionsById)
+     */
+    @Query("""
+            select p.id
+            from RequestInformationPermission p
+            where p.assignmentId = :assignmentId
+              and p.status = :status
+              and p.informationId in :informationIds
+            order by p.id
+            """)
+    List<Long> findIdsByAssignmentIdAndStatusAndInformationIdIn(@Param("assignmentId") Long assignmentId,
+                                                                @Param("status") PermissionStatus status,
+                                                                @Param("informationIds") Collection<Long> informationIds);
 
     /**
      * 권한 하나를 기본 키로 잠금 조회합니다. (#38 리뷰 반영)

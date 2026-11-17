@@ -1,5 +1,6 @@
 package com.gyeot.domain.access.service;
 
+import com.gyeot.domain.access.entity.PermissionStatus;
 import com.gyeot.domain.access.entity.RequestInformationPermission;
 import com.gyeot.domain.access.entity.RevokeReason;
 import com.gyeot.domain.carerequest.enums.ChangeableField;
@@ -18,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -119,6 +121,9 @@ public class PermissionGrantService {
      * - 빠진 항목: SHARING_EXCLUDED로 회수 (ACTIVE였으면 정보 주인을 수행자로 AUTO_REVOKED 이력)
      *   재확인 수락에서 대기 중 삭제된 유지 항목도 반영 목록에서 빠지므로 여기서 회수됩니다.
      * - 추가된 항목: 수락 전 직접 수정(proposalId 없음)은 PENDING, 재확인 수락(proposalId 있음)은 ACTIVE + GRANTED
+     *   재확인 수락에서 이 지정의 항목별 최신 권한이 직접 철회(OWNER_REVOKED)인 항목은 추가로 보지 않고 닫힌 채 둡니다. (#46)
+     *   지금 공개 중이 아니라는 이유만으로 추가로 보면, 수정안을 기다리는 동안 정보 주인이 철회한 항목이 다시 열리기 때문입니다.
+     *   다시 열려면 정보 주인이 '다시 허용'을 해야 합니다. (카드에 공개 중인 항목이 있으면 전체 철회 후 다시 허용)
      * - 유지된 항목: 그대로 둠 (권한과 이력 변화 없음)
      * - 빈 목록: 공개 중인 항목 전부 회수
      */
@@ -141,7 +146,13 @@ public class PermissionGrantService {
 
         // 잠금 뒤 처음 읽는 권한 엔티티 (잠금 조회라 최신 상태)
         // 뒤에서 추가 항목을 INSERT하므로 범위 잠금 대신 권한 ID로 잠금 (갭 락 교착 위험 완화, #38 리뷰 반영)
-        List<RequestInformationPermission> open = permissionWriter.lockOpenPermissionsById(event.assignmentId()); // 지금 공개 중
+        // 재확인 수락은 반영 목록 항목의 REVOKED 권한도 같은 잠금에서 함께 읽음 (직접 철회 판단용, 위에서 항목을 잠근 범위 안)
+        List<RequestInformationPermission> locked =
+                permissionWriter.lockChangePermissionsById(event.assignmentId(), accepted ? afterList : null);
+        List<RequestInformationPermission> open = locked.stream()
+                .filter(permission -> PermissionWriter.OPEN_STATUSES.contains(permission.getStatus()))
+                .toList(); // 지금 공개 중
+        Set<Long> ownerRevokedIds = accepted ? ownerRevokedItemIds(locked) : Set.of(); // 지금 직접 철회 상태인 항목
         Set<Long> afterIds = new HashSet<>(afterList); // 포함 여부 비교용
         Set<Long> openIds = new HashSet<>();
 
@@ -158,8 +169,10 @@ public class PermissionGrantService {
                 event.requesterId(), event.occurredAt());
 
         // 2. 새로 들어온 항목만 생성 (요청자가 고른 순서 유지, 목록 확인은 위에서 완료)
+        //    재확인 수락에서 지금 직접 철회 상태인 항목은 새 항목이 아니라 닫힌 채 둠 (#46)
         List<Long> added = afterList.stream()
                 .filter(informationId -> !openIds.contains(informationId))
+                .filter(informationId -> !ownerRevokedIds.contains(informationId))
                 .toList();
 
         if (added.isEmpty()) {
@@ -174,6 +187,31 @@ public class PermissionGrantService {
         // 수락 후 추가: 바로 볼 수 있게 ACTIVE, 수행자는 재확인을 수락한 담당자, 부여 시각은 확정 시각
         permissionWriter.createActive(event.requestId(), event.assignmentId(), event.requesterId(),
                 event.targetUserId(), added, event.occurredAt(), expiresAtOfAcceptedRequest(event.requestId()));
+    }
+
+    /**
+     * 이 지정에서 항목별 최신 권한이 직접 철회(OWNER_REVOKED)인 항목 ID입니다. (#46)
+     *
+     * - 같은 항목에서 권한 ID가 가장 큰 행을 최신으로 봅니다. (SharingCardRules.latestByInformationId, 공유 관리와 같은 기준)
+     *   철회 후 다시 허용된 항목은 최신이 ACTIVE라 해당하지 않고, 다른 사유로 회수된 항목도 해당하지 않습니다.
+     * - 항목이 삭제돼 information_id가 비어 있는 권한은 어느 항목의 기록인지 알 수 없어 뺍니다.
+     * - 넘겨받은 권한은 모두 이 지정의 것이라, 다른 지정의 철회 기록은 영향을 주지 않습니다.
+     *
+     * @param permissions 이 지정에서 잠근 권한 (lockChangePermissionsById 결과)
+     */
+    private static Set<Long> ownerRevokedItemIds(List<RequestInformationPermission> permissions) {
+        Map<Long, RequestInformationPermission> latest = SharingCardRules.latestByInformationId(permissions.stream()
+                .filter(permission -> permission.getInformationId() != null)
+                .toList());
+
+        Set<Long> ids = new HashSet<>();
+        latest.forEach((informationId, permission) -> {
+            if (permission.getStatus() == PermissionStatus.REVOKED
+                    && permission.getRevokeReason() == RevokeReason.OWNER_REVOKED) {
+                ids.add(informationId);
+            }
+        });
+        return ids;
     }
 
     /**
