@@ -68,7 +68,9 @@ docker run --name gyeot-mysql --env "MYSQL_ROOT_PASSWORD=$DB_PASSWORD" --env MYS
 docker start gyeot-mysql
 ```
 
-기존 컨테이너·볼륨을 사용할 때는 DB 생성 당시의 비밀번호를 입력해야 합니다. 환경변수 값을 바꾸는 것만으로 기존 DB 비밀번호가 변경되지는 않습니다. 문제 해결을 위해 기존 데이터나 볼륨을 임의로 삭제하지 않습니다.
+기존 컨테이너·볼륨을 사용할 때는 DB 생성 당시의 비밀번호를 입력해야 합니다. 환경변수 값을 바꾸는 것만으로 기존 DB 비밀번호가 변경되지는 않습니다. 문제 해결을 위해 기존 데이터나 볼륨을 임의로 삭제하지 않습니다. (#47 Flyway 전환은 [기존 로컬 DB 전환](#기존-로컬-db-전환-47-병합-후-최초-1회) 안내를 따릅니다)
+
+테이블은 서버를 처음 실행할 때 Flyway가 만듭니다. DB를 만든 뒤 따로 테이블을 만들 필요는 없습니다.
 
 ### 3. 서버 실행
 
@@ -108,15 +110,55 @@ IntelliJ에서는 `GyeotApplication` 실행 버튼으로 시작할 수 있습니
 | 설정 파일 | 용도 | 스키마 관리 |
 | --- | --- | --- |
 | [application.yaml](../src/main/resources/application.yaml) | 공통 설정, 기본 프로필 `local` | — |
-| [application-local.yaml](../src/main/resources/application-local.yaml) | 로컬 개발 | `ddl-auto: update` |
-| [application-test.yaml](../src/main/resources/application-test.yaml) | 자동 테스트 | `ddl-auto: create-drop` |
-| [application-prod.yaml](../src/main/resources/application-prod.yaml) | 배포 환경 | `ddl-auto: validate` |
+| [application-local.yaml](../src/main/resources/application-local.yaml) | 로컬 개발 | Flyway로 생성, `ddl-auto: validate` |
+| [application-test.yaml](../src/main/resources/application-test.yaml) | 자동 테스트 | Flyway로 생성, `ddl-auto: validate` |
+| [application-prod.yaml](../src/main/resources/application-prod.yaml) | 배포 환경 | Flyway로 생성, `ddl-auto: validate` |
 
-테스트 DB 연결은 Testcontainers가 제공합니다. 운영은 `validate`이므로 테이블을 자동 생성하지 않으며, 운영 스키마 준비는 팀의 배포 절차를 따릅니다.
+테스트 DB 연결은 Testcontainers가 제공합니다. 모든 프로필에서 테이블은 Flyway 마이그레이션이 만들고, Hibernate는 엔티티와 테이블이 맞는지만 확인합니다. 자세한 내용은 [DB 스키마와 마이그레이션](#db-스키마와-마이그레이션-flyway)을 참고합니다.
 
-회원가입 개인정보 동의 기록 기능을 배포할 때는 운영 DB에 `user_consents` 테이블과 Entity에 선언된 유니크 제약을 먼저 생성하고, 스키마가 준비된 것을 확인한 뒤 애플리케이션을 배포합니다. 테이블이 없으면 `validate` 단계에서 애플리케이션이 시작되지 않습니다.
+회원가입 개인정보 동의 기록 테이블(`user_consents`)과 유니크 제약도 Flyway V1이 만듭니다. 운영 DB에 따로 만들 필요가 없습니다.
 
 서비스 시각 기준은 `Asia/Seoul`입니다. 날짜는 `DATE`, 시각은 `DATETIME(6)`을 기준으로 설계하며, JVM·Hibernate·테스트에도 한국 시간대 설정이 있습니다.
+
+## DB 스키마와 마이그레이션 (Flyway)
+
+#47부터 DB 테이블은 Hibernate 자동 생성(`ddl-auto: update`)이 아니라 Flyway 마이그레이션 파일로 만듭니다. 로컬, 테스트, 운영이 같은 스키마(생성 컬럼, UNIQUE, CHECK 포함)를 쓰기 위해서입니다.
+
+- 마이그레이션 위치: [src/main/resources/db/migration](../src/main/resources/db/migration)
+- 서버가 시작될 때 Flyway가 아직 적용하지 않은 파일만 버전 순서대로 실행하고, 적용 기록을 `flyway_schema_history` 테이블에 남깁니다.
+- 그다음 Hibernate가 엔티티와 테이블이 맞는지 확인합니다(`validate`). 맞지 않으면 서버가 시작되지 않습니다.
+- `validate`는 테이블, 컬럼, 타입만 확인합니다. 생성 컬럼, UNIQUE, CHECK, 인덱스 차이는 잡지 못하므로 제약 동작은 테스트로 확인합니다. (예: `SchemaConstraintTest`)
+
+### 마이그레이션 작성 규칙
+
+1. **엔티티를 바꾸면 마이그레이션도 같은 PR에 넣습니다.** 컬럼 추가, 타입이나 NULL 여부 변경, 인덱스, 제약 모두 해당합니다. 마이그레이션이 빠지면 변경 내용에 따라 `validate`에서 서버가 시작되지 않거나(테이블, 컬럼, 타입 차이), 시작은 되더라도 실행 중 저장 오류나 데이터 정합성 문제가 생길 수 있습니다(NULL 여부, 인덱스, 제약 차이).
+2. **이미 develop에 병합된 마이그레이션 파일은 수정하지 않습니다.** 고칠 내용이 있으면 새 버전 파일로 추가합니다. 적용된 파일이 바뀌면 Flyway가 체크섬 불일치로 시작을 멈춥니다.
+3. **파일 이름**은 `V{번호}__{영문_snake_case_설명}.sql`입니다. 밑줄은 두 개입니다. (예: `V2__add_request_response_deadline_hours.sql`)
+4. **버전 번호**는 PR을 올릴 때 최신 develop의 가장 큰 번호 + 1로 정하고, PR 본문에 적습니다. 병합 직전에 develop을 다시 받아 다른 PR이 같은 번호를 먼저 썼으면 번호를 올립니다. 같은 번호가 두 개면 서버가 시작되지 않습니다.
+   - 번호를 바꾼 마이그레이션을 로컬 DB에 이미 적용했다면, 데이터 보존 여부를 확인한 뒤 해당 DB를 새로 만들어 검증합니다.
+   - 공유 DB(개발 서버 등)에 이미 적용한 파일은 번호나 내용을 바꾸지 않습니다.
+5. **엔티티에 매핑하지 않는 제약**(생성 컬럼 + UNIQUE, CHECK)은 마이그레이션에만 있으므로, 이 제약이 막는 경우를 테스트로 확인합니다.
+6. **기존 데이터가 있는 테이블**에 NOT NULL 컬럼을 추가하거나 값을 바꿀 때는, 기존 행을 채우는 SQL을 같은 파일에 함께 넣습니다.
+
+### 기존 로컬 DB 전환 (#47 병합 후 최초 1회)
+
+#47 이전에 만든 로컬 DB는 `ddl-auto: update`가 만든 테이블이 있고 Flyway 적용 기록이 없어, 그대로 서버를 실행하면 Flyway가 시작을 멈춥니다. 로컬 데이터를 보존할 필요가 있는지 먼저 확인한 뒤 아래 중 하나를 선택합니다.
+
+**A. 로컬 DB를 새로 만들기 (권장, 로컬 데이터 삭제)**
+
+로컬 데이터가 필요 없으면 컨테이너와 볼륨을 지우고 [2. 로컬 DB 생성](#2-로컬-db-생성--최초-1회)부터 다시 진행합니다. 서버를 실행하면 Flyway가 테이블을 만듭니다.
+
+```text
+docker rm -f gyeot-mysql
+docker volume rm gyeot-mysql-data
+```
+
+볼륨을 지우면 로컬 데이터는 복구할 수 없습니다.
+
+**B. 로컬 데이터를 유지해야 하는 경우**
+
+필요한 데이터가 있으면 팀장과 먼저 방법을 정합니다. (예: 필요한 데이터만 내보낸 뒤 A로 새로 만들고 다시 넣기)
+기존 테이블을 V1으로 간주하는 baseline 방식은 V1의 제약(생성 컬럼, CHECK)이 로컬에 없어서, 테스트나 서버와 동작이 달라지고 이후 마이그레이션이 V1 제약을 바꿀 때 실패할 수 있어 권장하지 않습니다.
 
 ## 빌드와 테스트
 
