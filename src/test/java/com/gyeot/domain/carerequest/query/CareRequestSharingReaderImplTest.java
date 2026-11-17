@@ -145,6 +145,41 @@ public class CareRequestSharingReaderImplTest {
         assertThat(reader.findById(12345L)).isEmpty();
     }
 
+    // === findByIdForUpdate (D #46 다시 허용) ===
+
+    @Test
+    void 잠금_조회는_일반_조회와_같은_값을_돌려준다() {
+        CareRequest request = saveRequest();
+        accept(request, saveAssignment(request, TARGET_ID, 1));
+        flushAndClear();
+
+        assertThat(reader.findByIdForUpdate(request.getId())).isEqualTo(reader.findById(request.getId()));
+        assertThat(reader.findByIdForUpdate(request.getId()).orElseThrow().assigneeId()).isEqualTo(TARGET_ID);
+    }
+
+    @Test
+    void 잠금_조회는_없는_요청이면_빈_Optional이다() {
+        assertThat(reader.findByIdForUpdate(12345L)).isEmpty();
+    }
+
+    @Test
+    void 같은_트랜잭션에서_먼저_읽어_둔_값이_있어도_잠금_조회는_DB의_최신_값을_돌려준다() {
+        CareRequest request = saveRequest();
+        RequestAssignment assignment = saveAssignment(request, TARGET_ID, 1);
+        accept(request, assignment);
+        flushAndClear();
+        reader.findById(request.getId()); // 요청·지정 엔티티가 메모리에 남음 (수락됨, 담당자 있음)
+
+        // 다른 트랜잭션이 취소하고 지정을 마감한 것처럼 DB만 바꿈 (메모리의 엔티티는 예전 값 그대로)
+        entityManager.createNativeQuery("update care_requests set status = 'CANCELED' where id = :id")
+                .setParameter("id", request.getId()).executeUpdate();
+        entityManager.createNativeQuery("update request_assignments set closed_at = :now, close_reason = 'REQUEST_ENDED' "
+                        + "where id = :id")
+                .setParameter("now", NOW).setParameter("id", assignment.getId()).executeUpdate();
+
+        assertNoAssignee(reader.findByIdForUpdate(request.getId()).orElseThrow(), CareRequestStatus.CANCELED);
+    }
+
     // === findAllByIds ===
 
     @Test
@@ -193,6 +228,78 @@ public class CareRequestSharingReaderImplTest {
         assertThat(reader.hasBeenAssigned(request.getId(), REQUESTER_ID)).isFalse();
         assertThat(reader.hasBeenAssigned(request.getId(), STRANGER_ID)).isFalse();
         assertThat(reader.hasBeenAssigned(12345L, TARGET_ID)).isFalse();
+    }
+
+    // === isCurrentTarget (D 전달받은 정보 조회) ===
+
+    @Test
+    void 응답을_기다리는_지금_대상과_수락한_담당자는_true다() {
+        CareRequest waiting = saveRequest();
+        saveAssignment(waiting, TARGET_ID, 1);                      // 미응답
+        CareRequest accepted = saveRequest();
+        accept(accepted, saveAssignment(accepted, TARGET_ID, 1));  // 수락
+        flushAndClear();
+
+        assertThat(reader.isCurrentTarget(waiting.getId(), TARGET_ID)).isTrue();
+        assertThat(reader.isCurrentTarget(accepted.getId(), TARGET_ID)).isTrue();
+    }
+
+    @Test
+    void 어려움으로_답했어도_아직_다른_사람에게_넘어가지_않았으면_true다() {
+        CareRequest request = saveRequest();
+        saveAssignment(request, TARGET_ID, 1).respond(AssignmentResponseStatus.UNAVAILABLE, NOW);
+        flushAndClear();
+
+        assertThat(reader.isCurrentTarget(request.getId(), TARGET_ID)).isTrue(); // 지정은 다시 부탁할 때 마감됨
+    }
+
+    @Test
+    void 다른_사람에게_넘어간_예전_대상과_수락을_철회한_담당자는_false다() {
+        CareRequest changed = saveRequest();
+        RequestAssignment first = RequestAssignment.assign(changed, TARGET_ID, 1, NOW.plusHours(24));
+        first.respond(AssignmentResponseStatus.UNAVAILABLE, NOW);
+        first.close(AssignmentCloseReason.TARGET_CHANGED, NOW);
+        assignmentRepository.save(first);
+        saveAssignment(changed, NEXT_TARGET_ID, 2);
+
+        CareRequest withdrawn = saveRequest();
+        RequestAssignment assignee = saveAssignment(withdrawn, TARGET_ID, 1);
+        accept(withdrawn, assignee);
+        assignee.close(AssignmentCloseReason.ACCEPTANCE_WITHDRAWN, NOW);
+        withdrawn.revertToRequested();
+        flushAndClear();
+
+        assertThat(reader.isCurrentTarget(changed.getId(), TARGET_ID)).isFalse();
+        assertThat(reader.isCurrentTarget(changed.getId(), NEXT_TARGET_ID)).isTrue(); // 지금 대상
+        assertThat(reader.isCurrentTarget(withdrawn.getId(), TARGET_ID)).isFalse();
+    }
+
+    @Test
+    void 완료된_요청의_담당자는_true이고_취소된_요청은_false다() {
+        CareRequest completed = saveRequest();
+        accept(completed, saveAssignment(completed, TARGET_ID, 1));
+        completed.start(NOW);
+        completed.complete(NOW.plusHours(1));                       // 완료는 지정을 마감하지 않음
+
+        CareRequest canceled = saveRequest();
+        RequestAssignment target = saveAssignment(canceled, TARGET_ID, 1);
+        target.close(AssignmentCloseReason.REQUEST_ENDED, NOW);      // 취소는 지정을 함께 마감
+        canceled.cancel(CancelReason.REQUESTER_CANCELED, NOW);
+        flushAndClear();
+
+        assertThat(reader.isCurrentTarget(completed.getId(), TARGET_ID)).isTrue();
+        assertThat(reader.isCurrentTarget(canceled.getId(), TARGET_ID)).isFalse();
+    }
+
+    @Test
+    void 요청자_지정된_적_없는_사람_없는_요청은_false다() {
+        CareRequest request = saveRequest();
+        saveAssignment(request, TARGET_ID, 1);
+        flushAndClear();
+
+        assertThat(reader.isCurrentTarget(request.getId(), REQUESTER_ID)).isFalse();
+        assertThat(reader.isCurrentTarget(request.getId(), STRANGER_ID)).isFalse();
+        assertThat(reader.isCurrentTarget(12345L, TARGET_ID)).isFalse();
     }
 
     // === 준비 코드 ===

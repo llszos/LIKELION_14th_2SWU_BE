@@ -68,7 +68,7 @@ public class InvitationController {
     }
 
     @PostMapping("/{token}/accept")
-    @Operation(summary = "초대 수락", description = "초대 유형별 응답을 기록합니다. 보호자 관계 생성·전환은 후속 관계 처리 범위에서 수행합니다.")
+    @Operation(summary = "초대 수락", description = "나의 사람 관계를 등록하거나, 보호자 요청이면 기존 관계를 전환해 양방향 보호자 관계를 등록합니다.")
     public ResponseEntity<ApiResponse<Void>> acceptInvitation(
             @PathVariable String token,
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser

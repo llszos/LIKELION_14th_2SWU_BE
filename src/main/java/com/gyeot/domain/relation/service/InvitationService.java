@@ -22,6 +22,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Service
 public class InvitationService {
@@ -34,6 +36,7 @@ public class InvitationService {
 
     private final InvitationRepository invitationRepository;
     private final RelationshipRepository relationshipRepository;
+    private final EmergencyContactService emergencyContactService;
     private final UserRepository userRepository;
     private final InvitationTokenGenerator tokenGenerator;
     private final Clock serviceClock;
@@ -42,6 +45,7 @@ public class InvitationService {
     public InvitationService(
             InvitationRepository invitationRepository,
             RelationshipRepository relationshipRepository,
+            EmergencyContactService emergencyContactService,
             UserRepository userRepository,
             InvitationTokenGenerator tokenGenerator,
             Clock serviceClock,
@@ -49,6 +53,7 @@ public class InvitationService {
     ) {
         this.invitationRepository = invitationRepository;
         this.relationshipRepository = relationshipRepository;
+        this.emergencyContactService = emergencyContactService;
         this.userRepository = userRepository;
         this.tokenGenerator = tokenGenerator;
         this.serviceClock = serviceClock;
@@ -193,17 +198,24 @@ public class InvitationService {
         validateNotExpired(invitation, respondedAt);
 
         if (invitation.getInvitationType() == InvitationType.MY_PERSON) {
-            if (relationshipRepository.existsBySourceUserIdAndTargetUserIdAndRelationshipTypeAndStatus(
-                    invitation.getInviterId(), inviteeId, RelationshipType.MY_PERSON, RelationshipStatus.ACTIVE)) {
+            List<Relationship> currentPair = relationshipRepository.findActiveBetweenUsers(
+                    invitation.getInviterId(), inviteeId, RelationshipStatus.ACTIVE);
+            if (currentPair.stream().anyMatch(r -> r.getRelationshipType() == RelationshipType.GUARDIAN)) {
+                throw new BusinessException(InvitationErrorCode.GUARDIAN_RELATIONSHIP_ALREADY_EXISTS);
+            }
+            if (currentPair.stream().anyMatch(r -> r.getRelationshipType() == RelationshipType.MY_PERSON
+                    && r.getSourceUserId().equals(invitation.getInviterId()))) {
                 throw new BusinessException(InvitationErrorCode.RELATIONSHIP_ALREADY_EXISTS);
             }
             invitation.respond(inviteeId, InvitationStatus.ACCEPTED, respondedAt);
             relationshipRepository.save(Relationship.createMyPerson(
                     invitation.getInviterId(), inviteeId, invitation.getPersonalLabel()));
+            emergencyContactService.addForMyPersonRelationship(invitation.getInviterId(), inviteeId);
             return;
         }
 
         validateGuardianCapacity(invitation.getInviterId(), inviteeId);
+        registerMutualGuardians(invitation.getInviterId(), inviteeId, respondedAt);
         invitation.respond(inviteeId, InvitationStatus.ACCEPTED, respondedAt);
     }
 
@@ -242,6 +254,7 @@ public class InvitationService {
             throw new BusinessException(InvitationErrorCode.RELATIONSHIP_ALREADY_EXISTS);
         }
         relationshipRepository.save(Relationship.createMyPerson(userId, invitation.getInviterId(), null));
+        emergencyContactService.addForMyPersonRelationship(userId, invitation.getInviterId());
     }
 
     private Invitation findByToken(String token, boolean lock) {
@@ -306,6 +319,55 @@ public class InvitationService {
         if (countActiveGuardians(inviterId) >= MAX_ACTIVE_GUARDIANS
                 || countActiveGuardians(inviteeId) >= MAX_ACTIVE_GUARDIANS) {
             throw new BusinessException(InvitationErrorCode.GUARDIAN_LIMIT_REACHED);
+        }
+    }
+
+    private void registerMutualGuardians(Long inviterId, Long inviteeId, LocalDateTime occurredAt) {
+        List<Relationship> currentPair = relationshipRepository.findActiveBetweenUsers(
+                inviterId, inviteeId, RelationshipStatus.ACTIVE);
+        if (currentPair.stream().anyMatch(r -> r.getRelationshipType() == RelationshipType.GUARDIAN)) {
+            throw new BusinessException(InvitationErrorCode.GUARDIAN_RELATIONSHIP_ALREADY_EXISTS);
+        }
+
+        // 보호자 관계가 생기면 두 방향의 기존 나의 사람 관계를 종료합니다.
+        // 관계 전환은 관계 해제가 아니므로 RelationshipEndedEvent를 발행하지 않습니다.
+        currentPair.stream()
+                .filter(r -> r.getRelationshipType() == RelationshipType.MY_PERSON)
+                .forEach(r -> r.end(occurredAt));
+        relationshipRepository.flush();
+        emergencyContactService.removeForMyPersonRelationship(inviterId, inviteeId);
+        emergencyContactService.removeForMyPersonRelationship(inviteeId, inviterId);
+
+        List<Relationship> inviterGuardians = findActiveGuardians(inviterId);
+        List<Relationship> inviteeGuardians = findActiveGuardians(inviteeId);
+        if (inviterGuardians.size() >= MAX_ACTIVE_GUARDIANS
+                || inviteeGuardians.size() >= MAX_ACTIVE_GUARDIANS) {
+            throw new BusinessException(InvitationErrorCode.GUARDIAN_LIMIT_REACHED);
+        }
+
+        // 기존 순위를 먼저 비우고 다시 매겨 새 보호자를 각 사용자의 묶음 끝에 추가합니다.
+        List<Relationship> existingGuardians = new ArrayList<>(inviterGuardians);
+        existingGuardians.addAll(inviteeGuardians);
+        existingGuardians.forEach(Relationship::clearGuardianPriorityForReorder);
+        relationshipRepository.saveAllAndFlush(existingGuardians);
+        assignSequentialPriorities(inviterGuardians);
+        assignSequentialPriorities(inviteeGuardians);
+        relationshipRepository.saveAllAndFlush(existingGuardians);
+
+        relationshipRepository.saveAllAndFlush(List.of(
+                Relationship.createGuardian(inviterId, inviteeId, inviterGuardians.size() + 1),
+                Relationship.createGuardian(inviteeId, inviterId, inviteeGuardians.size() + 1)
+        ));
+    }
+
+    private List<Relationship> findActiveGuardians(Long userId) {
+        return relationshipRepository.findAllBySourceUserIdAndRelationshipTypeAndStatusOrderByGuardianPriorityAsc(
+                userId, RelationshipType.GUARDIAN, RelationshipStatus.ACTIVE);
+    }
+
+    private void assignSequentialPriorities(List<Relationship> guardians) {
+        for (int index = 0; index < guardians.size(); index++) {
+            guardians.get(index).changeGuardianPriority(index + 1);
         }
     }
 
