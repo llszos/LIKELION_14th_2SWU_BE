@@ -31,8 +31,11 @@ import java.util.Optional;
  * 1. isOpenSharing: 요청 조건
  * 2. latestByInformationId: 항목별 최신 권한
  * 3, 4. judgeItems: 원본 확인 뒤 상태 결정
+ *
+ * 공개 항목 선택지(SharingOptionService, #138)도 2번 항목별 최신 권한을 같은 기준으로 쓰도록,
+ * 클래스와 latestByInformationId만 공개합니다. 나머지 카드 판단은 access 패키지 안에서만 씁니다.
  */
-final class SharingCardRules {
+public final class SharingCardRules {
 
     private SharingCardRules() {
         // 정적 메서드만 있어 객체를 만들지 않음
@@ -89,7 +92,7 @@ final class SharingCardRules {
      * @param permissions 한 지정의 권한 (information_id가 있는 행만. 순서는 상관없음)
      * @return 항목 ID → 최신 권한 (입력에서 처음 나온 항목 순서)
      */
-    static Map<Long, RequestInformationPermission> latestByInformationId(List<RequestInformationPermission> permissions) {
+    public static Map<Long, RequestInformationPermission> latestByInformationId(List<RequestInformationPermission> permissions) {
 
         Map<Long, RequestInformationPermission> latest = new LinkedHashMap<>();
 
