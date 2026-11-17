@@ -70,7 +70,6 @@ class SituationParticipantReaderIntegrationTest {
         flushAndClear();
 
         assertThat(reader.findActiveParticipantIds(situation.getId())).containsExactly(30L, 20L, 90L);
-        assertThat(reader.findActiveParticipantIds(situation.getId())).containsExactly(30L, 20L, 90L);
     }
 
     @Test
@@ -96,14 +95,15 @@ class SituationParticipantReaderIntegrationTest {
     }
 
     @Test
-    void 재참여는_ACTIVE만_반환하고_ACTIVE_중복은_제거하지_않는다() {
+    void 재참여는_LEFT_이력을_제외하고_ACTIVE_ID를_한번만_반환한다() {
         Situation situation = saveSituation(10L);
         saveParticipant(situation, 20L, SituationParticipantRole.PARTICIPANT).leave(JOINED_AT.plusHours(1));
-        saveParticipant(situation, 20L, SituationParticipantRole.PARTICIPANT);
+        // 기존 ACTIVE 행의 LEFT 전이를 먼저 반영해 활성 참여 1건 UNIQUE 제약을 지킵니다.
+        participantRepository.flush();
         saveParticipant(situation, 20L, SituationParticipantRole.PARTICIPANT);
         flushAndClear();
 
-        assertThat(reader.findActiveParticipantIds(situation.getId())).containsExactly(20L, 20L);
+        assertThat(reader.findActiveParticipantIds(situation.getId())).containsExactly(20L);
     }
 
     @Test

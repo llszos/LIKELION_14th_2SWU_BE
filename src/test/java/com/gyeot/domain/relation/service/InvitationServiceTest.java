@@ -74,6 +74,7 @@ class InvitationServiceTest {
         invitationService = new InvitationService(
                 repository,
                 org.mockito.Mockito.mock(RelationshipRepository.class),
+                org.mockito.Mockito.mock(EmergencyContactService.class),
                 org.mockito.Mockito.mock(UserRepository.class),
                 tokenGenerator,
                 clock,
