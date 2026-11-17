@@ -32,6 +32,8 @@ import java.util.stream.Collectors;
  *   N-06은 이전 대상이 거절·마감한 뒤라 권한이 이미 끝났으므로, 공개 중(PENDING·ACTIVE)만으로는 찾을 수 없습니다.
  * - 마지막 대상 지정은 C의 부탁 순서(assignment_order) 기준입니다. (#138)
  *   권한 테이블의 지정 ID로 찾으면, 마지막 지정에 공개 항목이 0개일 때(권한 행 없음) 이전 지정의 항목을 잘못 선택합니다.
+ * - updated(공유 이후 수정 여부)도 같은 마지막 지정의 항목별 최신 권한으로 판단합니다. (#138, 피그마 코멘트 #91)
+ *   selected와 따로 계산하므로, 직접 철회하거나 공개에서 뺀 항목(selected=false)도 공유 뒤 수정했으면 true입니다.
  */
 @Service
 @RequiredArgsConstructor
@@ -59,7 +61,8 @@ public class SharingOptionService {
                         category.getDescription(),
                         items.stream()
                                 .filter(item -> item.getInformationType().getCategory() == category)
-                                .map(item -> toItemOption(item, isSelected.test(item)))
+                                .map(item -> toItemOption(item, isSelected.test(item),
+                                        isUpdatedSinceShared(item, latest.get(item.getId()))))
                                 .toList()))
                 .toList();
 
@@ -99,13 +102,30 @@ public class SharingOptionService {
         return item -> sharingIds.contains(item.getId());
     }
 
+    /**
+     * 공유 이후 수정 여부 (#138)
+     * 마지막 대상 지정에서 그 항목의 최신 권한이 실제로 공유된 시각(granted_at)보다 항목을 나중에 수정했으면 true입니다.
+     *
+     * - 새 요청(requestId 없음), 마지막 지정이 없거나 그 지정에 이 항목의 권한이 없음: 권한이 null이라 false
+     * - 수락 전이라 공유되지 않은 권한(PENDING, 수락 전에 끝난 REVOKED): granted_at이 없어 false
+     * - 같은 시각이면 공유와 동시라 수정으로 보지 않습니다. (전달받은 정보 조회의 '갱신' 판단과 같은 기준)
+     * - 직접 철회, 공개 제외로 끝난 권한도 granted_at이 남아 있어, 공유 뒤 수정했으면 true입니다. (selected와 별개)
+     * - 철회 후 다시 허용했다면 최신 권한(새로 만든 행)의 granted_at 기준입니다.
+     */
+    private static boolean isUpdatedSinceShared(SafetyInformation item, RequestInformationPermission latestPermission) {
+        return latestPermission != null
+                && latestPermission.getGrantedAt() != null
+                && item.getUpdatedAt() != null
+                && item.getUpdatedAt().isAfter(latestPermission.getGrantedAt());
+    }
+
     // List.of는 null을 넣어 확인하면 예외가 나므로, 사유가 없는(열린) 권한을 먼저 거름
     private static boolean isExcludedByOwner(RequestInformationPermission permission) {
         RevokeReason reason = permission.getRevokeReason();
         return reason != null && EXCLUDED_REASONS.contains(reason);
     }
 
-    private ItemOption toItemOption(SafetyInformation item, boolean selected) {
+    private ItemOption toItemOption(SafetyInformation item, boolean selected, boolean updated) {
         InformationType type = item.getInformationType();
         return new ItemOption(
                 item.getId(),
@@ -115,6 +135,7 @@ public class SharingOptionService {
                 item.getInformationValue(),
                 type.isSensitive(),
                 selected,
+                updated,
                 item.getUpdatedAt());
     }
 }

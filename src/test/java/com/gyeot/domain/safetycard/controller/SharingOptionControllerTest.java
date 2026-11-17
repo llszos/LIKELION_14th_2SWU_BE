@@ -3,7 +3,9 @@ package com.gyeot.domain.safetycard.controller;
 import com.gyeot.domain.carerequest.enums.HelpType;
 import com.gyeot.domain.safetycard.dto.response.SharingOptionsResponse;
 import com.gyeot.domain.safetycard.dto.response.SharingOptionsResponse.CategoryOption;
+import com.gyeot.domain.safetycard.dto.response.SharingOptionsResponse.ItemOption;
 import com.gyeot.domain.safetycard.entity.InformationCategory;
+import com.gyeot.domain.safetycard.entity.InformationType;
 import com.gyeot.domain.safetycard.service.SharingOptionService;
 import com.gyeot.global.exception.GlobalExceptionHandler;
 import com.gyeot.global.security.auth.AuthenticatedUser;
@@ -16,6 +18,7 @@ import org.springframework.security.web.method.annotation.AuthenticationPrincipa
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.Mockito.mock;
@@ -54,8 +57,10 @@ class SharingOptionControllerTest {
     @Test
     void 로그인한_사용자_ID로_선택지를_조회한다() throws Exception {
         // 로그인 사용자(1번)의 ID가 Service에 그대로 넘어올 때만 응답을 돌려줌
+        ItemOption birthDate = new ItemOption(1L, InformationType.BIRTH_DATE, "생년월일", null, "2000-12-30",
+                false, false, true, LocalDateTime.of(2026, 9, 20, 10, 0)); // 미선택이지만 공유 뒤 수정한 항목
         when(service.getSharingOptions(1L, HelpType.HOSPITAL, 5L)).thenReturn(new SharingOptionsResponse(
-                List.of(new CategoryOption(InformationCategory.BASIC, "기본 정보", List.of()))));
+                List.of(new CategoryOption(InformationCategory.BASIC, "기본 정보", List.of(birthDate)))));
 
         mvc.perform(get("/api/safety-information/sharing-options")
                         .param("helpType", "HOSPITAL")
@@ -63,7 +68,10 @@ class SharingOptionControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("success"))
                 .andExpect(jsonPath("$.data.categories[0].category").value("BASIC"))
-                .andExpect(jsonPath("$.data.categories[0].categoryName").value("기본 정보"));
+                .andExpect(jsonPath("$.data.categories[0].categoryName").value("기본 정보"))
+                .andExpect(jsonPath("$.data.categories[0].items[0].selected").value(false))
+                .andExpect(jsonPath("$.data.categories[0].items[0].updated").value(true)) // #138
+                .andExpect(jsonPath("$.data.categories[0].items[0].updatedAt").value("2026-09-20T10:00:00"));
     }
 
     @Test

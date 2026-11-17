@@ -105,6 +105,7 @@ class SharingOptionServiceTest {
         assertThat(medication.informationValue()).isEqualTo("매일 1정");
         assertThat(medication.sensitive()).isTrue();
         assertThat(medication.selected()).isFalse();
+        assertThat(medication.updated()).isFalse(); // 새 요청은 공유 이력이 없음 (#138)
     }
 
     private List<Long> selectedIds(SharingOptionsResponse response) {
