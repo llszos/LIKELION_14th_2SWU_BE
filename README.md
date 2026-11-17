@@ -106,6 +106,7 @@
 2. [개발 환경 안내](docs/development.md)에 따라 MySQL을 준비합니다. local의 DB URL·계정·비밀번호는 설정 파일 기본값을 사용할 수 있습니다. **이미 기본값으로 만든 컨테이너는 DB 환경변수 없이 실행 가능**하며, 다른 비밀번호로 만들었다면 `DB_PASSWORD`를 설정합니다.
 3. #33 인증 코드 적용 후에는 **Base64 32바이트 이상 난수 키인 `JWT_SECRET`이 필수**입니다. 누락·잘못된 값이면 서버가 시작되지 않습니다. [JWT·쿠키·CORS 설정](docs/development.md#인증-환경변수-pr-33-적용-후)을 먼저 확인합니다.
 4. Windows PowerShell은 `.\gradlew.bat bootRun`, macOS/Linux는 `./gradlew bootRun`을 실행합니다.
+5. DB 테이블은 서버가 시작될 때 Flyway 마이그레이션이 만듭니다. 엔티티를 바꾸면 마이그레이션도 같은 PR에 넣고, #47 이전에 만든 로컬 DB는 [전환 안내](docs/development.md#기존-로컬-db-전환-47-병합-후-최초-1회)를 따릅니다. ([마이그레이션 작성 규칙](docs/development.md#마이그레이션-작성-규칙))
 
 [Swagger UI](http://localhost:8080/swagger-ui/index.html) · [프로필·환경변수·문제 해결](docs/development.md)
 

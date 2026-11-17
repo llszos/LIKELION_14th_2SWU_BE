@@ -262,6 +262,16 @@ public interface RequestInformationPermissionRepository extends JpaRepository<Re
     int clearInformationId(@Param("informationId") Long informationId);
 
     /**
+     * 한 지정의 권한을 상태와 상관없이 모두 조회합니다. (전달받은 정보 조회, #45)
+     *
+     * - 잠그지 않는 조회입니다. 화면에 보여 줄 값만 계산하고 권한을 바꾸지 않아서 잠글 필요가 없습니다.
+     * - 끝난 권한(REVOKED)도 함께 읽습니다. 정보 주인이 직접 철회했는지(OWNER_REVOKED 사유)와,
+     *   같은 지정에서 그 항목을 처음 공유한 것인지('추가됨' 판단)를 보려면 지난 권한이 필요하기 때문입니다.
+     * - ID 오름차순이라 먼저 만든 권한이 앞에 옵니다.
+     */
+    List<RequestInformationPermission> findAllByAssignmentIdOrderByIdAsc(Long assignmentId);
+
+    /**
      * 기준 시각보다 이전(<)에 끝난 권한을 한 번에 삭제합니다. (보존 기간 2년 정리, #44)
      * 지금 쓰는 권한(PENDING, ACTIVE)과 정확히 기준 시각에 끝난 권한은 남깁니다.
      * 삭제 전에 이 권한을 가리키는 이력의 permission_id를 먼저 NULL로 바꿔야 합니다.
