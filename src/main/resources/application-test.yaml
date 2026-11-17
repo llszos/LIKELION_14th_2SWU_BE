@@ -1,7 +1,10 @@
 spring:
+  # 테스트 스키마도 운영과 같이 Flyway 마이그레이션(V1, V2...)으로 만듭니다. (#47)
+  # 지금 통합 테스트는 Testcontainers로 빈 MySQL을 띄우므로, 그 DB에 마이그레이션 전체가 적용됩니다. (컨테이너 구성에 따른 동작)
+  # Hibernate는 만들지 않고 엔티티와 테이블이 맞는지만 확인합니다. (생성 컬럼, CHECK, UNIQUE 차이는 잡지 못하므로 제약 동작은 테스트로 확인)
   jpa:
     hibernate:
-      ddl-auto: create-drop
+      ddl-auto: validate
 
 gyeot:
   security:
@@ -17,7 +20,7 @@ gyeot:
       secure: false
       same-site: Lax
     cors:
-      allowed-origins: http://localhost:3000
+      allowed-origins: http://localhost:5173
 
 # 공개된 테스트 전용 안심카드 암호화 키입니다. 로컬·운영에서는 사용하지 않습니다.
 safety-info:
