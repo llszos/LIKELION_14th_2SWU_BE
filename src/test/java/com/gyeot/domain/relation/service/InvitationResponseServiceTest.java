@@ -1,7 +1,6 @@
 package com.gyeot.domain.relation.service;
 
 import com.gyeot.domain.relation.dto.response.InvitationDetailsResponse;
-import com.gyeot.domain.relation.entity.EmergencyContact;
 import com.gyeot.domain.relation.entity.Invitation;
 import com.gyeot.domain.relation.entity.InvitationStatus;
 import com.gyeot.domain.relation.entity.InvitationType;
@@ -9,7 +8,6 @@ import com.gyeot.domain.relation.entity.Relationship;
 import com.gyeot.domain.relation.entity.RelationshipStatus;
 import com.gyeot.domain.relation.entity.RelationshipType;
 import com.gyeot.domain.relation.exception.InvitationErrorCode;
-import com.gyeot.domain.relation.repository.EmergencyContactRepository;
 import com.gyeot.domain.relation.repository.InvitationRepository;
 import com.gyeot.domain.relation.repository.RelationshipRepository;
 import com.gyeot.domain.user.entity.User;
@@ -47,7 +45,7 @@ class InvitationResponseServiceTest {
 
     private InvitationRepository invitationRepository;
     private RelationshipRepository relationshipRepository;
-    private EmergencyContactRepository emergencyContactRepository;
+    private EmergencyContactService emergencyContactService;
     private UserRepository userRepository;
     private AdjustableClock clock;
     private InvitationTokenGenerator tokenGenerator;
@@ -60,14 +58,14 @@ class InvitationResponseServiceTest {
     void setUp() {
         invitationRepository = mock(InvitationRepository.class);
         relationshipRepository = mock(RelationshipRepository.class);
-        emergencyContactRepository = mock(EmergencyContactRepository.class);
+        emergencyContactService = mock(EmergencyContactService.class);
         userRepository = mock(UserRepository.class);
         clock = new AdjustableClock(Instant.parse("2026-11-09T03:00:00Z"), ZoneId.of("Asia/Seoul"));
         tokenGenerator = new InvitationTokenGenerator();
         service = new InvitationService(
                 invitationRepository,
                 relationshipRepository,
-                emergencyContactRepository,
+                emergencyContactService,
                 userRepository,
                 tokenGenerator,
                 clock,
@@ -185,6 +183,7 @@ class InvitationResponseServiceTest {
         assertEquals(InvitationStatus.ACCEPTED, invitation.getStatus());
         assertEquals(INVITEE_ID, invitation.getInviteeId());
         verify(relationshipRepository).save(any(Relationship.class));
+        verify(emergencyContactService).addForMyPersonRelationship(INVITER_ID, INVITEE_ID);
 
         BusinessException duplicate = assertThrows(
                 BusinessException.class,
@@ -213,6 +212,7 @@ class InvitationResponseServiceTest {
 
         ArgumentCaptor<Relationship> relationshipCaptor = ArgumentCaptor.forClass(Relationship.class);
         verify(relationshipRepository).save(relationshipCaptor.capture());
+        verify(emergencyContactService).addForMyPersonRelationship(INVITER_ID, INVITEE_ID);
         assertEquals(INVITER_ID, relationshipCaptor.getValue().getSourceUserId());
         assertEquals(INVITEE_ID, relationshipCaptor.getValue().getTargetUserId());
         assertEquals("친구", relationshipCaptor.getValue().getPersonalLabel());
@@ -255,15 +255,6 @@ class InvitationResponseServiceTest {
         when(relationshipRepository.findAllBySourceUserIdAndRelationshipTypeAndStatusOrderByGuardianPriorityAsc(
                 INVITEE_ID, RelationshipType.GUARDIAN, RelationshipStatus.ACTIVE))
                 .thenReturn(java.util.List.of(inviteeGuardianFirst, inviteeGuardianGap));
-        EmergencyContact inviterPair = EmergencyContact.create(INVITER_ID, INVITEE_ID, 1);
-        EmergencyContact inviterOther = EmergencyContact.create(INVITER_ID, 3L, 2);
-        EmergencyContact inviteePair = EmergencyContact.create(INVITEE_ID, INVITER_ID, 1);
-        EmergencyContact inviteeOther = EmergencyContact.create(INVITEE_ID, 4L, 2);
-        when(emergencyContactRepository.findAllByUserIdOrderByPriorityAsc(INVITER_ID))
-                .thenReturn(java.util.List.of(inviterPair, inviterOther));
-        when(emergencyContactRepository.findAllByUserIdOrderByPriorityAsc(INVITEE_ID))
-                .thenReturn(java.util.List.of(inviteePair, inviteeOther));
-
         service.acceptInvitation(TOKEN, INVITEE_ID);
 
         assertEquals(RelationshipStatus.ENDED, inviterToInvitee.getStatus());
@@ -272,10 +263,8 @@ class InvitationResponseServiceTest {
         assertEquals(2, inviterGuardianGap.getGuardianPriority());
         assertEquals(1, inviteeGuardianFirst.getGuardianPriority());
         assertEquals(2, inviteeGuardianGap.getGuardianPriority());
-        assertEquals(1, inviterOther.getPriority());
-        assertEquals(1, inviteeOther.getPriority());
-        verify(emergencyContactRepository).deleteAll(java.util.List.of(inviterPair));
-        verify(emergencyContactRepository).deleteAll(java.util.List.of(inviteePair));
+        verify(emergencyContactService).removeForMyPersonRelationship(INVITER_ID, INVITEE_ID);
+        verify(emergencyContactService).removeForMyPersonRelationship(INVITEE_ID, INVITER_ID);
         ArgumentCaptor<java.util.List<Relationship>> guardianCaptor = ArgumentCaptor.forClass(java.util.List.class);
         verify(relationshipRepository, org.mockito.Mockito.atLeastOnce()).saveAllAndFlush(guardianCaptor.capture());
         java.util.List<Relationship> newGuardians = guardianCaptor.getAllValues().getLast();
@@ -385,6 +374,7 @@ class InvitationResponseServiceTest {
         service.addReciprocalRelationship(TOKEN, INVITEE_ID);
 
         verify(relationshipRepository).save(any(Relationship.class));
+        verify(emergencyContactService).addForMyPersonRelationship(INVITEE_ID, INVITER_ID);
         assertTrue(invitation.getStatus() == InvitationStatus.ACCEPTED);
     }
 

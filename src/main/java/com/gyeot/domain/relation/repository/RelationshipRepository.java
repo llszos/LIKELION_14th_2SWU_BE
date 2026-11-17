@@ -35,6 +35,12 @@ public interface RelationshipRepository extends JpaRepository<Relationship, Long
             RelationshipStatus status
     );
 
+    List<Relationship> findAllBySourceUserIdAndRelationshipTypeAndStatus(
+            Long sourceUserId,
+            RelationshipType relationshipType,
+            RelationshipStatus status
+    );
+
     // 두 사용자 사이의 활성 관계를 방향과 유형에 상관없이 조회합니다.
     @Query("""
             select r from Relationship r
