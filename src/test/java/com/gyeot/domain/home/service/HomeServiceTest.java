@@ -7,7 +7,6 @@ import com.gyeot.domain.carerequest.query.CareRequestSummaryReader.UpcomingSched
 import com.gyeot.domain.carerequest.enums.HelpType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
 
 import java.time.*;
 import java.util.List;
@@ -16,20 +15,16 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class HomeServiceTest {
-    private ObjectProvider<CareRequestSummaryReader> provider;
     private CareRequestSummaryReader requests;
     private SharingCountReader sharings;
     private HomeService service;
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 17, 0, 0);
 
     @BeforeEach
-    @SuppressWarnings("unchecked")
     void setUp() {
-        provider = mock(ObjectProvider.class);
         requests = mock(CareRequestSummaryReader.class);
         sharings = mock(SharingCountReader.class);
-        when(provider.getIfAvailable()).thenReturn(requests);
-        service = new HomeService(provider, sharings,
+        service = new HomeService(requests, sharings,
                 Clock.fixed(Instant.parse("2026-11-16T15:00:00Z"), ZoneOffset.UTC));
     }
 
@@ -68,14 +63,17 @@ class HomeServiceTest {
         when(requests.getHomeOverview(10L, NOW)).thenReturn(new HomeRequestOverview(0, 0, 12,
                 List.of(), List.of(), List.of(first, second, third)));
         var result = service.getHome(10L);
-        assertThat(result.upcomingSchedules()).containsExactly(first, second);
+        assertThat(result.upcomingSchedules()).extracting(item -> item.requestId()).containsExactly(3L, 1L);
+        assertThat(result.upcomingSchedules().getFirst().startsAt()).isEqualTo(first.startsAt());
+        assertThat(result.upcomingSchedules().getFirst().place()).isNull();
+        assertThat(result.upcomingSchedules().getFirst().requesterId()).isEqualTo(first.requesterId());
+        assertThat(result.upcomingSchedules().getFirst().assigneeId()).isEqualTo(first.assigneeId());
         assertThat(result.counts().upcomingSchedules()).isEqualTo(12);
     }
 
     @Test
-    void C_구현이_없으면_0이나_빈_결과로_위장하지_않는다() {
-        when(provider.getIfAvailable()).thenReturn(null);
-        assertThatThrownBy(() -> service.getHome(10L)).isInstanceOf(IllegalStateException.class);
+    void 로그인_ID가_null이면_C_D를_호출하지_않는다() {
+        assertThatThrownBy(() -> service.getHome(null)).isInstanceOf(NullPointerException.class);
         verifyNoInteractions(requests, sharings);
     }
 

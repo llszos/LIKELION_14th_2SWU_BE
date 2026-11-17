@@ -10,7 +10,8 @@
 인증된 GET /api/home. 경로·쿼리·본문으로 사용자 ID를 받지 않고 principal의 userId만 사용한다.
 공통 ApiResponse의 data 아래에 counts, responseNeededItems, sentOpenItems, upcomingSchedules를 반환한다.
 미인증·잘못된 토큰·비활성 계정은 기존 보안 정책의 401이다.
-C 구현 부재·null 결과·C/D 실패는 공통 500으로 전달한다. 실패를 0이나 빈 배열로 숨기지 않는다.
+C Reader는 필수 의존성으로 직접 주입한다. 구현 Bean이 없으면 기동에 실패한다.
+C null 결과·C/D 조회 실패는 공통 500으로 전달하며 0이나 빈 배열로 숨기지 않는다.
 
 ## 집계 매핑
 | 응답 | 원본과 범위 |
@@ -30,7 +31,7 @@ B는 현재 시각을 서울 LocalDateTime으로 C에 전달하며 조회 조건
 | sentOpenItems | requestId, requestType, helpType, startsAt, endsAt, requesterId, targetUserId, displayStatus |
 | upcomingSchedules | requestId, helpType, startsAt, place, requesterId, assigneeId |
 
-C의 공개 projection record를 그대로 반환한다. Entity/민감정보를 추가하지 않는다.
+B 전용 응답 record로 C 결과를 필드별 매핑한다. 기존 JSON 필드명·타입·enum·nullable을 유지하며 Entity/민감정보를 추가하지 않는다.
 - upcomingSchedules는 C 순서를 보존하여 앞의 최대 2개만 반환한다. 시작시각순 정렬 책임은 C에 있다.
 - responseNeededItems/sentOpenItems 순서도 C 결과를 보존한다. B에서 재정렬·추가 제한하지 않는다.
 - 목록은 null 대신 빈 배열, 실제 빈 집계는 0이다. 원본 필드의 null은 그대로 유지한다(place, targetUserId 등).
@@ -58,9 +59,9 @@ C의 공개 projection record를 그대로 반환한다. Entity/민감정보를 
 빈 배열/0 응답은 지원하지만 '최초 가입'과 '현재 활동 없음' 구분은 지원하지 않는다.
 
 ## 선행 PR과 병합 전 조건
-- #98 C 실제 구현은 미병합이며 충돌 상태다(확인 HEAD 03b54dfa8f6a78fc1a753859654ad58cf19b1711).
-  develop의 C 인터페이스로 컴파일되지만 #98 통합 전 실제 홈 조회는 500이다.
-  ObjectProvider로 C 미병합 상태의 애플리케이션 시작을 허용하며 요청 시 실패를 명시적으로 전파한다.
+- #98 C 실제 구현은 develop 병합 완료다. #133 전용 worktree에서 develop 8a7e7c91을 충돌 없이 통합하고 리뷰 수정을 검증했다.
+  ObjectProvider 지연 조회를 제거하고 CareRequestSummaryReader를 직접 주입한다.
+- C upcoming 계약은 최대 2개다. B의 limit(2)는 중복이지만 기존 HTTP 응답의 최대 크기 보장을 방어적으로 유지한다.
 - D SharingCountReader 구현은 develop에 있으며 그대로 재사용한다.
 - #116/#118의 Entity·Repository·Flyway 및 C 제품 코드를 변경하지 않았다.
   #116 시간 모델·마이그레이션과 #118 상황 목록은 상황 카드 통합 시 선행 확인 대상이다.
