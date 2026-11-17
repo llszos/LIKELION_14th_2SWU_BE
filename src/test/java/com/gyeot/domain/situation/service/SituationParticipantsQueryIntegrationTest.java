@@ -25,7 +25,7 @@ import java.time.LocalDateTime;
 import static org.assertj.core.api.Assertions.*;
 
 /** 일회용 MySQL 전용. Docker 환경에서 별도 실행해야 합니다. */
-@DataJpaTest(properties="spring.flyway.enabled=false")
+@DataJpaTest
 @AutoConfigureTestDatabase(replace=AutoConfigureTestDatabase.Replace.NONE)
 @Import({JpaAuditingConfig.class,SafetyInformationCipher.class,SituationParticipantReaderImpl.class,
         SituationParticipantsQueryService.class})

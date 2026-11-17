@@ -24,7 +24,7 @@ import java.time.LocalDateTime;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** 일회용 MySQL 전용. 조회 필터 검증이며 동시 트랜잭션의 잠금 경합 검증은 아닙니다. */
-@DataJpaTest(properties = "spring.flyway.enabled=false")
+@DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import({JpaAuditingConfig.class, SafetyInformationCipher.class, SituationParticipantLockReader.class})
 @ActiveProfiles("test")
