@@ -1,5 +1,16 @@
 # Issue #61 상황 나가기 준비 구현
 
+## 2026-11-17 리뷰 보완 및 develop 통합
+
+- #122가 병합된 develop `434905b`를 일반 merge로 통합했다. Flyway V1/V2와 A/C/D 코드는 수정하지 않았다.
+- #116(V3)·#118(V4)은 미반영이다. 현재 LocalDate fixture는 현재 develop 계약에 맞으며, #116 통합 담당 B가 이후 LocalDateTime fixture 전환을 확인한다.
+- Flyway 비활성 설정 제거는 기존 `ba8fbe67`에 반영됐다.
+- 기존 정책을 유지한다: ACTIVE 일반 참여자 나가기 200, ACTIVE 상황 LEFT/REMOVED 반복 200, ENDED 일반 참여자 409, OWNER 403, 참여 이력 없음 404. 성공 반복 시 최초 leftAt과 상태를 보존하고 이벤트를 추가 발행하지 않는다.
+- main/test 컴파일 및 관련 비DB 회귀 85개 통과(실패·오류·스킵 0). 반복 나가기·이벤트 1회 검증을 포함한다.
+- `gradlew.bat build -x test` 성공. 전체 테스트 성공을 의미하지 않는다.
+- 학교 환경에서 Docker/MySQL을 실행하지 않았다. 실제 동시 요청·롤백, V1→V2 적용 및 Hibernate validate는 최신 HEAD의 GitHub CI에서 별도 확인한다.
+- 실제 B→C(#129)→D 정리와 실패 시 전체 롤백은 통합 미검증이다. #135의 미커밋 수정은 포함하지 않았다.
+
 ## 현재 범위
 
 기존 Processor·응답 DTO를 유지하고 PR #93의 Repository에 잠금 조회 메서드를 추가했다.
@@ -14,7 +25,8 @@ Issue #61에는 POST /api/situations/{situationId}/leave, OWNER 보호, 상태·
 아래 반복 요청·이력 선택 정책은 확정 명세가 아니라 이번 작업에서 사용자와 합의한 구현 가정이다.
 
 - ACTIVE 일반 참여자는 기존 leave(LocalDateTime)를 호출한다.
-- LEFT·REMOVED 재요청은 기존 상태와 최초 leftAt을 반환한다. HTTP 연결 후 200으로 응답하고 이벤트는 추가 발행하지 않는다.
+- ACTIVE 상황의 LEFT·REMOVED 재요청은 기존 상태와 최초 leftAt을 반환한다. HTTP 200으로 응답하고 이벤트는 추가 발행하지 않는다.
+- ENDED 상황의 일반 참여자는 참여 상태가 ACTIVE·LEFT·REMOVED 중 무엇이든 409 SITUATION_ENDED로 응답한다. OWNER 403 및 참여 이력 없음 404가 먼저 적용된다.
 - 참여 이력 중 ACTIVE 행을 우선한다. ACTIVE가 둘 이상이면 DataIntegrityViolationException으로 처리한다.
   임의 선택·상태 변경·이벤트 발행은 하지 않는다. 기존 공통 핸들러에서는 500으로 처리된다.
 - ACTIVE가 없으면 joinedAt DESC, id DESC 순서의 첫 행을 선택한다. 동일 joinedAt에서는 큰 PK를 우선한다.
