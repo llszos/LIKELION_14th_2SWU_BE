@@ -2,7 +2,6 @@ package com.gyeot.domain.access.repository;
 
 import com.gyeot.domain.access.entity.PermissionStatus;
 import com.gyeot.domain.access.entity.RequestInformationPermission;
-import com.gyeot.domain.access.entity.RevokeReason;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -77,27 +76,6 @@ public interface RequestInformationPermissionRepository extends JpaRepository<Re
             """)
     List<Long> findInformationIdsByRequestIdAndStatusIn(@Param("requestId") Long requestId,
                                                         @Param("statuses") Collection<PermissionStatus> statuses);
-
-    /**
-     * 요청의 마지막 대상 지정에 공개했던 항목 ID를 조회합니다. (공개 항목 선택지 조회의 requestId)
-     * - 요청 수정(H-03-01-02): 마지막 지정이 지금 담당자라 공개 중(PENDING, ACTIVE)인 항목이 나옴
-     * - 다시 부탁하기(N-06): 이전 대상이 거절되거나 마감돼 권한이 끝났어도 그 요청에 공개했던 항목이 나옴
-     * 정보 주인이 뺀 항목(excludedReasons: 공개 항목 제외, 직접 철회 등)과 삭제된 항목은 빠집니다.
-     * 대상 지정 ID는 새로 만들수록 커지므로 가장 큰 ID를 마지막 지정으로 봅니다.
-     */
-    @Query("""
-            select distinct p.informationId
-            from RequestInformationPermission p
-            where p.requestId = :requestId
-              and p.assignmentId = (select max(p2.assignmentId)
-                                    from RequestInformationPermission p2
-                                    where p2.requestId = :requestId)
-              and p.informationId is not null
-              and (p.revokeReason is null or p.revokeReason not in :excludedReasons)
-            order by p.informationId
-            """)
-    List<Long> findLastSharedInformationIds(@Param("requestId") Long requestId,
-                                            @Param("excludedReasons") Collection<RevokeReason> excludedReasons);
 
     /**
      * 공유 카드(대상 지정)가 속한 요청 ID를 조회합니다. (공유 직접 철회, 다시 허용의 바깥 단계, #46)
