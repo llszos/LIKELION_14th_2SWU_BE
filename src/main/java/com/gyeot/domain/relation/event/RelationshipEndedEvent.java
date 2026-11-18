@@ -6,6 +6,9 @@ import java.time.LocalDateTime;
 
 /**
  * 사용자가 관계를 해제했을 때 발행하는 이벤트입니다. 관계 상태 변경과 같은 트랜잭션에서 한 번 발행합니다.
+ * 현재 계약은 동기 원자 처리입니다. A가 트랜잭션 안에서 발행하면 B·C·D의 동기 리스너도 같은
+ * 트랜잭션에 참여하며, 어느 단계에서든 예외가 발생하면 전체 변경을 롤백합니다. 커밋 후 또는
+ * 비동기 처리로 바꾸려면 실패·재시도 보장까지 포함한 별도 계약 변경이 필요합니다.
  *
  * 나의 사람 관계는 sourceUserId → targetUserId 방향만 해제합니다.
  * 보호자 관계는 양방향 관계를 모두 해제한 뒤 이벤트를 한 번만 발행합니다.
@@ -14,6 +17,7 @@ import java.time.LocalDateTime;
  *
  * 기존 나의 사람 관계를 보호자 관계로 대체하는 과정에서는
  * 관계가 단절되는 것이 아니므로 이 이벤트를 발행하지 않습니다.
+ * 자세한 처리 시점과 통합 검증 기준은 {@code docs/domain-event-transactions.md}를 참고합니다.
  *
  * @param relationshipId 해제 요청에 사용한 방향의 관계 ID (relationships.id)
  * @param sourceUserId 관계를 등록한 사용자 ID (users.id)
