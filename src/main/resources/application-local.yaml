@@ -5,7 +5,7 @@ spring:
     password: ${DB_PASSWORD:gyeot1234}
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate  # 스키마는 Flyway가 만들고, Hibernate는 엔티티와 맞는지만 확인 (#47)
     show-sql: true
     properties:
       hibernate:

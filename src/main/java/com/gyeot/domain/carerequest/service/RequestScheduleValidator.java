@@ -38,7 +38,18 @@ public class RequestScheduleValidator {
         }
         SituationParticipantReader.SituationSummary situation = situationReader.findSituation(situationId)
                 .orElseThrow(() -> new BusinessException(REQUEST_SCHEDULE_INVALID));
+        requireWithinSituation(situation, startsAt, endsAt);
+    }
 
+    /**
+     * 이미 조회한 상황으로 확인합니다. (요청 생성 #69: 상황 검증 때 조회한 결과를 다시 쓰려고 B를 한 번만 부름)
+     * 규칙은 위 메서드와 같습니다.
+     */
+    public void requireWithinSituation(SituationParticipantReader.SituationSummary situation,
+                                       LocalDateTime startsAt, LocalDateTime endsAt) {
+        if (!startsAt.isBefore(endsAt)) {
+            throw new BusinessException(REQUEST_SCHEDULE_INVALID);
+        }
         LocalDateTime periodStart = situation.startDate().atStartOfDay();
         LocalDateTime periodEnd = situation.endDate().plusDays(1).atStartOfDay(); // 종료일 끝까지 포함
         if (startsAt.isBefore(periodStart) || endsAt.isAfter(periodEnd)) {
