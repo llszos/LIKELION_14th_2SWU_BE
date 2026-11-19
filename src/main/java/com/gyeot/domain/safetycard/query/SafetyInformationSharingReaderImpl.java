@@ -4,16 +4,22 @@ import com.gyeot.domain.access.entity.PermissionStatus;
 import com.gyeot.domain.access.repository.RequestInformationPermissionRepository;
 import com.gyeot.domain.safetycard.entity.SafetyInformation;
 import com.gyeot.domain.safetycard.exception.SafetyCardErrorCode;
+import com.gyeot.domain.safetycard.repository.InformationIdAndType;
 import com.gyeot.domain.safetycard.repository.SafetyInformationRepository;
 import com.gyeot.global.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * SafetyInformationSharingReader(안심카드 공개 항목 조회 인터페이스)의 실제 구현입니다.
@@ -27,7 +33,7 @@ public class SafetyInformationSharingReaderImpl implements SafetyInformationShar
     // 공개 중으로 보는 권한 상태 (수락 전 + 수락 후)
     private static final List<PermissionStatus> SHARING_STATUSES = List.of(PermissionStatus.PENDING, PermissionStatus.ACTIVE);
 
-    private final SafetyInformationRepository safetyInformationRepository; // 항목 존재·주인 확인
+    private final SafetyInformationRepository safetyInformationRepository; // 항목 존재와 주인 확인, 항목 이름 조회
     private final RequestInformationPermissionRepository permissionRepository; // 요청의 공개 중 권한 조회
 
     @Override
@@ -54,6 +60,29 @@ public class SafetyInformationSharingReaderImpl implements SafetyInformationShar
     @Override
     public List<Long> findSharingInformationIds(Long requestId) {
         return permissionRepository.findInformationIdsByRequestIdAndStatusIn(requestId, SHARING_STATUSES);
+    }
+
+    @Override
+    public Map<Long, String> findInformationNames(Long ownerUserId, Collection<Long> informationIds) {
+        if (informationIds == null || informationIds.isEmpty()) {
+            return Map.of(); // 이름을 볼 항목이 없으면 DB를 부르지 않음
+        }
+
+        // 목록 안의 null은 빼고, 중복 ID는 한 번만 조회 (validateSelection과 달리 표시용이라 거부하지 않음)
+        Set<Long> uniqueIds = informationIds.stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (uniqueIds.isEmpty()) {
+            return Map.of();
+        }
+
+        // 쿼리가 정보 주인 조건으로 거르므로, 다른 사람의 항목과 없는 ID(삭제 포함)는 결과에 없음
+        // 유형만 읽어 암호화된 title, 내용은 복호화하지 않음
+        Map<Long, String> names = new LinkedHashMap<>();
+        for (InformationIdAndType row : safetyInformationRepository.findIdAndTypeByOwnerIdAndIdIn(ownerUserId, uniqueIds)) {
+            names.put(row.id(), row.informationType().getDescription()); // description = 화면의 유형 이름 (API의 typeName)
+        }
+        return Collections.unmodifiableMap(names); // 받은 쪽이 결과를 바꾸지 못하게 함 (빈 결과의 Map.of()와 같은 성질)
     }
 
     private BusinessException invalidSelection() {

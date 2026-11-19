@@ -36,6 +36,7 @@ class SituationHistorySecurityTest {
     @MockitoBean UserRepository users;
     @MockitoBean SituationHistoryQueryRepository repository;
     @MockitoBean CareRequestSummaryReader reader;
+    @MockitoBean com.gyeot.domain.user.query.UserProfileQuery profiles;
     @MockitoBean com.gyeot.global.security.cookie.RefreshTokenCookieService refreshCookies;
 
     @Test

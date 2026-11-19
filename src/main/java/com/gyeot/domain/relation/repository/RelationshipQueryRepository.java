@@ -5,6 +5,7 @@ import com.gyeot.domain.relation.entity.RelationshipStatus;
 import com.gyeot.domain.relation.entity.RelationshipType;
 import org.springframework.data.repository.Repository;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -52,6 +53,13 @@ public interface RelationshipQueryRepository
     // 사용자를 관계 대상으로 등록한 관계를 상태별로 조회합니다.
     List<Relationship> findAllByTargetUserIdAndStatus(
             Long targetUserId,
+            RelationshipStatus status
+    );
+
+    /** 특정 사용자가 등록한 대상 ID 목록의 관계만 한 번에 조회합니다. */
+    List<Relationship> findAllBySourceUserIdAndTargetUserIdInAndStatus(
+            Long sourceUserId,
+            Collection<Long> targetUserIds,
             RelationshipStatus status
     );
 }

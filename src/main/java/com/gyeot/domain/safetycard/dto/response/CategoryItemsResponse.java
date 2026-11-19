@@ -7,7 +7,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 분류별 항목 조회 응답입니다. (노션 D 명세 '분류별 항목 조회', 화면 C-01·C-02·C-04·C-05)
+ * 분류별 항목 조회 응답입니다. (노션 D 파트 API 명세 '분류별 항목 조회', 화면 C-01·C-02·C-04·C-05)
  * 분류 안 모든 항목 유형을 내려주고, 등록한 항목이 없는 유형은 items가 빈 배열입니다. (FE가 '추가하기' 영역을 그림)
  */
 public record CategoryItemsResponse(

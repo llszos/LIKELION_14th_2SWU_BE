@@ -46,6 +46,7 @@ class SituationHistoryQueryRepositoryTest {
         Situation active = save(10L, null);
         var old = join(joined, 10L);
         old.leave(ENDED.minusHours(1));
+        em.flush();
         join(joined, 10L);
         join(leftOnly, 10L).leave(ENDED.minusHours(1));
         join(removedOnly, 10L).remove(ENDED.minusHours(1));

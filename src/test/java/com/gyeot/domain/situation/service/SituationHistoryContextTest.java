@@ -22,6 +22,7 @@ import static org.mockito.Mockito.*;
 class SituationHistoryContextTest {
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withBean(SituationHistoryQueryRepository.class, () -> mock(SituationHistoryQueryRepository.class))
+            .withBean(com.gyeot.domain.user.query.UserProfileQuery.class, () -> ids -> java.util.Map.of())
             .withUserConfiguration(SituationHistoryService.class, SituationHistoryController.class);
 
     @Test

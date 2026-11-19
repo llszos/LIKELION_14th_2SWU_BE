@@ -95,31 +95,33 @@ class SituationHistoryControllerTest {
         var end = java.time.LocalDateTime.of(2027, 1, 1, 0, 0);
         var actual = end.plusMinutes(5);
         var info = new com.gyeot.domain.situation.dto.response.SituationHistoryDetailResponse.Info(
-                1L, "연말 돌봄", com.gyeot.domain.situation.entity.SituationStatus.ENDED, actual, start, end);
+                1L, "연말 돌봄", com.gyeot.domain.situation.entity.SituationStatus.ENDED, actual, start, end, true);
         var record = new com.gyeot.domain.situation.dto.response.SituationHistoryDetailResponse.RequestRecord(
                 9L, com.gyeot.domain.carerequest.enums.HelpType.HOSPITAL,
-                com.gyeot.domain.carerequest.query.RequestDisplayStatus.COMPLETED, start, 20L);
+                com.gyeot.domain.carerequest.query.RequestDisplayStatus.COMPLETED, start, end, 20L, "담당자");
         when(service.detail(1L, 10L)).thenReturn(
                 new com.gyeot.domain.situation.dto.response.SituationHistoryDetailResponse(info, List.of(record)));
         mvc.perform(get("/api/situations/1/history").param("userId", "999"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.situation.*", org.hamcrest.Matchers.hasSize(6)))
+                .andExpect(jsonPath("$.data.situation.*", org.hamcrest.Matchers.hasSize(7)))
                 .andExpect(jsonPath("$.data.situation.situationId").value(1))
                 .andExpect(jsonPath("$.data.situation.name").value("연말 돌봄"))
                 .andExpect(jsonPath("$.data.situation.status").value("ENDED"))
                 .andExpect(jsonPath("$.data.situation.startAt").value("2026-12-31T23:59:59.123456"))
                 .andExpect(jsonPath("$.data.situation.endAt").value("2027-01-01T00:00:00"))
                 .andExpect(jsonPath("$.data.situation.endedAt").value("2027-01-01T00:05:00"))
-                .andExpect(jsonPath("$.data.requests[0].*", org.hamcrest.Matchers.hasSize(5)))
+                .andExpect(jsonPath("$.data.requests[0].*", org.hamcrest.Matchers.hasSize(7)))
                 .andExpect(jsonPath("$.data.requests[0].requestId").value(9))
                 .andExpect(jsonPath("$.data.requests[0].helpType").value("HOSPITAL"))
                 .andExpect(jsonPath("$.data.requests[0].status").value("COMPLETED"))
                 .andExpect(jsonPath("$.data.requests[0].startsAt").value("2026-12-31T23:59:59.123456"))
+                .andExpect(jsonPath("$.data.requests[0].endsAt").value("2027-01-01T00:00:00"))
                 .andExpect(jsonPath("$.data.requests[0].assigneeId").value(20))
+                .andExpect(jsonPath("$.data.requests[0].assigneeName").value("담당자"))
                 .andExpect(jsonPath("$.data.requests[0].scheduledAt").doesNotExist())
                 .andExpect(jsonPath("$.data.requests[0].requesterId").doesNotExist())
                 .andExpect(jsonPath("$.data.situation.participantCount").doesNotExist())
-                .andExpect(jsonPath("$.data.situation.isOwner").doesNotExist());
+                .andExpect(jsonPath("$.data.situation.isOwner").value(true));
         verify(service).detail(1L, 10L);
     }
 

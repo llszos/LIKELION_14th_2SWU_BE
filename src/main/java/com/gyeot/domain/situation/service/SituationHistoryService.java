@@ -1,6 +1,7 @@
 package com.gyeot.domain.situation.service;
 
 import com.gyeot.domain.carerequest.query.CareRequestSummaryReader;
+import com.gyeot.domain.user.query.UserProfileQuery;
 import com.gyeot.domain.situation.dto.response.SituationHistoryDetailResponse;
 import com.gyeot.domain.situation.dto.response.SituationHistoryListResponse;
 import com.gyeot.domain.situation.repository.SituationHistoryQueryRepository;
@@ -23,6 +24,7 @@ import static com.gyeot.domain.situation.exception.SituationHistoryErrorCode.SIT
 public class SituationHistoryService {
     private final SituationHistoryQueryRepository repository;
     private final ObjectProvider<CareRequestSummaryReader> requestReader;
+    private final UserProfileQuery profiles;
 
     /** 정렬·최대 크기는 #63 잠정 기준입니다. */
     public SituationHistoryListResponse list(Long userId, int page, int size) {
@@ -43,6 +45,9 @@ public class SituationHistoryService {
         }
         var requests = Objects.requireNonNull(reader.getPastRequestRecords(situationId, userId),
                 "지난 요청 기록 조회 결과는 null일 수 없습니다.");
-        return SituationHistoryDetailResponse.from(situation, requests);
+        var assigneeIds = requests.stream().map(CareRequestSummaryReader.PastRequestRecord::assigneeId)
+                .filter(Objects::nonNull).distinct().toList();
+        return SituationHistoryDetailResponse.from(situation, userId, requests,
+                profiles.findProfilesByUserIds(assigneeIds));
     }
 }

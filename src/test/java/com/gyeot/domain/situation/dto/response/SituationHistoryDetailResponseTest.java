@@ -19,7 +19,7 @@ class SituationHistoryDetailResponseTest {
         Situation situation = Situation.create(10L, "돌봄", "연말", start, end);
         situation.end(actual);
 
-        var result = SituationHistoryDetailResponse.from(situation, List.of());
+        var result = SituationHistoryDetailResponse.from(situation, 10L, List.of(), java.util.Map.of());
 
         assertThat(result.situation().name()).isEqualTo("연말");
         assertThat(result.situation().status()).isEqualTo(SituationStatus.ENDED);
@@ -36,7 +36,7 @@ class SituationHistoryDetailResponseTest {
             LocalDateTime end = midnight.plusNanos(offset);
             Situation situation = Situation.create(10L, "돌봄", "경계", midnight.minusHours(1), end);
             situation.end(end.plusMinutes(1));
-            var info = SituationHistoryDetailResponse.from(situation, List.of()).situation();
+            var info = SituationHistoryDetailResponse.from(situation, 10L, List.of(), java.util.Map.of()).situation();
             assertThat(info.startAt()).isEqualTo(midnight.minusHours(1));
             assertThat(info.endAt()).isEqualTo(end);
             assertThat(info.endedAt()).isEqualTo(end.plusMinutes(1));
