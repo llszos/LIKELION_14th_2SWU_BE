@@ -39,9 +39,6 @@ import static com.gyeot.domain.carerequest.exception.CareRequestErrorCode.*;
 @Transactional
 public class CareRequestCreateService {
 
-    static final int DEFAULT_RESPONSE_DEADLINE_HOURS = 24; // 응답 기한 기본값 (F-05)
-    static final int MIN_RESPONSE_DEADLINE_HOURS = 1;
-    static final int MAX_RESPONSE_DEADLINE_HOURS = 72;     // 3일
     private static final String SITUATION_ENDED = "ENDED"; // B SituationSummary.status (문자열 계약)
 
     private final CareRequestRepository careRequestRepository;
@@ -57,7 +54,7 @@ public class CareRequestCreateService {
         LocalDateTime now = LocalDateTime.now(clock);
 
         // 1. 입력 확인 (다른 영역을 부르기 전에 입력만으로 판단할 수 있는 것부터)
-        int deadlineHours = resolveDeadlineHours(body.responseDeadlineHours());
+        int deadlineHours = ResponseDeadlinePolicy.resolveHours(body.responseDeadlineHours());
         String place = body.place().strip(); // 공백만 있는 값은 DTO에서 막음
         if (place.length() > CareRequest.MAX_PLACE_LENGTH) {
             throw new BusinessException(REQUEST_PLACE_TOO_LONG);
@@ -83,7 +80,7 @@ public class CareRequestCreateService {
         CareRequest request = careRequestRepository.save(CareRequest.createGeneral(body.situationId(), requesterId,
                 body.helpType(), description, place, body.startsAt(), body.endsAt(), null));
         RequestAssignment assignment = assignmentRepository.save(RequestAssignment.assign(request,
-                body.targetUserId(), 1, responseDeadline(now, deadlineHours, body.startsAt()),
+                body.targetUserId(), 1, ResponseDeadlinePolicy.deadline(now, deadlineHours, body.startsAt()),
                 body.responseDeadlineHours())); // 고른 값 그대로 저장 (null이면 기본값 규칙, N-07 복제용)
 
         // D: 최초 지정에 공유 예정(PENDING) 권한 생성 / B: 대상자에게 요청 알림
@@ -92,17 +89,6 @@ public class CareRequestCreateService {
     }
 
     // === 1. 입력 확인 ===
-
-    /** 보내지 않았으면 24시간, 1~72 밖이면 400 */
-    private int resolveDeadlineHours(Integer requested) {
-        if (requested == null) {
-            return DEFAULT_RESPONSE_DEADLINE_HOURS;
-        }
-        if (requested < MIN_RESPONSE_DEADLINE_HOURS || requested > MAX_RESPONSE_DEADLINE_HOURS) {
-            throw new BusinessException(REQUEST_DEADLINE_INVALID);
-        }
-        return requested;
-    }
 
     /** 부탁 내용은 선택 입력: 앞뒤 공백을 빼고, 비어 있으면 null (공백 포함 500자) */
     private String normalizeDescription(String description) {
@@ -130,17 +116,5 @@ public class CareRequestCreateService {
             throw new BusinessException(REQUEST_SITUATION_ENDED);
         }
         return situation;
-    }
-
-    // === 6. 저장 ===
-
-    /**
-     * 응답 기한 = min(지금 + 고른 시간, 시작 시각)
-     * 시작까지 남은 시간보다 길면 에러 없이 시작 시각으로 제한합니다. (F-05)
-     * 시작은 지금부터 1시간 이후라 기한도 항상 지금부터 1시간 이후입니다.
-     */
-    private LocalDateTime responseDeadline(LocalDateTime now, int hours, LocalDateTime startsAt) {
-        LocalDateTime deadline = now.plusHours(hours);
-        return deadline.isAfter(startsAt) ? startsAt : deadline;
     }
 }
