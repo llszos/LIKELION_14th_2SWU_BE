@@ -34,14 +34,12 @@
 - A #109 프로필 Map 계약은 이름이 최종 확정될 때 사용. 이번 상세 필드에는 이름이 없어 A 의존성 추가 없음.
 - 목록 카드의 추가 A/C 필드는 확정 원문을 확인하지 못해 추가하지 않음. 목록 최대 페이지 크기도 임의 지정하지 않음.
 - Notion 생성 명세는 상황 코드/기타 조건을 협의 중으로 쓰지만 현재 코드·기존 브랜치 문서는 HOSPITAL_VISIT/RECOVERY/ABSENCE/OTHER 및 기타 1~15자 승인으로 기록. 코드를 임의 변경하지 않고 FE 확인 필요.
-- Notion에는 기존 DATE의 시작일 00시/종료일 다음 날 00시 합의가 기록되어 있으나 #116 검토 문서는 미확정으로 기록. 이번 작업에서 데이터 변환 규칙이나 Flyway 버전을 확정하지 않음.
 
 ## 병합·배포 차단
 
 - #116 선행 미병합. 이후 #118 base를 develop으로 변경하고 최종 diff/CI 확인 필요.
-- C #113/생성·상세의 startDate()/endDate()와 #116 startAt()/endAt()는 호환되지 않음. C 담당자 적응·통합 컴파일 필요.
-- 기존 DB start_date/end_date NOT NULL은 새 INSERT를 막을 수 있음. start_at/end_at 및 custom_situation_type 누락도 prod validate 실패 원인.
-- Flyway V1/V2 버전·날짜 변환·기간 CHECK 및 구 NOT NULL 호환 조치는 DB 담당자 확정 후 실제 MySQL에서 검증. 이번 작업은 DDL/마이그레이션 파일을 변경하지 않음.
+- #137의 C 상세 응답 전환을 #116에 통합한 뒤 #116 전체 CI를 확인합니다.
+- Flyway V1 초기 스키마 → V2 도움 요청 변경(#122) → V3 상황 시간 모델(#116) → V4 상황 기타 문구(#118) 순으로 적용합니다. 최신 develop 통합 후 실제 MySQL에서 순차 적용 및 Hibernate validate를 확인합니다.
 - 자동 종료 #94, 지난 상황 #95, 참여자 #103/#115와 시간 모델·Reader·fixture 중첩 확인 필요.
 - 관계 해제·탈퇴와 선택 참여자 저장 경합 및 A→B→C→D 연동은 별도 실제 DB 검증 필요.
 

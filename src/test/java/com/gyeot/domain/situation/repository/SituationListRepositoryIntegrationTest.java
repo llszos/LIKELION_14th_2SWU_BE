@@ -49,7 +49,7 @@ class SituationListRepositoryIntegrationTest {
         participate(owner, 20L, SituationParticipantRole.OWNER, SituationParticipantStatus.ACTIVE);
         Situation active = save(10L);
         participate(active, 20L, SituationParticipantRole.PARTICIPANT, SituationParticipantStatus.ACTIVE);
-        participate(active, 20L, SituationParticipantRole.PARTICIPANT, SituationParticipantStatus.ACTIVE);
+        participate(active, 20L, SituationParticipantRole.PARTICIPANT, SituationParticipantStatus.REMOVED);
         participate(active, 20L, SituationParticipantRole.PARTICIPANT, SituationParticipantStatus.LEFT);
         Situation left = save(10L);
         participate(left, 20L, SituationParticipantRole.PARTICIPANT, SituationParticipantStatus.LEFT);
@@ -77,7 +77,8 @@ class SituationListRepositoryIntegrationTest {
         Situation oldButHigherId = save(10L);
         participate(first, 20L, SituationParticipantRole.PARTICIPANT, SituationParticipantStatus.ACTIVE);
         participate(second, 20L, SituationParticipantRole.PARTICIPANT, SituationParticipantStatus.ACTIVE);
-        participate(second, 20L, SituationParticipantRole.PARTICIPANT, SituationParticipantStatus.ACTIVE);
+        participate(second, 20L, SituationParticipantRole.PARTICIPANT, SituationParticipantStatus.LEFT);
+        participate(second, 20L, SituationParticipantRole.PARTICIPANT, SituationParticipantStatus.REMOVED);
         participate(oldButHigherId, 20L, SituationParticipantRole.PARTICIPANT, SituationParticipantStatus.ACTIVE);
         em.flush();
         // Auditing 컬럼은 updatable=false이므로 테스트 전용 SQL로 동일 시각 fixture를 고정합니다.

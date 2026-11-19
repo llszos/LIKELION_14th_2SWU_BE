@@ -2,6 +2,7 @@ package com.gyeot.domain.situation.controller;
 
 import com.gyeot.domain.situation.dto.response.SituationListResponse;
 import com.gyeot.domain.situation.dto.response.SituationDetailResponse;
+import com.gyeot.domain.situation.entity.Situation;
 import com.gyeot.domain.situation.entity.SituationStatus;
 import com.gyeot.domain.situation.exception.SituationQueryErrorCode;
 import com.gyeot.domain.situation.service.SituationQueryService;
@@ -95,7 +96,7 @@ class SituationControllerTest {
     void detailUsesAuthenticatedIdAndReturnsOnlyBasicFields() throws Exception {
         LocalDateTime start = LocalDateTime.of(2026, 11, 20, 9, 0);
         when(service.detailActive(1L, 20L)).thenReturn(new SituationDetailResponse(
-                1L, "상세", "유형", start, start.plusHours(1), SituationStatus.ACTIVE, 10L, null, null, 0, List.of()));
+                1L, "상세", "RECOVERY", start, start.plusHours(1), SituationStatus.ACTIVE, 10L, null, null, 0, List.of()));
 
         mvc.perform(get("/api/situations/1").param("userId", "999"))
                 .andExpect(status().isOk())
@@ -103,9 +104,9 @@ class SituationControllerTest {
                         {
                           "status":"success", "code":null, "message":null,
                           "data":{
-                            "situationId":1, "name":"상세", "situationType":"유형",
+                            "situationId":1, "name":"상세", "situationType":"RECOVERY",
                             "startAt":"2026-11-20T09:00:00", "endAt":"2026-11-20T10:00:00",
-                            "status":"ACTIVE", "creatorId":10, "endedAt":null
+                            "status":"ACTIVE", "creatorId":10, "endedAt":null, "customSituationType":null
                           }
                         }
                         """))
@@ -136,12 +137,14 @@ class SituationControllerTest {
                 8L, com.gyeot.domain.carerequest.enums.RequestType.GENERAL,
                 com.gyeot.domain.carerequest.enums.HelpType.HOSPITAL, start, start.plusHours(1), 10L, 30L,
                 com.gyeot.domain.carerequest.query.RequestDisplayStatus.NO_ASSIGNEE);
-        when(service.detailActive(1L, 20L)).thenReturn(new SituationDetailResponse(
-                1L, "상황", "RECOVERY", start, start.plusHours(2), SituationStatus.ACTIVE, 10L, null, null,
-                4, List.of(request)));
+        var situation = Situation.create(10L, "OTHER", "상황", start, start.plusHours(2), "통원 지원");
+        when(service.detailActive(1L, 20L))
+                .thenReturn(SituationDetailResponse.from(situation, 4, List.of(request)));
 
         mvc.perform(get("/api/situations/1"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.situationType").value("OTHER"))
+                .andExpect(jsonPath("$.data.customSituationType").value("통원 지원"))
                 .andExpect(jsonPath("$.data.activeRequestCount").value(4))
                 .andExpect(jsonPath("$.data.requests[0].requestId").value(8))
                 .andExpect(jsonPath("$.data.requests[0].startsAt").value("2026-11-20T09:00:00"))

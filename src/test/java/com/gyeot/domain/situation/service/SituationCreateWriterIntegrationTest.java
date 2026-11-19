@@ -44,9 +44,9 @@ import static org.mockito.Mockito.doAnswer;
 /**
  * 테스트 자동 롤백 없이 Writer의 실제 커밋·롤백을 검증합니다.
  * 데이터는 클래스 전용 일회용 MySQL에만 저장하며 각 테스트는 자신이 생성한 ID만 조회합니다.
- * Hibernate 생성 스키마를 사용하므로 Flyway 이관 검증은 아닙니다.
+ * Flyway 스키마를 적용하고 Hibernate validate를 사용합니다.
  */
-@DataJpaTest(properties = "spring.flyway.enabled=false")
+@DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import({JpaAuditingConfig.class, SafetyInformationCipher.class,
         SituationCreateWriter.class, SituationCreateWriterIntegrationTest.FixedClockConfig.class})
