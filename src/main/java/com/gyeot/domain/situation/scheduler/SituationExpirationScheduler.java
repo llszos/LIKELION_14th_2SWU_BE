@@ -13,7 +13,7 @@ public class SituationExpirationScheduler {
     private final SituationExpirationService service;
 
     /** 공통 SchedulingConfig가 실행을 관리합니다. 여기에는 배치 전체 트랜잭션을 두지 않습니다. */
-    @Scheduled(cron = "0 0 0 * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 * * * * *", zone = "Asia/Seoul")
     public void expireSituations() {
         int ended = 0;
         int failed = 0;
