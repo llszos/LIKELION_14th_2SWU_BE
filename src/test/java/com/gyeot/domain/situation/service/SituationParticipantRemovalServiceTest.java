@@ -38,6 +38,9 @@ class SituationParticipantRemovalServiceTest {
         owner = participant(10L, SituationParticipantRole.OWNER, 5L);
         target = participant(20L, SituationParticipantRole.PARTICIPANT, 7L);
         when(situations.findForUpdate(3L)).thenReturn(Optional.of(situation));
+        when(em.find(Situation.class, 3L, LockModeType.PESSIMISTIC_WRITE)).thenReturn(situation);
+        when(em.find(SituationParticipant.class, 5L, LockModeType.PESSIMISTIC_WRITE)).thenReturn(owner);
+        when(em.find(SituationParticipant.class, 7L, LockModeType.PESSIMISTIC_WRITE)).thenReturn(target);
         when(participants.findHistoryForUpdate(3L, 10L)).thenReturn(List.of(owner));
         when(reader.findForUpdate(3L, 7L)).thenReturn(Optional.of(target));
     }
@@ -49,9 +52,11 @@ class SituationParticipantRemovalServiceTest {
         assertThat(result.leftAt()).isEqualTo(target.getLeftAt());
         var order = inOrder(situations, participants, em, reader, publisher);
         order.verify(situations).findForUpdate(3L);
-        order.verify(em).refresh(situation, LockModeType.PESSIMISTIC_WRITE);
+        order.verify(em).detach(situation);
+        order.verify(em).find(Situation.class, 3L, LockModeType.PESSIMISTIC_WRITE);
         order.verify(participants).findHistoryForUpdate(3L, 10L);
-        order.verify(em).refresh(owner, LockModeType.PESSIMISTIC_WRITE);
+        order.verify(em).detach(owner);
+        order.verify(em).find(SituationParticipant.class, 5L, LockModeType.PESSIMISTIC_WRITE);
         order.verify(reader).findForUpdate(3L, 7L);
         order.verify(publisher).publishEvent(any(SituationParticipantRemovedEvent.class));
     }

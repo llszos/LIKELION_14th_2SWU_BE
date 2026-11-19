@@ -4,7 +4,6 @@ import com.gyeot.domain.situation.entity.SituationParticipant;
 import com.gyeot.domain.situation.repository.SituationParticipantRepository;
 import com.gyeot.domain.situation.repository.SituationRepository;
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Propagation;
@@ -26,13 +25,8 @@ public class SituationParticipantLockReader {
     public Optional<SituationParticipant> findForUpdate(Long situationId, Long participantId) {
         Objects.requireNonNull(situationId, "situationId는 필수입니다.");
         Objects.requireNonNull(participantId, "participantId는 필수입니다.");
-        return situations.findForUpdate(situationId).flatMap(situation -> {
-            entityManager.refresh(situation, LockModeType.PESSIMISTIC_WRITE);
-            return participants.findBySituationAndParticipantForUpdate(situationId, participantId)
-                    .map(participant -> {
-                        entityManager.refresh(participant, LockModeType.PESSIMISTIC_WRITE);
-                        return participant;
-                    });
-        });
+        return situations.findForUpdate(situationId)
+                .flatMap(situation -> participants.findBySituationAndParticipantForUpdate(situationId, participantId))
+                .map(p -> JpaSituationLeaveStore.reloadLocked(entityManager, SituationParticipant.class, p, participantId));
     }
 }

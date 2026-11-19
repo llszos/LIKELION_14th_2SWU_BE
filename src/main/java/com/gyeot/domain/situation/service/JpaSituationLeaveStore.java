@@ -31,18 +31,19 @@ public class JpaSituationLeaveStore implements SituationLeaveStore {
     public Optional<Situation> findSituationForUpdate(Long situationId) {
         return situationRepository.findForUpdate(situationId).map(situation -> {
             // Reload into a fresh managed instance: same-lock refresh may use a snapshot read.
-            entityManager.detach(situation);
-            return entityManager.find(Situation.class, situationId, LockModeType.PESSIMISTIC_WRITE);
+            return reloadLocked(entityManager, Situation.class, situation, situationId);
         });
     }
 
     @Override
     public List<SituationParticipant> findParticipantsForUpdate(Long situationId, Long userId) {
         List<SituationParticipant> history = participantRepository.findHistoryForUpdate(situationId, userId);
-        return history.stream().map(participant -> {
-            Long participantId = participant.getId();
-            entityManager.detach(participant);
-            return entityManager.find(SituationParticipant.class, participantId, LockModeType.PESSIMISTIC_WRITE);
-        }).toList();
+        return history.stream().map(participant ->
+                reloadLocked(entityManager, SituationParticipant.class, participant, participant.getId())).toList();
+    }
+
+    static <T> T reloadLocked(EntityManager entityManager, Class<T> type, T entity, Long id) {
+        entityManager.detach(entity);
+        return entityManager.find(type, id, LockModeType.PESSIMISTIC_WRITE);
     }
 }

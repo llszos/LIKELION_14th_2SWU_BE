@@ -8,6 +8,7 @@ import com.gyeot.domain.user.repository.UserRepository;
 import com.gyeot.domain.user.entity.AccountStatus;
 import com.gyeot.global.exception.BusinessException;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import org.junit.jupiter.api.*;
 import org.springframework.test.util.ReflectionTestUtils;
 import java.time.*;
@@ -24,11 +25,14 @@ class SituationParticipantAddServiceTest {
     private final SituationParticipantAddService service=new SituationParticipantAddService(situations,participants,relations,users,em,
             Clock.fixed(Instant.parse("2026-11-15T01:00:00Z"),ZoneOffset.UTC));
     private Situation s;
+    private long nextParticipantId = 100;
     @BeforeEach void setUp(){
         s=Situation.create(10L,"유형","이름",LocalDate.of(2026,11,1),LocalDate.of(2026,11,30));
         ReflectionTestUtils.setField(s,"id",3L);
         when(situations.findForUpdate(3L)).thenReturn(Optional.of(s));
-        when(participants.findHistoryForUpdate(3L,10L)).thenReturn(List.of(row(10L,SituationParticipantRole.OWNER)));
+        when(em.find(Situation.class, 3L, LockModeType.PESSIMISTIC_WRITE)).thenReturn(s);
+        var owner = row(10L, SituationParticipantRole.OWNER);
+        when(participants.findHistoryForUpdate(3L, 10L)).thenReturn(List.of(owner));
         when(participants.findHistoryForUpdate(3L,20L)).thenReturn(List.of());
         when(users.existsById(20L)).thenReturn(true);
         when(users.existsByIdAndAccountStatus(20L,AccountStatus.ACTIVE)).thenReturn(true);
@@ -54,8 +58,18 @@ class SituationParticipantAddServiceTest {
     @Test void selfAndNullAreInvalid(){error("INVALID_INPUT",10L,10L);error("INVALID_INPUT",10L,null);verifyNoInteractions(users,relations);}
     @Test void missingAndWithdrawnUsersAreRejected(){when(users.existsById(20L)).thenReturn(false);error("USER_NOT_FOUND",10L,20L);when(users.existsById(20L)).thenReturn(true);when(users.existsByIdAndAccountStatus(20L,AccountStatus.WITHDRAWN)).thenReturn(true);error("USER_ALREADY_WITHDRAWN",10L,20L);verifyNoInteractions(relations);}
     @Test void missingRelationshipIsNotBypassed(){when(relations.existsBySourceUserIdAndTargetUserIdAndStatus(10L,20L,RelationshipStatus.ACTIVE)).thenReturn(false);error("FORBIDDEN",10L,20L);verify(participants,never()).findHistoryForUpdate(3L,20L);}
-    @Test void activeDuplicateIsConflict(){when(participants.findHistoryForUpdate(3L,20L)).thenReturn(List.of(row(20L,SituationParticipantRole.PARTICIPANT)));error("SITUATION_PARTICIPANT_ALREADY_EXISTS",10L,20L);}
+    @Test void activeDuplicateIsConflict() {
+        var active = row(20L, SituationParticipantRole.PARTICIPANT);
+        when(participants.findHistoryForUpdate(3L, 20L)).thenReturn(List.of(active));
+        error("SITUATION_PARTICIPANT_ALREADY_EXISTS", 10L, 20L);
+    }
     @Test void reentryPreservesBothInactiveHistories(){var left=row(20L,SituationParticipantRole.PARTICIPANT);var removed=row(20L,SituationParticipantRole.PARTICIPANT);var at=LocalDateTime.of(2026,11,14,9,0);left.leave(at);removed.remove(at);when(participants.findHistoryForUpdate(3L,20L)).thenReturn(List.of(left,removed));assertThat(service.add(3L,10L,20L).status()).isEqualTo(SituationParticipantStatus.ACTIVE);assertThat(left.getStatus()).isEqualTo(SituationParticipantStatus.LEFT);assertThat(removed.getStatus()).isEqualTo(SituationParticipantStatus.REMOVED);assertThat(left.getLeftAt()).isEqualTo(at);assertThat(removed.getLeftAt()).isEqualTo(at);verify(participants,never()).delete(any());}
-    private SituationParticipant row(Long user,SituationParticipantRole role){return SituationParticipant.create(s,user,role,LocalDateTime.of(2026,11,1,9,0));}
+    private SituationParticipant row(Long user, SituationParticipantRole role) {
+        var participant = SituationParticipant.create(s, user, role, LocalDateTime.of(2026, 11, 1, 9, 0));
+        long id = nextParticipantId++;
+        ReflectionTestUtils.setField(participant, "id", id);
+        when(em.find(SituationParticipant.class, id, LockModeType.PESSIMISTIC_WRITE)).thenReturn(participant);
+        return participant;
+    }
     private void error(String code,Long caller,Long target){assertThatThrownBy(()->service.add(3L,caller,target)).isInstanceOfSatisfying(BusinessException.class,e->assertThat(e.getErrorCode().getCode()).isEqualTo(code));verify(participants,never()).save(any());}
 }

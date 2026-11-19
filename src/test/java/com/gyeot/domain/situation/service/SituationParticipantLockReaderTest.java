@@ -24,19 +24,24 @@ class SituationParticipantLockReaderTest {
             LocalDate.of(2026, 11, 15), LocalDate.of(2026, 11, 20));
 
     @Test
-    void locksParentBeforeLookingUpParticipationPrimaryKeyAndRefreshing() {
+    void locksParentBeforeLookingUpParticipationPrimaryKeyAndReloading() {
         var participant = SituationParticipant.create(situation, 20L, SituationParticipantRole.PARTICIPANT,
                 LocalDateTime.of(2026, 11, 15, 9, 0));
         when(situations.findForUpdate(3L)).thenReturn(Optional.of(situation));
         when(participants.findBySituationAndParticipantForUpdate(3L, 7L)).thenReturn(Optional.of(participant));
 
-        assertThat(reader.findForUpdate(3L, 7L)).containsSame(participant);
+        var current = SituationParticipant.create(situation, 20L, SituationParticipantRole.PARTICIPANT,
+                LocalDateTime.of(2026, 11, 15, 9, 0));
+        current.leave(LocalDateTime.of(2026, 11, 15, 10, 0));
+        when(em.find(SituationParticipant.class, 7L, LockModeType.PESSIMISTIC_WRITE)).thenReturn(current);
+
+        assertThat(reader.findForUpdate(3L, 7L)).containsSame(current);
 
         var order = inOrder(situations, participants, em);
         order.verify(situations).findForUpdate(3L);
-        order.verify(em).refresh(situation, LockModeType.PESSIMISTIC_WRITE);
         order.verify(participants).findBySituationAndParticipantForUpdate(3L, 7L);
-        order.verify(em).refresh(participant, LockModeType.PESSIMISTIC_WRITE);
+        order.verify(em).detach(participant);
+        order.verify(em).find(SituationParticipant.class, 7L, LockModeType.PESSIMISTIC_WRITE);
         order.verifyNoMoreInteractions();
         assertThat(participant.getStatus()).isEqualTo(SituationParticipantStatus.ACTIVE);
         assertThat(participant.getLeftAt()).isNull();
@@ -54,8 +59,7 @@ class SituationParticipantLockReaderTest {
         when(situations.findForUpdate(3L)).thenReturn(Optional.of(situation));
         when(participants.findBySituationAndParticipantForUpdate(3L, 999L)).thenReturn(Optional.empty());
         assertThat(reader.findForUpdate(3L, 999L)).isEmpty();
-        verify(em).refresh(situation, LockModeType.PESSIMISTIC_WRITE);
-        verifyNoMoreInteractions(em);
+        verifyNoInteractions(em);
         verify(participants).findBySituationAndParticipantForUpdate(3L, 999L);
         verifyNoMoreInteractions(participants);
     }

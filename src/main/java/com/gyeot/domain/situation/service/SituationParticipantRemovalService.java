@@ -8,7 +8,6 @@ import com.gyeot.domain.situation.repository.SituationParticipantRepository;
 import com.gyeot.domain.situation.repository.SituationRepository;
 import com.gyeot.global.exception.BusinessException;
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,11 +25,12 @@ public class SituationParticipantRemovalService {
     @Transactional
     public SituationParticipantRemovalResult remove(Long situationId, Long participantId, Long callerId) {
         var situation = situations.findForUpdate(situationId)
+                .map(s -> JpaSituationLeaveStore.reloadLocked(em, Situation.class, s, situationId))
                 .orElseThrow(() -> new BusinessException(SituationRemovalErrorCode.SITUATION_NOT_FOUND));
-        em.refresh(situation, LockModeType.PESSIMISTIC_WRITE);
         // 상황 잠금 뒤 호출자의 이력을 잠급니다. 기존 나가기와 같은 부모 → 자식 순서입니다.
-        var callerHistory = participants.findHistoryForUpdate(situationId, callerId);
-        callerHistory.forEach(p -> em.refresh(p, LockModeType.PESSIMISTIC_WRITE));
+        var callerHistory = participants.findHistoryForUpdate(situationId, callerId).stream()
+                .map(p -> JpaSituationLeaveStore.reloadLocked(em, SituationParticipant.class, p, p.getId()))
+                .toList();
         boolean activeOwner = situation.getCreatorId().equals(callerId) && callerHistory.stream().anyMatch(p ->
                 p.getRole() == SituationParticipantRole.OWNER && p.getStatus() == SituationParticipantStatus.ACTIVE);
         if (!activeOwner) throw new BusinessException(SituationRemovalErrorCode.SITUATION_FORBIDDEN);

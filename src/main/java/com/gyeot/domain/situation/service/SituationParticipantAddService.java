@@ -11,7 +11,6 @@ import com.gyeot.domain.user.entity.AccountStatus;
 import com.gyeot.global.exception.*;
 import com.gyeot.global.security.auth.AuthErrorCode;
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,10 +34,11 @@ public class SituationParticipantAddService {
     @Transactional
     public SituationParticipantAddResponse add(Long situationId, Long callerId, Long targetId) {
         var situation = situations.findForUpdate(situationId)
+                .map(s -> JpaSituationLeaveStore.reloadLocked(em, Situation.class, s, situationId))
                 .orElseThrow(() -> new BusinessException(SituationRemovalErrorCode.SITUATION_NOT_FOUND));
-        em.refresh(situation, LockModeType.PESSIMISTIC_WRITE);
-        var callerHistory = participants.findHistoryForUpdate(situationId, callerId);
-        callerHistory.forEach(p -> em.refresh(p, LockModeType.PESSIMISTIC_WRITE));
+        var callerHistory = participants.findHistoryForUpdate(situationId, callerId).stream()
+                .map(p -> JpaSituationLeaveStore.reloadLocked(em, SituationParticipant.class, p, p.getId()))
+                .toList();
         if (!situation.getCreatorId().equals(callerId) || callerHistory.stream().noneMatch(p ->
                 p.getRole() == SituationParticipantRole.OWNER && p.getStatus() == SituationParticipantStatus.ACTIVE))
             throw new BusinessException(SituationParticipantAddErrorCode.SITUATION_FORBIDDEN);
@@ -54,9 +54,10 @@ public class SituationParticipantAddService {
         if (!relationships.existsBySourceUserIdAndTargetUserIdAndStatus(
                 situation.getCreatorId(), targetId, RelationshipStatus.ACTIVE))
             throw new BusinessException(CommonErrorCode.FORBIDDEN);
-        var history = participants.findHistoryForUpdate(situationId, targetId);
-        history.forEach(p -> em.refresh(p, LockModeType.PESSIMISTIC_WRITE));
-        if (history.stream().anyMatch(p -> p.getStatus() == SituationParticipantStatus.ACTIVE))
+        boolean alreadyActive = participants.findHistoryForUpdate(situationId, targetId).stream()
+                .map(p -> JpaSituationLeaveStore.reloadLocked(em, SituationParticipant.class, p, p.getId()))
+                .anyMatch(p -> p.getStatus() == SituationParticipantStatus.ACTIVE);
+        if (alreadyActive)
             throw new BusinessException(SituationParticipantAddErrorCode.SITUATION_PARTICIPANT_ALREADY_EXISTS);
         var joinedAt = LocalDateTime.now(clock.withZone(ZoneId.of("Asia/Seoul"))).truncatedTo(ChronoUnit.MICROS);
         var saved = participants.save(SituationParticipant.create(situation, targetId,

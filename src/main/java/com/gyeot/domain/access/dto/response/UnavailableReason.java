@@ -4,8 +4,9 @@ package com.gyeot.domain.access.dto.response;
  * 담당자였던 사람이 전달받은 정보를 지금 볼 수 없는 이유입니다. (노션 D 파트 API 명세 '전달받은 정보 조회', F-09)
  *
  * - 응답의 unavailableReason으로 내려가고, FE는 이 값으로 접근 종료 화면의 문구를 고릅니다.
- * - FE는 문구를 4가지로 묶어 씁니다. 완료(REQUEST_COMPLETED, REQUEST_ENDED_BY_TIME), 취소(REQUEST_CANCELED),
- *   철회(ASSIGNMENT_CLOSED, OWNER_REVOKED), 만료(REQUEST_EXPIRED). NOT_ACCEPTED는 공통 문구를 씁니다. (11/14 FE 답변)
+ * - FE는 문구를 4가지로 묶어 씁니다. (11/17 피그마 코멘트 #93 기획, 디자인 확정)
+ *   완료(REQUEST_COMPLETED, REQUEST_ENDED_BY_TIME), 취소(REQUEST_CANCELED),
+ *   철회 및 만료(ASSIGNMENT_CLOSED, OWNER_REVOKED, REQUEST_EXPIRED), 수락 전(NOT_ACCEPTED)
  * - DB에는 저장하지 않고, 조회할 때마다 요청 상태와 권한으로 판단합니다.
  */
 public enum UnavailableReason {

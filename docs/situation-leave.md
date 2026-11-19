@@ -78,8 +78,8 @@ $env:JAVA_HOME = 'C:/Users/Multi_35/.jdks/openjdk-21.0.2'
 - 기존 원격 #61 HEAD f21f25e에서 로컬 브랜치를 생성했다. 최신 origin/develop(534900e)을
   충돌 없이 --no-commit --no-ff 병합했다. 새 커밋은 없으며 병합 완료 전 상태다.
 - 상황과 참여 이력을 PESSIMISTIC_WRITE로 조회한다. Store는 MANDATORY 트랜잭션을 요구하고,
-  이미 로딩된 관리 엔티티도 refresh하여 최신 DB 상태를 반영한다. 동일 상황의 변경 작업은
-  상황 → 참여 이력 잠금 순서를 맞춰야 한다. 다른 변경 API의 잠금 정책은 후속 협의 대상이다.
+  나가기·추가·제외 검증에 쓰는 상태는 잠금 조회 뒤 기존 관리 객체를 detach하고 PESSIMISTIC_WRITE로 다시 읽는다.
+  상황 → 참여 행 순서로 잠근다. 실제 MySQL에서 추가·제외 경합도 함께 검증해야 한다.
 - 인증 ID는 AuthenticationPrincipal에서만 얻는다. 요청의 userId 파라미터로 바꿀 수 없다.
 - OWNER 403, LEFT·REMOVED 반복 요청의 상태·최초 시각 보존과 추가 이벤트 미발행은 유지했다.
 - 접근 이력이 없는 사용자가 ENDED 정보를 409로 받지 않도록 이력 확인을 먼저 수행한다.
