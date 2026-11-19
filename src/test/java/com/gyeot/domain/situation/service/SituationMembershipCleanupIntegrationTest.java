@@ -28,7 +28,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mysql.MySQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -161,7 +160,7 @@ class SituationMembershipCleanupIntegrationTest {
     @Test void relationshipCleanupRemovesParticipationCommittedWhileWaitingForSituationLock() throws Exception {
         var situationId = tx.execute(status -> {
             var situation = situations.save(Situation.create(10L, "RECOVERY", "회복",
-                    LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 30)));
+                    LocalDateTime.of(2026, 11, 1, 0, 0), LocalDateTime.of(2026, 12, 1, 0, 0)));
             participants.save(SituationParticipant.create(situation, 10L,
                     SituationParticipantRole.OWNER, now.minusDays(1)));
             return situation.getId();
@@ -206,7 +205,7 @@ class SituationMembershipCleanupIntegrationTest {
 
     private Long fixture(Long ownerId, Long targetId, boolean ended) {
         return tx.execute(status -> {
-            var s = situations.save(Situation.create(ownerId, "RECOVERY", "회복", LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 30)));
+            var s = situations.save(Situation.create(ownerId, "RECOVERY", "회복", LocalDateTime.of(2026, 11, 1, 0, 0), LocalDateTime.of(2026, 12, 1, 0, 0)));
             participants.save(SituationParticipant.create(s, ownerId, SituationParticipantRole.OWNER, now.minusDays(1)));
             var p = participants.save(SituationParticipant.create(s, targetId, SituationParticipantRole.PARTICIPANT, now.minusDays(1)));
             if (ended) s.end(now.minusHours(1));

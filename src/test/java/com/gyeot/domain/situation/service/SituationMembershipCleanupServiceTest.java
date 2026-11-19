@@ -14,7 +14,6 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
 
@@ -206,7 +205,7 @@ class SituationMembershipCleanupServiceTest {
     }
 
     private Situation situation(Long creatorId) {
-        var s = Situation.create(creatorId, "RECOVERY", "회복", LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 30));
+        var s = Situation.create(creatorId, "RECOVERY", "회복", LocalDateTime.of(2026, 11, 1, 0, 0), LocalDateTime.of(2026, 12, 1, 0, 0));
         ReflectionTestUtils.setField(s, "id", nextId++);
         situations.put(s.getId(), s);
         when(repository.lockParticipants(s.getId())).thenAnswer(i -> participants.values().stream()
