@@ -198,6 +198,9 @@ public class CareRequestStatusServiceTest {
         RequestAssignment previous = saveAssignment(request, OTHER_TARGET_ID);
         previous.respond(AssignmentResponseStatus.UNAVAILABLE, NOW);
         previous.close(AssignmentCloseReason.TARGET_CHANGED, NOW);
+        // 마감(UPDATE)을 먼저 DB에 반영. 새 지정은 IDENTITY라 save 즉시 INSERT되어,
+        // flush 전이면 요청당 열린 지정 1건 UNIQUE(Flyway V1, uk_request_assignments_open_request)에 걸림
+        assignmentRepository.flush();
         RequestAssignment current = assignmentRepository.save(
                 RequestAssignment.assign(request, ASSIGNEE_ID, 2, NOW.plusHours(12)));
         current.respond(AssignmentResponseStatus.AVAILABLE, NOW);
