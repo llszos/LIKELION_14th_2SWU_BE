@@ -9,6 +9,10 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import org.slf4j.LoggerFactory;
 
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.support.CronExpression;
+
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.LongStream;
 
@@ -17,6 +21,18 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class SituationExpirationSchedulerTest {
+    @Test
+    void 서울_시간_기준_매분_30초에_실행한다() throws NoSuchMethodException {
+        Scheduled schedule = SituationExpirationScheduler.class.getMethod("expireSituations")
+                .getAnnotation(Scheduled.class);
+        var cron = CronExpression.parse(schedule.cron());
+        var minute = LocalDateTime.of(2026, 11, 20, 18, 0);
+
+        assertThat(schedule.zone()).isEqualTo("Asia/Seoul");
+        assertThat(cron.next(minute)).isEqualTo(minute.plusSeconds(30));
+        assertThat(cron.next(minute.plusSeconds(30))).isEqualTo(minute.plusMinutes(1).plusSeconds(30));
+    }
+
     @Test
     void 직접_호출하면_후보들을_개별_처리한다() {
         var service = mock(SituationExpirationService.class);
