@@ -159,6 +159,31 @@ class CareRequestCleanupListenerTest {
             assertThat(eventRepository.count()).isEqualTo(historyCount);
             assertThat(events.stream(CareRequestCanceledEvent.class)).hasSize(1);
         }
+
+        @Test
+        void 진행_중이고_종료_시각이_지난_요청은_취소하지_않고_완료한다() {
+            // 종료 시각 = 상황 종료 시각 (요청 자동 완료보다 상황 종료가 먼저 처리된 경우)
+            LocalDateTime startsAt = NOW.minusHours(3);
+            CareRequest request = careRequestRepository.save(CareRequest.createGeneral(SITUATION_ID, REQUESTER_ID,
+                    HelpType.HOSPITAL, null, "○○병원", startsAt, NOW, null));
+            // 응답 기한은 시작 시각을 넘을 수 없어서 accept 도우미(기한 NOW+12시간) 대신 직접 만듦
+            RequestAssignment assignee = assignmentRepository.save(
+                    RequestAssignment.assign(request, MINJAE, 1, startsAt.minusHours(1)));
+            assignee.respond(AssignmentResponseStatus.AVAILABLE, startsAt.minusHours(2));
+            request.accept();
+            request.start(startsAt);
+            flushAndClear();
+
+            publisher.publishEvent(new SituationEndedEvent(SITUATION_ID, NOW));
+            flushAndClear();
+
+            CareRequest found = reload(request);
+            assertThat(found.getStatus()).isEqualTo(CareRequestStatus.COMPLETED);
+            assertThat(found.getCompletedAt()).isEqualTo(NOW);
+            assertThat(found.getCancelReason()).isNull();
+            assertThat(onlyAssignment(request).isOpen()).isTrue(); // 완료는 지정을 마감하지 않음
+            assertThat(events.stream(CareRequestCanceledEvent.class)).isEmpty();
+        }
     }
 
     // === 참여 종료 ===

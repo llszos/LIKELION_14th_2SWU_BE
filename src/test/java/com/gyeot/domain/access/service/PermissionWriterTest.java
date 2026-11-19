@@ -259,6 +259,41 @@ class PermissionWriterTest {
         assertThat(writer.lockOpenPermissionsById(7L)).isEmpty();
     }
 
+    // === 수정 확정용 권한 잠금 (#46) ===
+
+    @Test
+    void 수정_확정용_잠금은_열린_권한과_넘겨받은_항목의_REVOKED를_합쳐_전체_ID_오름차순으로_잠근다() {
+        // 열린 권한 102, 넘겨받은 항목(10, 11)의 REVOKED 100, 103 → 100, 102, 103 순서로 한 번에 잠금
+        RequestInformationPermission revokedFirst = active(100L, 10L);
+        revokedFirst.revoke(RevokeReason.OWNER_REVOKED, NOW);
+        RequestInformationPermission open = active(102L, 12L);
+        RequestInformationPermission revokedLater = active(103L, 11L);
+        revokedLater.revoke(RevokeReason.SHARING_EXCLUDED, NOW);
+        when(permissionRepository.findIdsByAssignmentIdAndStatusIn(7L, PermissionWriter.OPEN_STATUSES)).thenReturn(List.of(102L));
+        when(permissionRepository.findIdsByAssignmentIdAndStatusAndInformationIdIn(7L, PermissionStatus.REVOKED, List.of(10L, 11L)))
+                .thenReturn(List.of(100L, 103L));
+        when(permissionRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(revokedFirst));
+        when(permissionRepository.findByIdForUpdate(102L)).thenReturn(Optional.of(open));
+        when(permissionRepository.findByIdForUpdate(103L)).thenReturn(Optional.of(revokedLater));
+
+        List<RequestInformationPermission> locked = writer.lockChangePermissionsById(7L, Arrays.asList(10L, null, 11L, 10L));
+
+        assertThat(locked).containsExactly(revokedFirst, open, revokedLater); // 상태로 거르지 않고 잠근 그대로
+        InOrder order = inOrder(permissionRepository);
+        order.verify(permissionRepository).findByIdForUpdate(100L);
+        order.verify(permissionRepository).findByIdForUpdate(102L);
+        order.verify(permissionRepository).findByIdForUpdate(103L);
+    }
+
+    @Test
+    void 수정_확정용_잠금에_항목이_없으면_REVOKED는_조회하지_않는다() {
+        when(permissionRepository.findIdsByAssignmentIdAndStatusIn(7L, PermissionWriter.OPEN_STATUSES)).thenReturn(List.of());
+
+        assertThat(writer.lockChangePermissionsById(7L, null)).isEmpty();
+        verify(permissionRepository, never()).findIdsByAssignmentIdAndStatusAndInformationIdIn(any(), any(), any());
+        verify(permissionRepository, never()).findByIdForUpdate(any());
+    }
+
     // === 활성화 (수락) ===
 
     @Test
@@ -474,6 +509,60 @@ class PermissionWriterTest {
 
         verify(permissionRepository).findAllByAssignmentIdAndStatusIn(7L,
                 List.of(PermissionStatus.PENDING, PermissionStatus.ACTIVE));
+    }
+
+    // === 공유 직접 철회 (#46) ===
+
+    @Test
+    void 직접_철회는_ACTIVE만_OWNER_REVOKED로_끝내고_정보_주인을_수행자로_이력을_남긴다() {
+        RequestInformationPermission active = active(500L, 10L);
+        RequestInformationPermission alreadyRevoked = active(501L, 11L);
+        alreadyRevoked.revoke(RevokeReason.OWNER_REVOKED, NOW.minusHours(1)); // 앞서 철회됨 (동시 철회, 재철회)
+
+        List<RequestInformationPermission> revoked = writer.revokeByOwner(List.of(active, alreadyRevoked), OWNER_ID, NOW);
+
+        assertThat(revoked).containsExactly(active); // 이번에 끝낸 것만 돌려줌
+        assertRevoked(active, RevokeReason.OWNER_REVOKED);
+        assertThat(alreadyRevoked.getRevokedAt()).isEqualTo(NOW.minusHours(1)); // 처음 끝난 시각 유지
+
+        // 이력: 끝낸 권한 1건, 유형 OWNER_REVOKED(자동 회수 아님), 수행자 = 정보 주인
+        assertThat(savedLogs())
+                .extracting(InformationAccessLog::getPermissionId, InformationAccessLog::getOwnerUserId,
+                        InformationAccessLog::getActorUserId, InformationAccessLog::getEventType)
+                .containsExactly(tuple(500L, OWNER_ID, OWNER_ID, AccessEventType.OWNER_REVOKED));
+    }
+
+    @Test
+    void 끝낼_ACTIVE_권한이_없으면_아무것도_바꾸지_않는다() {
+        RequestInformationPermission pending = pending(500L, 10L); // 수락 전 권한 (방어)
+
+        assertThat(writer.revokeByOwner(List.of(pending), OWNER_ID, NOW)).isEmpty();
+        assertThat(pending.getStatus()).isEqualTo(PermissionStatus.PENDING);
+        assertThat(savedLogs()).isEmpty();
+    }
+
+    @Test
+    void 상태를_지정해_권한_ID로_잠그면_그_사이_상태가_바뀐_권한은_뺀다() {
+        List<PermissionStatus> statuses = List.of(PermissionStatus.ACTIVE, PermissionStatus.REVOKED);
+        RequestInformationPermission revoked = active(100L, 10L);
+        revoked.revoke(RevokeReason.OWNER_REVOKED, NOW);
+        RequestInformationPermission pendingNow = pending(101L, 11L); // 지정한 상태가 아님 (방어)
+        when(permissionRepository.findIdsByAssignmentIdAndStatusIn(7L, statuses)).thenReturn(List.of(100L, 101L));
+        when(permissionRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(revoked));
+        when(permissionRepository.findByIdForUpdate(101L)).thenReturn(Optional.of(pendingNow));
+
+        assertThat(writer.lockPermissionsById(7L, statuses)).containsExactly(revoked); // REVOKED도 지정했으므로 포함
+    }
+
+    @Test
+    void 항목을_잠그면_잠근_원본을_오름차순으로_돌려주고_삭제된_항목은_뺀다() {
+        SafetyInformation first = item(10L, OWNER_ID, InformationType.ALLERGY);
+        SafetyInformation third = item(12L, OWNER_ID, InformationType.PET);
+        when(safetyInformationRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(first));
+        when(safetyInformationRepository.findByIdForUpdate(11L)).thenReturn(Optional.empty()); // 이미 삭제됨
+        when(safetyInformationRepository.findByIdForUpdate(12L)).thenReturn(Optional.of(third));
+
+        assertThat(writer.lockItems(List.of(12L, 10L, 11L, 10L))).containsExactly(first, third); // 중복 제거, 오름차순
     }
 
     // === 도우미 ===
