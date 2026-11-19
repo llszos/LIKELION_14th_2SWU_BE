@@ -119,8 +119,9 @@ class SituationCreateWriterIntegrationTest {
         var failure = new IllegalStateException("OWNER 저장 단계 실패 주입");
         doAnswer(invocation -> {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
-            // 실제 Repository를 실행하고 두 INSERT를 DB에 반영한 다음 예외를 주입합니다.
-            SituationParticipant owner = (SituationParticipant) invocation.callRealMethod();
+            // Spring Data 프록시의 save 대신 같은 트랜잭션에서 새 OWNER를 직접 영속화합니다.
+            SituationParticipant owner = invocation.getArgument(0);
+            em.persist(owner);
             em.flush();
             situationId.set(owner.getSituation().getId());
             ownerId.set(owner.getId());
