@@ -130,7 +130,8 @@ public class CareRequestEditServiceTest {
     void setUp() {
         // 상황 기간 11/9 ~ 11/20, 지금 공개 중인 항목 [12, 15]
         when(situationReader.findSituation(SITUATION_ID)).thenReturn(Optional.of(new SituationSummary(
-                REQUESTER_ID, NOW.toLocalDate().minusDays(1), NOW.toLocalDate().plusDays(10), "ACTIVE")));
+                REQUESTER_ID, NOW.toLocalDate().minusDays(1).atStartOfDay(),
+                NOW.toLocalDate().plusDays(11).atStartOfDay(), "ACTIVE")));
         when(sharingReader.findSharingInformationIds(any())).thenReturn(List.of(12L, 15L));
     }
 

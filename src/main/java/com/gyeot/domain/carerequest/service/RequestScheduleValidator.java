@@ -17,7 +17,7 @@ import static com.gyeot.domain.carerequest.exception.CareRequestErrorCode.REQUES
  *
  * - 시작은 지금부터 1시간 이후 → 아니면 400 REQUEST_START_TOO_SOON
  * - 시작 < 종료, 시작·종료가 상황 기간 안 → 아니면 400 REQUEST_SCHEDULE_INVALID
- *   상황 기간은 날짜 단위라 "시작일 0시 ~ 종료일 끝(다음 날 0시)"으로 봅니다.
+ *   상황 기간은 Asia/Seoul 날짜시각 [startAt, endAt)이며 요청 종료는 endAt과 같아도 됩니다.
  */
 @Component
 @RequiredArgsConstructor
@@ -50,8 +50,8 @@ public class RequestScheduleValidator {
         if (!startsAt.isBefore(endsAt)) {
             throw new BusinessException(REQUEST_SCHEDULE_INVALID);
         }
-        LocalDateTime periodStart = situation.startDate().atStartOfDay();
-        LocalDateTime periodEnd = situation.endDate().plusDays(1).atStartOfDay(); // 종료일 끝까지 포함
+        LocalDateTime periodStart = situation.startAt();
+        LocalDateTime periodEnd = situation.endAt();
         if (startsAt.isBefore(periodStart) || endsAt.isAfter(periodEnd)) {
             throw new BusinessException(REQUEST_SCHEDULE_INVALID);
         }

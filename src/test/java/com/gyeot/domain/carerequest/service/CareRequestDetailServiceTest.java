@@ -52,7 +52,6 @@ import org.testcontainers.mysql.MySQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.time.Clock;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Arrays;
@@ -156,8 +155,8 @@ public class CareRequestDetailServiceTest {
 
             assertThat(detail.requestId()).isEqualTo(request.getId());
             assertThat(detail.situation().situationId()).isEqualTo(SITUATION_ID);
-            assertThat(detail.situation().startDate()).isEqualTo(LocalDate.of(2026, 11, 9));
-            assertThat(detail.situation().endDate()).isEqualTo(LocalDate.of(2026, 11, 20));
+            assertThat(detail.situation().startAt()).isEqualTo(LocalDateTime.of(2026, 11, 9, 9, 0));
+            assertThat(detail.situation().endAt()).isEqualTo(LocalDateTime.of(2026, 11, 20, 18, 0));
             assertThat(detail.situation().status()).isEqualTo("ACTIVE");
             assertThat(detail.helpType()).isEqualTo(HelpType.HOSPITAL);
             assertThat(detail.description()).isNull(); // 부탁 내용 없이 보낸 요청
@@ -584,7 +583,7 @@ public class CareRequestDetailServiceTest {
 
     private void situation(String status) {
         when(situationReader.findSituation(SITUATION_ID)).thenReturn(Optional.of(new SituationSummary(
-                REQUESTER_ID, LocalDate.of(2026, 11, 9), LocalDate.of(2026, 11, 20), status)));
+                REQUESTER_ID, LocalDateTime.of(2026, 11, 9, 9, 0), LocalDateTime.of(2026, 11, 20, 18, 0), status)));
     }
 
     private CareRequest request() {
