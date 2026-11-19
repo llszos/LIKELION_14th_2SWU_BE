@@ -35,6 +35,8 @@ public class CareRequest extends BaseEntity {
 
     // 새 요청·시작 시간 수정 모두 시작까지 최소 1시간 (F-05, F-29)
     public static final Duration MIN_START_LEAD_TIME = Duration.ofHours(1);
+    public static final int MAX_PLACE_LENGTH = 100;        // 장소 최대 글자 수 (공백 포함, 요청 생성·수정)
+    public static final int MAX_DESCRIPTION_LENGTH = 500;  // 부탁 내용 최대 글자 수 (공백 포함, 요청 생성)
 
     // 요청 ID
     @Id
@@ -65,8 +67,8 @@ public class CareRequest extends BaseEntity {
     @Column(name = "help_type", nullable = false, length = 30, updatable = false, columnDefinition = "VARCHAR(30)")  // MySQL ENUM 대신 VARCHAR, 길이는 length와 같게 (#36)
     private HelpType helpType;
 
-    // 요청 내용
-    @Column(name = "description", nullable = false, columnDefinition = "TEXT", updatable = false)
+    // 요청 내용 (부탁 내용, 선택 입력이라 입력하지 않으면 NULL)
+    @Column(name = "description", columnDefinition = "TEXT", updatable = false)
     private String description;
 
     // 요청 장소

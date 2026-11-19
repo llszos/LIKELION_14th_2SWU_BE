@@ -227,6 +227,7 @@ class SituationCreationFlowTest {
         }
         @Bean SituationQueryService queries(SituationRepository s, SituationParticipantRepository p,
                 org.springframework.beans.factory.ObjectProvider<com.gyeot.domain.carerequest.query.CareRequestSummaryReader> readers,
-                Clock clock) { return new SituationQueryService(s, p, readers, clock); }
+                Clock clock) { return new SituationQueryService(s, p, readers, clock,
+                    ids -> java.util.Map.of()); }
     }
 }

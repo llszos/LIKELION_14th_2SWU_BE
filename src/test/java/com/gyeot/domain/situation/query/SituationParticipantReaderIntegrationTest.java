@@ -65,6 +65,66 @@ class SituationParticipantReaderIntegrationTest {
     }
 
     @Test
+    void ACTIVE_ID는_OWNER를_포함하고_LEFT_REMOVED와_다른_상황은_제외한다() {
+        Situation situation = saveSituation(10L);
+        saveParticipant(situation, 10L, SituationParticipantRole.OWNER);
+        saveParticipant(situation, 20L, SituationParticipantRole.PARTICIPANT);
+        saveParticipant(situation, 30L, SituationParticipantRole.PARTICIPANT).leave(JOINED_AT.plusHours(1));
+        saveParticipant(situation, 40L, SituationParticipantRole.PARTICIPANT).remove(JOINED_AT.plusHours(1));
+        saveParticipant(saveSituation(50L), 60L, SituationParticipantRole.PARTICIPANT);
+        flushAndClear();
+
+        assertThat(reader.findActiveParticipantIds(situation.getId())).containsExactly(10L, 20L);
+    }
+
+    @Test
+    void ACTIVE_ID는_참여_시각_후_PK_순으로_정렬한다() {
+        Situation situation = saveSituation(10L);
+        // 먼저 저장한 늦은 참여보다 이후 저장한 이른 참여가 앞섭니다.
+        participantRepository.save(SituationParticipant.create(situation, 90L,
+                SituationParticipantRole.PARTICIPANT, JOINED_AT.plusHours(2)));
+        saveParticipant(situation, 30L, SituationParticipantRole.PARTICIPANT);
+        saveParticipant(situation, 20L, SituationParticipantRole.PARTICIPANT);
+        flushAndClear();
+
+        assertThat(reader.findActiveParticipantIds(situation.getId())).containsExactly(30L, 20L, 90L);
+    }
+
+    @Test
+    void 상황이_없거나_ACTIVE_참여가_없으면_빈_ID_목록이다() {
+        Situation empty = saveSituation(10L);
+        Situation inactive = saveSituation(30L);
+        saveParticipant(inactive, 40L, SituationParticipantRole.PARTICIPANT).leave(JOINED_AT.plusHours(1));
+        flushAndClear();
+
+        assertThat(reader.findActiveParticipantIds(Long.MAX_VALUE)).isEmpty();
+        assertThat(reader.findActiveParticipantIds(empty.getId())).isEmpty();
+        assertThat(reader.findActiveParticipantIds(inactive.getId())).isEmpty();
+    }
+
+    @Test
+    void ENDED_상황도_ACTIVE_ID를_반환한다() {
+        Situation situation = saveSituation(10L);
+        saveParticipant(situation, 10L, SituationParticipantRole.OWNER);
+        situation.end(END.plusHours(1));
+        flushAndClear();
+
+        assertThat(reader.findActiveParticipantIds(situation.getId())).containsExactly(10L);
+    }
+
+    @Test
+    void 재참여는_LEFT_이력을_제외하고_ACTIVE_ID를_한번만_반환한다() {
+        Situation situation = saveSituation(10L);
+        saveParticipant(situation, 20L, SituationParticipantRole.PARTICIPANT).leave(JOINED_AT.plusHours(1));
+        // 기존 ACTIVE 행의 LEFT 전이를 먼저 반영해 활성 참여 1건 UNIQUE 제약을 지킵니다.
+        participantRepository.flush();
+        saveParticipant(situation, 20L, SituationParticipantRole.PARTICIPANT);
+        flushAndClear();
+
+        assertThat(reader.findActiveParticipantIds(situation.getId())).containsExactly(20L);
+    }
+
+    @Test
     void OWNER와_일반_참여자의_ACTIVE_행을_조회한다() {
         Situation situation = saveSituation(10L);
         saveParticipant(situation, 10L, SituationParticipantRole.OWNER);

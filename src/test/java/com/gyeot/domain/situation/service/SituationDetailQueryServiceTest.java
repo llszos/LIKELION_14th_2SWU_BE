@@ -33,7 +33,10 @@ class SituationDetailQueryServiceTest {
     private final CareRequestSummaryReader reader = mock(CareRequestSummaryReader.class);
     private final ObjectProvider<CareRequestSummaryReader> readers = mock(ObjectProvider.class);
     private final Clock clock = Clock.fixed(START.atZone(ZoneId.of("Asia/Seoul")).toInstant(), ZoneId.of("Asia/Seoul"));
-    private final SituationQueryService service = new SituationQueryService(repository, participants, readers, clock);
+    private final com.gyeot.domain.user.query.UserProfileQuery profiles =
+            mock(com.gyeot.domain.user.query.UserProfileQuery.class);
+    private final SituationQueryService service = new SituationQueryService(repository, participants, readers, clock,
+            profiles);
 
     @BeforeEach
     void emptyRequests() {
@@ -57,6 +60,7 @@ class SituationDetailQueryServiceTest {
         assertEquals(START.plusHours(2), response.endAt());
         assertEquals(SituationStatus.ACTIVE, response.status());
         assertEquals(10L, response.creatorId());
+        assertTrue(response.isOwner());
         assertNull(response.endedAt());
         verify(participants).existsBySituation_IdAndUserIdAndStatus(1L, 10L, SituationParticipantStatus.ACTIVE);
     }
@@ -117,17 +121,25 @@ class SituationDetailQueryServiceTest {
                 com.gyeot.domain.carerequest.query.RequestDisplayStatus.NO_ASSIGNEE);
         var second = new CareRequestSummaryReader.RequestSummary(9L,
                 com.gyeot.domain.carerequest.enums.RequestType.GENERAL,
-                com.gyeot.domain.carerequest.enums.HelpType.HOSPITAL, START.plusHours(1), START.plusHours(2), 10L, null,
+                com.gyeot.domain.carerequest.enums.HelpType.HOSPITAL, START.plusHours(1), START.plusHours(2), 10L, 20L,
                 com.gyeot.domain.carerequest.query.RequestDisplayStatus.WAITING);
         when(reader.getSituationStats(List.of(1L), START))
                 .thenReturn(Map.of(1L, new CareRequestSummaryReader.SituationRequestStats(2, 3, 4, 5, null)));
         when(reader.getSituationRequests(1L, 20L, START)).thenReturn(List.of(first, second));
+        when(profiles.findProfilesByUserIds(anyCollection())).thenReturn(Map.of(20L,
+                new com.gyeot.domain.user.query.UserProfileQuery.UserProfile(20L, "참여자", false)));
 
         var response = service.detailActive(1L, 20L);
 
+        assertEquals(20L, response.viewerId());
+        assertFalse(response.isOwner());
         assertEquals(14, response.activeRequestCount()); // 조회자별 목록 크기가 아니라 상황 전체 합계
-        assertEquals(List.of(first, second), response.requests());
+        assertEquals(List.of(first.requestId(), second.requestId()),
+                response.requests().stream().map(com.gyeot.domain.situation.dto.response.SituationDetailResponse.RequestItem::requestId).toList());
         assertEquals(20L, response.requests().getFirst().targetUserId()); // 담당자 ID로 바꾸지 않음
+        assertNull(response.requests().getFirst().targetUserName());
+        assertEquals("참여자", response.requests().getLast().targetUserName());
+        verify(profiles).findProfilesByUserIds(List.of(20L));
         verify(reader).getSituationStats(List.of(1L), START);
         verify(reader).getSituationRequests(1L, 20L, START);
         verifyNoMoreInteractions(reader);

@@ -1,6 +1,7 @@
 package com.gyeot.domain.situation.service;
 
 import com.gyeot.domain.carerequest.query.CareRequestSummaryReader;
+import com.gyeot.domain.user.query.UserProfileQuery;
 import com.gyeot.domain.situation.dto.response.SituationListResponse;
 import com.gyeot.domain.situation.dto.response.SituationDetailResponse;
 import com.gyeot.domain.situation.entity.SituationParticipantStatus;
@@ -30,6 +31,7 @@ public class SituationQueryService {
     private final SituationParticipantRepository participantRepository;
     private final ObjectProvider<CareRequestSummaryReader> requestReaders;
     private final Clock clock;
+    private final UserProfileQuery profiles;
 
     public SituationDetailResponse detailActive(Long situationId, Long userId) {
         var situation = repository.findById(situationId)
@@ -52,7 +54,10 @@ public class SituationQueryService {
                 + counts.acceptedCount() + counts.inProgressCount();
         var requests = Objects.requireNonNull(reader.getSituationRequests(situationId, userId, now),
                 "상황 요청 목록은 null일 수 없습니다.");
-        return SituationDetailResponse.from(situation, activeRequestCount, requests);
+        var userIds = requests.stream().map(CareRequestSummaryReader.RequestSummary::targetUserId)
+                .filter(Objects::nonNull).distinct().toList();
+        return SituationDetailResponse.from(situation, userId, activeRequestCount, requests,
+                profiles.findProfilesByUserIds(userIds));
     }
 
     public SituationListResponse listActive(Long userId, int page, int size) {

@@ -96,7 +96,7 @@ class SituationControllerTest {
     void detailUsesAuthenticatedIdAndReturnsOnlyBasicFields() throws Exception {
         LocalDateTime start = LocalDateTime.of(2026, 11, 20, 9, 0);
         when(service.detailActive(1L, 20L)).thenReturn(new SituationDetailResponse(
-                1L, "상세", "RECOVERY", start, start.plusHours(1), SituationStatus.ACTIVE, 10L, null, null, 0, List.of()));
+                1L, "상세", "RECOVERY", start, start.plusHours(1), SituationStatus.ACTIVE, 10L, 20L, false, null, null, 0, List.of()));
 
         mvc.perform(get("/api/situations/1").param("userId", "999"))
                 .andExpect(status().isOk())
@@ -106,7 +106,7 @@ class SituationControllerTest {
                           "data":{
                             "situationId":1, "name":"상세", "situationType":"RECOVERY",
                             "startAt":"2026-11-20T09:00:00", "endAt":"2026-11-20T10:00:00",
-                            "status":"ACTIVE", "creatorId":10, "endedAt":null, "customSituationType":null
+                            "status":"ACTIVE", "creatorId":10, "viewerId":20, "isOwner":false, "endedAt":null, "customSituationType":null
                           }
                         }
                         """))
@@ -139,7 +139,7 @@ class SituationControllerTest {
                 com.gyeot.domain.carerequest.query.RequestDisplayStatus.NO_ASSIGNEE);
         var situation = Situation.create(10L, "OTHER", "상황", start, start.plusHours(2), "통원 지원");
         when(service.detailActive(1L, 20L))
-                .thenReturn(SituationDetailResponse.from(situation, 4, List.of(request)));
+                .thenReturn(SituationDetailResponse.from(situation, 20L, 4, List.of(request), java.util.Map.of()));
 
         mvc.perform(get("/api/situations/1"))
                 .andExpect(status().isOk())
@@ -154,7 +154,7 @@ class SituationControllerTest {
                 .andExpect(jsonPath("$.data.requests[0].scheduledAt").doesNotExist())
                 .andExpect(jsonPath("$.data.requests[0].assigneeId").doesNotExist())
                 .andExpect(jsonPath("$.data.requests[0].targetUserName").doesNotExist())
-                .andExpect(jsonPath("$.data.isOwner").doesNotExist());
+                .andExpect(jsonPath("$.data.isOwner").value(false));
     }
 
     @Test

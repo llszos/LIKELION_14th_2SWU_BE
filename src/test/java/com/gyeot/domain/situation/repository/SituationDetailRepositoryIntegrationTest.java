@@ -32,7 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 /** 일회용 MySQL의 실제 Repository로 상세 접근 조건을 검증합니다. HTTP 테스트는 아닙니다. */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({JpaAuditingConfig.class, SafetyInformationCipher.class, SituationQueryService.class,
+@Import({JpaAuditingConfig.class, SafetyInformationCipher.class, SituationQueryService.class, com.gyeot.domain.user.query.UserProfileQueryImpl.class,
         com.gyeot.global.config.ClockConfiguration.class})
 @ActiveProfiles("test")
 @Testcontainers

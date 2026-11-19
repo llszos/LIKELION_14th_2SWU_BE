@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -33,6 +34,30 @@ class SituationParticipantReaderImplTest {
         situationRepository = mock(SituationRepository.class);
         participantRepository = mock(SituationParticipantRepository.class);
         reader = new SituationParticipantReaderImpl(situationRepository, participantRepository);
+    }
+
+    @Test
+    void ACTIVE_ID_조회의_null은_저장소_접근_전에_거부한다() {
+        assertThatThrownBy(() -> reader.findActiveParticipantIds(null))
+                .isInstanceOf(NullPointerException.class);
+        verifyNoInteractions(situationRepository, participantRepository);
+    }
+
+    @Test
+    void ACTIVE_ID를_저장소_순서와_중복을_보존하여_반환한다() {
+        when(participantRepository.findUserIdsBySituationAndStatus(SITUATION_ID, SituationParticipantStatus.ACTIVE))
+                .thenReturn(List.of(30L, 10L, 30L));
+        assertThat(reader.findActiveParticipantIds(SITUATION_ID)).containsExactly(30L, 10L, 30L);
+        verify(participantRepository).findUserIdsBySituationAndStatus(SITUATION_ID, SituationParticipantStatus.ACTIVE);
+        verifyNoInteractions(situationRepository);
+    }
+
+    @Test
+    void ACTIVE_ID가_없으면_빈_목록을_반환한다() {
+        when(participantRepository.findUserIdsBySituationAndStatus(SITUATION_ID, SituationParticipantStatus.ACTIVE))
+                .thenReturn(List.of());
+        assertThat(reader.findActiveParticipantIds(SITUATION_ID)).isEmpty();
+        verifyNoInteractions(situationRepository);
     }
 
     @Test
@@ -117,6 +142,31 @@ class SituationParticipantReaderImplTest {
     private void givenParticipation(boolean exists) {
         when(participantRepository.existsBySituation_IdAndUserIdAndStatus(
                 SITUATION_ID, USER_ID, SituationParticipantStatus.ACTIVE)).thenReturn(exists);
+    }
+
+    @Test
+    void 상황_요약은_필수_필드의_null을_거부한다() {
+        assertThatThrownBy(() -> new SituationParticipantReader.SituationSummary(null, START, END, "ACTIVE"))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new SituationParticipantReader.SituationSummary(10L, null, END, "ACTIVE"))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new SituationParticipantReader.SituationSummary(10L, START, null, "ACTIVE"))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new SituationParticipantReader.SituationSummary(10L, START, END, null))
+                .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void 연말_자정_경계를_날짜로_축소하거나_종료_시각을_늘리지_않는다() {
+        LocalDateTime start = LocalDateTime.of(2026, 12, 31, 23, 59, 59, 123456000);
+        LocalDateTime end = LocalDateTime.of(2027, 1, 1, 0, 0);
+        Situation situation = Situation.create(10L, "돌봄", "연말 동행", start, end);
+        when(situationRepository.findById(SITUATION_ID)).thenReturn(Optional.of(situation));
+
+        assertThat(reader.findSituation(SITUATION_ID)).contains(
+                new SituationParticipantReader.SituationSummary(10L, start, end, "ACTIVE"));
+        assertThat(situation.getEndedAt()).isNull();
+        verifyNoInteractions(participantRepository);
     }
 
     private Situation situation() {
