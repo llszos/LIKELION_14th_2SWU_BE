@@ -41,12 +41,12 @@ class SituationParticipantsControllerTest {
     @Test void returnsExactPublicFieldsAndUsesPrincipal() throws Exception {
         authenticate();
         when(service.list(3L,20L)).thenReturn(new SituationParticipantsResponse(List.of(
-                new SituationParticipantsResponse.Item(7L,20L,SituationParticipantRole.PARTICIPANT,
+                new SituationParticipantsResponse.Item(7L,20L,"참여자",SituationParticipantRole.PARTICIPANT,
                         SituationParticipantStatus.ACTIVE,LocalDateTime.of(2026,11,15,9,0),null))));
         mvc.perform(get("/api/situations/3/participants").header("Authorization","Bearer valid").param("userId","999"))
                 .andExpect(status().isOk()).andExpect(content().json("""
                         {"status":"success","code":null,"message":null,"data":{"items":[{
-                        "participantId":7,"userId":20,"role":"PARTICIPANT","status":"ACTIVE",
+                        "participantId":7,"userId":20,"displayName":"참여자","role":"PARTICIPANT","status":"ACTIVE",
                         "joinedAt":"2026-11-15T09:00:00","leftAt":null}]}}
                         """,JsonCompareMode.STRICT));
         verify(service).list(3L,20L);

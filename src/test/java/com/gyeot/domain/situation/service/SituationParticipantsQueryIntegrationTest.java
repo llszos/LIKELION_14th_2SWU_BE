@@ -28,7 +28,7 @@ import static org.assertj.core.api.Assertions.*;
 @DataJpaTest
 @AutoConfigureTestDatabase(replace=AutoConfigureTestDatabase.Replace.NONE)
 @Import({JpaAuditingConfig.class,SafetyInformationCipher.class,SituationParticipantReaderImpl.class,
-        SituationParticipantsQueryService.class})
+        SituationParticipantsQueryService.class, com.gyeot.domain.user.query.UserProfileQueryImpl.class})
 @ActiveProfiles("test")
 @Testcontainers
 class SituationParticipantsQueryIntegrationTest {

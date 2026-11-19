@@ -17,8 +17,9 @@ import static org.mockito.Mockito.*;
 class SituationParticipantsQueryServiceTest {
     private final SituationParticipantRepository participants = mock(SituationParticipantRepository.class);
     private final SituationRepository situations = mock(SituationRepository.class);
+    private final com.gyeot.domain.user.query.UserProfileQuery profiles = mock(com.gyeot.domain.user.query.UserProfileQuery.class);
     private final SituationParticipantsQueryService service = new SituationParticipantsQueryService(
-            new SituationParticipantReaderImpl(situations, participants), participants);
+            new SituationParticipantReaderImpl(situations, participants), participants, profiles);
     private final LocalDateTime joined = LocalDateTime.of(2026,11,15,9,0);
 
     @Test void activeViewerGetsOwnerAndParticipantBasicFieldsInRepositoryOrder() {
@@ -26,7 +27,12 @@ class SituationParticipantsQueryServiceTest {
         when(participants.findInfoBySituationAndStatus(3L,SituationParticipantStatus.ACTIVE)).thenReturn(List.of(
                 new SituationParticipantInfo(5L,10L,SituationParticipantRole.OWNER,SituationParticipantStatus.ACTIVE,joined,null),
                 new SituationParticipantInfo(7L,20L,SituationParticipantRole.PARTICIPANT,SituationParticipantStatus.ACTIVE,joined.plusHours(1),null)));
+        when(profiles.findProfilesByUserIds(List.of(10L, 20L))).thenReturn(java.util.Map.of(
+                10L, new com.gyeot.domain.user.query.UserProfileQuery.UserProfile(10L, "생성자", false),
+                20L, new com.gyeot.domain.user.query.UserProfileQuery.UserProfile(20L, null, true)));
         var result = service.list(3L,20L);
+        assertThat(result.items()).extracting(item -> item.displayName())
+                .containsExactly("생성자", "탈퇴한 사용자");
         assertThat(result.items()).extracting(i -> i.participantId()).containsExactly(5L,7L);
         assertThat(result.items().getFirst().role()).isEqualTo(SituationParticipantRole.OWNER);
         assertThat(result.items().getLast().userId()).isEqualTo(20L);
