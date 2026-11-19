@@ -55,8 +55,8 @@ public record SharedInformationResponse(
             String typeName,                 // 항목 유형 이름
             String title,                    // 항목 이름. title이 없는 유형은 null
             String informationValue,         // 항목 내용
-            LocalDateTime updatedAt,         // 최근 갱신 시각. 작성 후 수정하지 않았으면 작성 시각 (null 없음)
-            boolean updated,                 // '갱신됨' 표시. 공유된(ACTIVE가 된) 뒤에 정보 주인이 수정한 항목
+            LocalDateTime updatedAt,         // 최근 갱신 시각. 작성 후 수정하지 않았으면 작성 시각 (null 없음). 화면에는 updated=true일 때만 갱신일로 표시
+            boolean updated,                 // 공유 이후 수정 여부. 공유된(ACTIVE가 된) 뒤에 정보 주인이 수정한 항목이면 true (피그마 코멘트 #91)
             boolean added,                   // '추가됨' 표시. 수락 이후 같은 지정에서 처음 공유된 항목 (다시 허용한 항목은 false)
             boolean sensitive                // '민감' 표시 (민감정보 5개)
     ) {
