@@ -10,7 +10,7 @@
 | type | ALL | 정확히 ALL/GIVEN/RECEIVED. 빈 값·소문자·미지원 값은 400 INVALID_INPUT |
 | personId | 없음 | 양수 Long. GIVEN에서는 요청자, RECEIVED에서는 기록상 담당자인 상대방. ALL에서는 C가 각 역할별 적용 |
 | page | 0 | 0 이상의 int |
-| size | 20 | 1 이상의 int. 별도 최대 크기는 확정하지 않았으며 FE/팀 확인 대상 |
+| size | 20 | 1~100. 범위를 벗어나면 HTTP 400 `INVALID_INPUT` |
 
 정렬은 C 계약의 startsAt DESC, requestId DESC를 그대로 따른다.
 시작 시각이 없는 급한 요청은 C 정렬에 따라 뒤로 간다. 클라이언트 sort는 API 계약이 아니다.
@@ -91,11 +91,9 @@ items/page/size/hasNext와 공통 ApiResponse 구조는 초안을 유지한다.
 - 최종 Flyway 스키마·Hibernate validate 조합의 구체적인 검증 결과와 FE 실제 왕복은 별도 확인 대상이다.
 - 단위 테스트가 C 쿼리의 본인 범위·정렬·권한을 실제 DB에서 검증했다고 주장하지 않는다.
 
-## 미확정 정책
+## 페이지 크기 및 통합 검증
 
-- size 기본값은 20이다. 최대값 50/100과 상한 초과 시 오류 또는 제한 적용 방식은 미확정이며 미구현이다.
-- 기본 20·최대 50·초과 시 400 INVALID_INPUT은 권장안일 뿐 확정 정책이 아니다. 팀 합의 없이 적용하지 않는다.
-- FE의 startsAt·role·실제 C enum·nullable 응답 계약 최종 승인은 미확정이다.
+- #134 리뷰 의견에 따라 `size` 기본값은 20, 허용 범위는 1~100이다. 범위를 벗어나면 HTTP 400 `INVALID_INPUT`을 반환한다.
 - 실제 C Reader 통합 검증 완료 여부는 비DB 테스트나 CI 성공만으로 확정하지 않는다.
 
 Related to #64

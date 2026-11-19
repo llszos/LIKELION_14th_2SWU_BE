@@ -51,7 +51,7 @@ import static org.mockito.Mockito.when;
  *
  * - 404 대상, 볼 수 없는 이유 7가지 중 이번 범위에서 나오는 것, 급한 요청 차단
  * - 직접 철회는 항목별 최신 권한으로 판단 (철회 → 다시 허용 → 전체 삭제, 전체 제외 회귀)
- * - 표시 값('갱신됨', '추가됨'), 분류와 항목 순서, 원본이 없거나 다른 주인의 항목 제외, VIEWED 기록
+ * - 표시 값(공유 이후 수정 여부, '추가됨'), 분류와 항목 순서, 원본이 없거나 다른 주인의 항목 제외, VIEWED 기록
  *
  * 스냅샷 기준의 조회 경합과 이력 저장 실패 롤백은 실제 MySQL이 필요해 통합 테스트에서 확인합니다.
  */
@@ -324,7 +324,7 @@ class SharedInformationServiceTest {
     }
 
     @Test
-    void 공유된_뒤에_수정한_항목만_갱신됨이다() {
+    void 공유된_뒤에_수정한_항목만_updated다() {
         LocalDateTime grantedAt = ACCEPTED_AT;
         givenPermissions(
                 active(100L, 12L, InformationType.MEDICATION, grantedAt),
@@ -408,7 +408,7 @@ class SharedInformationServiceTest {
         return permission;
     }
 
-    /** 안심카드 항목 원본 (수정 시각을 정해 '갱신됨' 판단을 조절) */
+    /** 안심카드 항목 원본 (수정 시각을 정해 공유 이후 수정 여부 판단을 조절) */
     private static SafetyInformation item(Long id, Long ownerId, InformationType type, String title,
                                           LocalDateTime updatedAt) {
         SafetyInformation item = SafetyInformation.create(ownerId, type, title, "내용");

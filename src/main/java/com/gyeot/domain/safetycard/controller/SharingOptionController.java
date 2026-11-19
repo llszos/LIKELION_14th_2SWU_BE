@@ -30,7 +30,8 @@ public class SharingOptionController {
      */
     @Operation(summary = "공개 항목 선택지 조회",
             description = "요청에 공개할 수 있는 내 항목을 분류별로, 도움 종류별 기본 선택값과 함께 조회합니다. "
-                    + "요청 수정이나 다시 부탁하기는 requestId를 넣으면 마지막 대상에게 공개했던 항목이 선택됩니다.")
+                    + "요청 수정이나 다시 부탁하기는 requestId를 넣으면 마지막 대상에게 공개했던 항목이 선택됩니다. "
+                    + "updated는 마지막 대상에게 공유된 뒤 수정한 항목이면 true이고, 공유 이력이 없으면 false입니다.")
     @GetMapping("/sharing-options")
     public ApiResponse<SharingOptionsResponse> getSharingOptions(
             @AuthenticationPrincipal AuthenticatedUser user,       // 로그인한 사용자 (JWT 토큰에서 꺼냄, 요청 값으로 바꿀 수 없음)

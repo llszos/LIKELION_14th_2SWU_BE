@@ -15,13 +15,15 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class HelpRecordQueryService {
+    private static final int MAX_PAGE_SIZE = 100;
+
     private final CareRequestSummaryReader reader;
 
     public HelpRecordPageResponse list(Long userId, String type, Long personId, int page, int size) {
         if (userId == null || userId <= 0) {
             throw new BusinessException(CommonErrorCode.UNAUTHORIZED);
         }
-        if (page < 0 || size < 1 || (personId != null && personId <= 0)) {
+        if (page < 0 || size < 1 || size > MAX_PAGE_SIZE || (personId != null && personId <= 0)) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
         HelpRecordFilter filter = parseFilter(type);

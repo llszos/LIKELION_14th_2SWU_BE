@@ -38,6 +38,15 @@ class HelpRecordQueryServiceTest {
         verifyNoMoreInteractions(reader);
     }
 
+    @Test void acceptsMaximumPageSize() {
+        var page = PageRequest.of(0, 100);
+        when(reader.getHelpRecords(10L, HelpRecordFilter.ALL, null, page))
+                .thenReturn(new PageImpl<>(List.of(), page, 0));
+
+        assertThat(service.list(10L, "ALL", null, 0, 100).size()).isEqualTo(100);
+        verify(reader).getHelpRecords(10L, HelpRecordFilter.ALL, null, page);
+    }
+
     @Test void omittedTypeMeansAll() {
         var page = PageRequest.of(0, 20);
         when(reader.getHelpRecords(10L, HelpRecordFilter.ALL, null, page))
@@ -71,7 +80,7 @@ class HelpRecordQueryServiceTest {
     @ParameterizedTest @ValueSource(strings = {"", " ", "given", "UNKNOWN", " ALL"})
     void invalidFilterFailsBeforeC(String type) { invalid(type, null, 0, 20); }
 
-    @ParameterizedTest @CsvSource({"-1,20", "0,0", "0,-1"})
+    @ParameterizedTest @CsvSource({"-1,20", "0,0", "0,-1", "0,101"})
     void rejectsInvalidPagination(int page, int size) { invalid("ALL", null, page, size); }
 
     @ParameterizedTest @ValueSource(longs = {0, -1})
