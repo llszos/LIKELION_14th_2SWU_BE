@@ -102,7 +102,9 @@ public interface CareRequestSummaryReader {
 
     /**
      * 요청 목록의 한 줄
-     * targetUserId: 가장 최근 지정의 대상자(수락했으면 담당자). 지정이 없으면 null
+     * - targetUserId: 가장 최근 지정의 대상자(수락했으면 담당자). 지정이 없으면 null
+     * - responseDeadline: 응답 대기(WAITING)일 때만 현재 지정의 응답 기한. 그 외 상태는 null
+     *   (상황 상세 F-04, 홈 보낸 요청 카드 F-34의 남은 시간 표시)
      */
     record RequestSummary(
             Long requestId,
@@ -112,8 +114,15 @@ public interface CareRequestSummaryReader {
             LocalDateTime endsAt,
             Long requesterId,
             Long targetUserId,
-            RequestDisplayStatus displayStatus
+            RequestDisplayStatus displayStatus,
+            LocalDateTime responseDeadline
     ) {
+        /** 응답 기한 추가 전 생성자 (B 테스트 호환). responseDeadline은 null */
+        public RequestSummary(Long requestId, RequestType requestType, HelpType helpType, LocalDateTime startsAt,
+                              LocalDateTime endsAt, Long requesterId, Long targetUserId,
+                              RequestDisplayStatus displayStatus) {
+            this(requestId, requestType, helpType, startsAt, endsAt, requesterId, targetUserId, displayStatus, null);
+        }
     }
 
     /** 다가오는 일정 한 줄 (수락됨·진행 중) */
@@ -154,6 +163,8 @@ public interface CareRequestSummaryReader {
      * 응답이 필요한 요청 한 줄
      * - RESPONSE: 새로 받은 요청(대상이 바뀌어 받은 요청 포함), deadline은 응답 기한
      * - RECONFIRMATION: 수정 후 재확인이 필요한 요청, deadline은 재확인 기한
+     * - situationId: 요청의 상황. 급한 요청은 상황이 없어 null
+     *   (참여 상황 카드의 '응답요청 N건'은 이 목록을 situationId로 묶어 셉니다. F-34, 홈 목록과 같은 기준)
      */
     record ResponseNeededItem(
             Long requestId,
@@ -163,8 +174,14 @@ public interface CareRequestSummaryReader {
             LocalDateTime startsAt,
             String place,
             Long requesterId,
-            LocalDateTime deadline
+            LocalDateTime deadline,
+            Long situationId
     ) {
+        /** 상황 ID 추가 전 생성자 (B 테스트 호환). situationId는 null */
+        public ResponseNeededItem(Long requestId, ResponseNeededType type, RequestType requestType, HelpType helpType,
+                                  LocalDateTime startsAt, String place, Long requesterId, LocalDateTime deadline) {
+            this(requestId, type, requestType, helpType, startsAt, place, requesterId, deadline, null);
+        }
     }
 
     enum ResponseNeededType {
@@ -183,6 +200,7 @@ public interface CareRequestSummaryReader {
      * 지난 상황의 요청 기록 한 줄 (민감정보 없이 도움 종류·담당자·날짜·상태만, F-22)
      * - assigneeId: 수락했던 담당자. 수락한 사람이 없었으면 null
      * - status: COMPLETED·CANCELED·EXPIRED. 감사 메시지(F-21) 버튼은 COMPLETED일 때만
+     * - endsAt: 요청 예정 종료 시각 (startsAt ~ endsAt 표시). 일정이 없는 요청은 null
      */
     record PastRequestRecord(
             Long requestId,
@@ -190,8 +208,14 @@ public interface CareRequestSummaryReader {
             LocalDateTime startsAt,
             Long requesterId,
             Long assigneeId,
-            RequestDisplayStatus status
+            RequestDisplayStatus status,
+            LocalDateTime endsAt
     ) {
+        /** 예정 종료 시각 추가 전 생성자 (B 테스트 호환). endsAt은 null */
+        public PastRequestRecord(Long requestId, HelpType helpType, LocalDateTime startsAt, Long requesterId,
+                                 Long assigneeId, RequestDisplayStatus status) {
+            this(requestId, helpType, startsAt, requesterId, assigneeId, status, null);
+        }
     }
 
     /** 도움 기록 필터, 그리고 기록 한 줄에서 나의 역할 */
