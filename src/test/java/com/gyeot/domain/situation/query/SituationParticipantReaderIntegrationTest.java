@@ -20,7 +20,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mysql.MySQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -37,14 +36,33 @@ class SituationParticipantReaderIntegrationTest {
     static MySQLContainer mysql = new MySQLContainer(DockerImageName.parse("mysql:8.4"))
             .withEnv("TZ", "Asia/Seoul");
 
-    private static final LocalDate START = LocalDate.of(2026, 11, 1);
-    private static final LocalDate END = LocalDate.of(2026, 11, 5);
-    private static final LocalDateTime JOINED_AT = START.atStartOfDay();
+    private static final LocalDateTime START = LocalDateTime.of(2026, 11, 1, 9, 15, 30, 123456000);
+    private static final LocalDateTime END = LocalDateTime.of(2026, 11, 5, 18, 45, 30, 654321000);
+    private static final LocalDateTime JOINED_AT = START;
 
     @Autowired private SituationParticipantReader reader;
     @Autowired private SituationRepository situationRepository;
     @Autowired private SituationParticipantRepository participantRepository;
     @Autowired private EntityManager entityManager;
+
+    @Test
+    void 자정을_넘는_서울_시각과_실제_종료_시각을_별도로_저장한다() {
+        LocalDateTime startAt = LocalDateTime.of(2026, 11, 20, 23, 59, 59, 123456000);
+        LocalDateTime endAt = LocalDateTime.of(2026, 11, 21, 0, 0, 0, 654321000);
+        LocalDateTime endedAt = endAt.plusMinutes(2);
+        Situation situation = situationRepository.save(
+                Situation.create(10L, "돌봄", "자정 경계", startAt, endAt));
+        situation.end(endedAt);
+        Long id = situation.getId();
+        flushAndClear();
+
+        assertThat(reader.findSituation(id)).contains(
+                new SituationParticipantReader.SituationSummary(10L, startAt, endAt, "ENDED"));
+        Situation reloaded = situationRepository.findById(id).orElseThrow();
+        assertThat(reloaded.getStartAt()).isEqualTo(startAt);
+        assertThat(reloaded.getEndAt()).isEqualTo(endAt);
+        assertThat(reloaded.getEndedAt()).isEqualTo(endedAt);
+    }
 
     @Test
     void ACTIVE_ID는_OWNER를_포함하고_LEFT_REMOVED와_다른_상황은_제외한다() {
@@ -88,7 +106,7 @@ class SituationParticipantReaderIntegrationTest {
     void ENDED_상황도_ACTIVE_ID를_반환한다() {
         Situation situation = saveSituation(10L);
         saveParticipant(situation, 10L, SituationParticipantRole.OWNER);
-        situation.end(END.atTime(23, 0));
+        situation.end(END.plusHours(1));
         flushAndClear();
 
         assertThat(reader.findActiveParticipantIds(situation.getId())).containsExactly(10L);
@@ -151,7 +169,7 @@ class SituationParticipantReaderIntegrationTest {
         Situation situation = saveSituation(10L);
         saveParticipant(situation, 10L, SituationParticipantRole.OWNER);
         saveParticipant(situation, 20L, SituationParticipantRole.PARTICIPANT);
-        situation.end(END.atTime(23, 0));
+        situation.end(END.plusHours(1));
         flushAndClear();
 
         assertThat(reader.findSituation(situation.getId())).contains(

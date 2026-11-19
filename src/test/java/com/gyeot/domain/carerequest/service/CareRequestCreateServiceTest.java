@@ -43,7 +43,6 @@ import org.testcontainers.mysql.MySQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.time.Clock;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
@@ -84,8 +83,9 @@ public class CareRequestCreateServiceTest {
     static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 10, 9, 0);
     static final LocalDateTime STARTS_AT = NOW.plusDays(2);      // 11/12 09:00
     static final LocalDateTime ENDS_AT = STARTS_AT.plusHours(3); // 11/12 12:00
-    static final LocalDate SITUATION_START = LocalDate.of(2026, 11, 9);
-    static final LocalDate SITUATION_END = LocalDate.of(2026, 11, 20);
+    // 상황 기간은 날짜시각 [시작, 종료) (#116). 0시가 아닌 시각으로 두어 날짜 단위로 계산하지 않는지 확인
+    static final LocalDateTime SITUATION_START = LocalDateTime.of(2026, 11, 9, 9, 0);
+    static final LocalDateTime SITUATION_END = LocalDateTime.of(2026, 11, 20, 18, 0);
 
     @TestConfiguration
     static class FixedClockConfig {
@@ -240,9 +240,9 @@ public class CareRequestCreateServiceTest {
         }
 
         @Test
-        void 상황_시작일_0시부터_종료일_끝까지_허용한다() {
-            // 상황 시작일 0시는 이미 지났으므로 종료일 끝(다음 날 0시)만 확인
-            LocalDateTime endOfSituation = SITUATION_END.plusDays(1).atStartOfDay();
+        void 요청_종료가_상황_종료_시각과_같으면_허용한다() {
+            // 상황 시작 시각은 이미 지났으므로 종료 시각만 확인 (종료 시각과 같아도 됨)
+            LocalDateTime endOfSituation = SITUATION_END;
             assertThat(createService.create(REQUESTER_ID,
                     body(MY_PERSON_ID, endOfSituation.minusHours(2), endOfSituation, null)).status())
                     .isEqualTo(CareRequestStatus.REQUESTED);
@@ -391,8 +391,8 @@ public class CareRequestCreateServiceTest {
         }
 
         @Test
-        void 상황_종료일을_넘기면_REQUEST_SCHEDULE_INVALID다() {
-            LocalDateTime endOfSituation = SITUATION_END.plusDays(1).atStartOfDay();
+        void 상황_종료_시각을_넘기면_REQUEST_SCHEDULE_INVALID다() {
+            LocalDateTime endOfSituation = SITUATION_END; // 같은 날 18:00 이후는 날짜가 같아도 거부
             assertError(() -> createService.create(REQUESTER_ID,
                             body(MY_PERSON_ID, endOfSituation.minusHours(1), endOfSituation.plusMinutes(1), null)),
                     CareRequestErrorCode.REQUEST_SCHEDULE_INVALID);

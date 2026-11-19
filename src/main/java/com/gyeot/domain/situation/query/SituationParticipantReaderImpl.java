@@ -40,6 +40,6 @@ public class SituationParticipantReaderImpl implements SituationParticipantReade
         Objects.requireNonNull(situationId, "situationId는 필수입니다.");
         return situationRepository.findById(situationId)
                 .map(situation -> new SituationSummary(situation.getCreatorId(),
-                        situation.getStartDate(), situation.getEndDate(), situation.getStatus().name()));
+                        situation.getStartAt(), situation.getEndAt(), situation.getStatus().name()));
     }
 }
