@@ -28,8 +28,9 @@ public record SharingOptionsResponse(
             String title,                 // 항목 이름. title이 없는 유형은 null
             String informationValue,      // 항목 내용 (본인 화면이라 내용 포함)
             boolean sensitive,            // 민감정보 여부
-            boolean selected,             // 기본 선택 여부
-            LocalDateTime updatedAt       // 최근 갱신 시각
+            boolean selected,             // 기본 선택 여부 (이번 화면의 처음 선택값)
+            boolean updated,              // 공유 이후 수정 여부. 마지막 대상에게 공유된(권한 부여) 뒤 수정했으면 true, 공유 이력이 없으면 false (#138)
+            LocalDateTime updatedAt       // 최근 갱신 시각. 화면에는 updated=true일 때만 갱신일로 표시
     ) {
     }
 }

@@ -36,7 +36,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static org.assertj.core.api.Assertions.*;
 
 /** 실제 DB 잠금·RR·롤백 검증. A/C 제품 Service 자체의 통합 검증은 별도로 수행합니다. */
-@DataJpaTest(properties = "spring.flyway.enabled=false")
+@DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import({JpaAuditingConfig.class, SafetyInformationCipher.class, SituationMembershipCleanupService.class,
         SituationMembershipCleanupListener.class, SituationMembershipCleanupIntegrationTest.Probe.class})
@@ -156,6 +156,47 @@ class SituationMembershipCleanupIntegrationTest {
         }
         assertThat(state(id)).isEqualTo(SituationParticipantStatus.REMOVED);
         assertThat(probe.events).hasSize(1);
+    }
+
+    @Test void relationshipCleanupRemovesParticipationCommittedWhileWaitingForSituationLock() throws Exception {
+        var situationId = tx.execute(status -> {
+            var situation = situations.save(Situation.create(10L, "RECOVERY", "회복",
+                    LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 30)));
+            participants.save(SituationParticipant.create(situation, 10L,
+                    SituationParticipantRole.OWNER, now.minusDays(1)));
+            return situation.getId();
+        });
+        var locked = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var cleanupStarted = new CountDownLatch(1);
+        var joinedAt = now.plusSeconds(1);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var add = executor.submit(() -> tx.execute(status -> {
+                var situation = em.find(Situation.class, situationId, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+                locked.countDown();
+                await(release);
+                return participants.save(SituationParticipant.create(situation, 20L,
+                        SituationParticipantRole.PARTICIPANT, joinedAt)).getId();
+            }));
+            try {
+                await(locked);
+                var cleanup = executor.submit(() -> tx.executeWithoutResult(status -> {
+                    cleanupStarted.countDown();
+                    publisher.publishEvent(event(RelationshipType.MY_PERSON));
+                }));
+                await(cleanupStarted);
+                assertThatThrownBy(() -> cleanup.get(300, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+                release.countDown();
+                var participantId = add.get(10, TimeUnit.SECONDS);
+                cleanup.get(10, TimeUnit.SECONDS);
+                var participant = tx.execute(status -> participants.findById(participantId).orElseThrow());
+                assertThat(participant.getStatus()).isEqualTo(SituationParticipantStatus.REMOVED);
+                assertThat(participant.getLeftAt()).isEqualTo(joinedAt);
+                assertThat(probe.events).hasSize(1);
+            } finally {
+                release.countDown();
+            }
+        }
     }
 
     private void await(CountDownLatch latch) {

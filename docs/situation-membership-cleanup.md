@@ -3,7 +3,7 @@
 ## 기준
 
 - develop `dc7664d02b4019984f5d50cd37262d34d3e924ae` 기반 별도 브랜치.
-- A #128 `2358e16`: RelationshipEndedEvent(relationshipId, sourceUserId, targetUserId, relationshipType, occurredAt).
+- A #128 `b8177e5`: RelationshipEndedEvent(relationshipId, sourceUserId, targetUserId, relationshipType, occurredAt).
   MY_PERSON은 source → target, GUARDIAN은 양방향 종료 후 이벤트 한 번. 보호자 전환에는 미발행.
 - develop UserWithdrawalService는 계정 변경·세션 폐기와 같은 트랜잭션에서 UserWithdrawnEvent(userId, occurredAt) 발행.
 - C #129 `c0ca4fb`: 참여 종료 이벤트의 userId는 사용자 PK. RELATIONSHIP_ENDED 사유로 요청·지정 정리.
@@ -17,10 +17,10 @@
 - GUARDIAN: 두 사용자가 각각 만든 상황에서 반대 사용자를 동일하게 처리.
 - 제3자가 만든 상황, OWNER, ENDED, LEFT/REMOVED는 변경하지 않음. 마지막 일반 참여자 제외도 상황 종료로 연결하지 않음.
 - 실제 전이마다 SituationParticipantRemovedEvent(situationId, userId, RELATIONSHIP_ENDED, leftAt) 발행.
-- 이벤트 occurredAt을 그대로 leftAt에 사용. 중복 수신은 최초 상태·시각 보존. 이벤트 시각 이후 joinedAt인 재참여 행은 건너뜀.
+- 동기 정리는 잠금 후 현재 ACTIVE 행을 대상으로 한다. 참여 추가가 먼저 커밋되어 joinedAt이 occurredAt보다 늦으면 joinedAt을 leftAt으로 기록한다. 반복 수신은 최초 상태·시각을 보존한다.
 - 동일 사용자 ACTIVE 행이 여러 개인 비정상 데이터는 상태 전이 전에 오류로 거부하여 이벤트 중복 발행을 피함.
 - 탈퇴: 타인 ACTIVE 상황의 본인 일반 참여를 LEFT로 변경. B 참여 종료·상황 종료 이벤트는 발행하지 않음(C는 원본 탈퇴 이벤트 수신).
-- 기존 SituationParticipant.remove()/leave(), A/B 이벤트 record 재사용. C·A 제품 코드, 기존 Repository, Entity, HTTP API, Flyway 변경 없음.
+- 기존 SituationParticipant.remove()/leave(), A/B 이벤트 record 재사용. C·A 제품 코드, 기존 Repository, Entity, HTTP API, Flyway 마이그레이션 변경 없음. MySQL 통합 테스트는 test 프로필의 Flyway와 Hibernate validate를 사용.
 - 전용 Repository에서 상황 ID 순서로 부모를 잠그고 참여 행 ID 순서로 잠금 조회. 기존 관리 객체는 flush → detach → 잠금 find로 현재 상태 재조회.
 
 ## 정책 보류
@@ -28,7 +28,7 @@
 - 사용자 확인에 따라 OWNER 탈퇴 시 본인 상황 삭제/종료는 보류. OWNER 행도 변경하지 않음.
 - ERD 9.6의 본인 상황 삭제와 C #129의 본인 요청 보존이 충돌. C/D 기록·FK·삭제 순서 합의 전까지 실행하지 않음.
 - ENDED 상황의 탈퇴자 ACTIVE 참여 이력을 LEFT로 바꿀지는 별도 확인. 현재 종료 상황 변경 금지와 이력 보존에 따라 변경하지 않음.
-- 과거 이벤트를 관계 재성립/재참여 이후 재생하는 범용 exactly-once inbox는 없음. joinedAt 시간 방어는 관계 세대 식별 계약을 대체하지 않음.
+- 과거 이벤트를 관계 재성립/재참여 이후 재생하는 범용 exactly-once inbox는 없음. 재전달을 도입하려면 관계 세대를 식별하는 계약이 필요하다.
 
 ## 테스트
 

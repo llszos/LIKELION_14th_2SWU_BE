@@ -77,7 +77,7 @@ public class SafetyInformationService {
      *
      * - 없는 항목이거나 다른 사람의 항목이면 404 SAFETY_INFO_NOT_FOUND
      * - 입력 규칙은 작성과 같고, 유형은 바꿀 수 없어 기존 항목의 유형 기준으로 검사합니다.
-     * - 수정하면 updated_at이 바뀌고, 담당자 화면(전달받은 정보 조회)에는 '갱신됨'으로 표시됩니다. (updated_at > 권한 granted_at)
+     * - 수정하면 updated_at이 바뀌고, 공유된 뒤 수정한 항목은 담당자 화면(전달받은 정보 조회)에 갱신일이 표시됩니다. (updated_at > 권한 granted_at)
      * - 공유 중인 항목이어도 권한은 그대로 두고, 담당자는 수정된 내용을 봅니다.
      */
     @Transactional // 수정하므로 읽기 전용이 아닌 트랜잭션
@@ -94,7 +94,7 @@ public class SafetyInformationService {
         information.update(request.title(), request.informationValue());
 
         // 4. updated_at은 DB에 반영(flush)될 때 채워지므로, 먼저 반영해야 응답에 수정 후 시각이 담김
-        //    값이 그대로면 변경이 없어 updated_at도 바뀌지 않음 ('갱신됨' 표시 안 함)
+        //    값이 그대로면 updated_at은 유지됨. 갱신일 표시 여부는 기존 updated_at과 권한 부여 시각으로 판단
         safetyInformationRepository.flush();
 
         return SafetyInformationResponse.from(information);

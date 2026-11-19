@@ -52,8 +52,8 @@ public class SituationMembershipCleanupService {
                             && p.getStatus() == SituationParticipantStatus.ACTIVE);
             if (!ownerPresent) continue;
             for (SituationParticipant participant : participants) {
-                if (!canEnd(participant, targetId, event.occurredAt())) continue;
-                participant.remove(event.occurredAt());
+                if (!canEnd(participant, targetId)) continue;
+                participant.remove(endTime(participant, event.occurredAt()));
                 publisher.publishEvent(new SituationParticipantRemovedEvent(situation.getId(), targetId,
                         SituationParticipantRemovalReason.RELATIONSHIP_ENDED, participant.getLeftAt()));
             }
@@ -69,16 +69,23 @@ public class SituationMembershipCleanupService {
             if (situation.getStatus() != SituationStatus.ACTIVE
                     || situation.getCreatorId().equals(event.userId())) continue;
             for (SituationParticipant participant : currentParticipants(situation.getId())) {
-                if (canEnd(participant, event.userId(), event.occurredAt())) participant.leave(event.occurredAt());
+                if (canEnd(participant, event.userId())) {
+                    participant.leave(endTime(participant, event.occurredAt()));
+                }
             }
         }
     }
 
-    private boolean canEnd(SituationParticipant participant, Long userId, LocalDateTime occurredAt) {
+    private boolean canEnd(SituationParticipant participant, Long userId) {
         return participant.getUserId().equals(userId)
                 && participant.getRole() == SituationParticipantRole.PARTICIPANT
-                && participant.getStatus() == SituationParticipantStatus.ACTIVE
-                && !participant.getJoinedAt().isAfter(occurredAt);
+                && participant.getStatus() == SituationParticipantStatus.ACTIVE;
+    }
+
+    private LocalDateTime endTime(SituationParticipant participant, LocalDateTime occurredAt) {
+        // 잠금을 기다리는 동안 먼저 커밋된 참여도 정리하되 참여 시작 전 시각은 기록하지 않습니다.
+        var joinedAt = participant.getJoinedAt();
+        return joinedAt.isAfter(occurredAt) ? joinedAt : occurredAt;
     }
 
     private List<SituationParticipant> currentParticipants(Long situationId) {

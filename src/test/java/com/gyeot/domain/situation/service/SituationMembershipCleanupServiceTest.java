@@ -113,15 +113,17 @@ class SituationMembershipCleanupServiceTest {
     }
 
     @Test
-    void delayedRelationshipEventDoesNotRemoveNewParticipation() {
+    void relationshipEventRemovesParticipationThatJoinedDuringCleanup() {
         var s = situation(10L);
         participant(s, 10L, SituationParticipantRole.OWNER);
         var p = participant(s, 20L, SituationParticipantRole.PARTICIPANT);
         ReflectionTestUtils.setField(p, "joinedAt", occurredAt.plusMinutes(1));
         when(repository.lockOwnedSituations(anyCollection())).thenReturn(List.of(s));
         service.relationshipEnded(event(RelationshipType.MY_PERSON));
-        assertThat(p.getStatus()).isEqualTo(SituationParticipantStatus.ACTIVE);
-        verifyNoInteractions(publisher);
+        assertThat(p.getStatus()).isEqualTo(SituationParticipantStatus.REMOVED);
+        assertThat(p.getLeftAt()).isEqualTo(p.getJoinedAt());
+        verify(publisher).publishEvent(new SituationParticipantRemovedEvent(s.getId(), 20L,
+                SituationParticipantRemovalReason.RELATIONSHIP_ENDED, p.getJoinedAt()));
     }
 
     @Test

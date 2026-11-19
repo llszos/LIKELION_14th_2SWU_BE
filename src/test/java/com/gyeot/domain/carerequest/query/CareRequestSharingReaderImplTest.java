@@ -302,6 +302,48 @@ public class CareRequestSharingReaderImplTest {
         assertThat(reader.isCurrentTarget(12345L, TARGET_ID)).isFalse();
     }
 
+    // === findLastAssignmentId (D #138 공개 항목 선택지) ===
+
+    @Test
+    void 지정_ID가_아니라_assignment_order가_가장_큰_지정을_돌려준다() {
+
+        CareRequest request = saveRequest();
+
+        // 두 번째로 부탁한 지정(order 2)을 먼저 저장해 ID가 더 작게 만듦 (ID 순서로는 통과하지 못하도록)
+        RequestAssignment second = saveAssignment(request, NEXT_TARGET_ID, 2);
+        RequestAssignment first = RequestAssignment.assign(request, TARGET_ID, 1, NOW.plusHours(24));
+
+        first.respond(AssignmentResponseStatus.UNAVAILABLE, NOW);
+        first.close(AssignmentCloseReason.TARGET_CHANGED, NOW); // 열린 지정은 요청당 1건이라 먼저 부탁한 지정은 마감
+
+        assignmentRepository.save(first);
+        flushAndClear();
+
+        assertThat(first.getId()).isGreaterThan(second.getId()); // 준비 확인: ID는 첫 번째 지정이 더 큼
+        assertThat(reader.findLastAssignmentId(request.getId())).contains(second.getId());
+    }
+
+    @Test
+    void 마지막_지정이_마감됐어도_돌려준다() {
+        CareRequest request = saveRequest();
+        RequestAssignment assignment = saveAssignment(request, TARGET_ID, 1);
+        accept(request, assignment);
+        assignment.close(AssignmentCloseReason.ACCEPTANCE_WITHDRAWN, NOW); // 수락 철회로 마감, 아직 다시 부탁하지 않음
+        request.revertToRequested();
+        flushAndClear();
+
+        assertThat(reader.findLastAssignmentId(request.getId())).contains(assignment.getId());
+    }
+
+    @Test
+    void 지정이_없거나_없는_요청이면_빈_Optional이다() {
+        CareRequest request = saveRequest();
+        flushAndClear();
+
+        assertThat(reader.findLastAssignmentId(request.getId())).isEmpty();
+        assertThat(reader.findLastAssignmentId(12345L)).isEmpty();
+    }
+
     // === 준비 코드 ===
 
     private CareRequest saveRequest() {
