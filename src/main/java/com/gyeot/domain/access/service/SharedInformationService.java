@@ -219,7 +219,7 @@ public class SharedInformationService {
                             item.getTitle(),                               // 조회할 때 복호화됨 (암호화 컬럼)
                             item.getInformationValue(),                    // 조회할 때 복호화됨 (암호화 컬럼)
                             item.getUpdatedAt(),                           // 작성 후 수정하지 않았으면 작성 시각
-                            isUpdated(item, permission),                   // '갱신됨'
+                            isUpdated(item, permission),                   // 공유 이후 수정 여부 (true일 때만 갱신일 표시)
                             isAdded(permission, permissions, request),     // '추가됨'
                             type.isSensitive()));                          // '민감'
 
@@ -236,7 +236,8 @@ public class SharedInformationService {
     }
 
     /**
-     * '갱신됨': 공유된(ACTIVE가 된) 뒤에 정보 주인이 항목을 수정함 (항목 수정 시각 > 권한 부여 시각, F-02)
+     * 공유 이후 수정 여부: 공유된(ACTIVE가 된) 뒤에 정보 주인이 항목을 수정함 (항목 수정 시각 > 권한 부여 시각, F-02)
+     * 화면에는 true일 때만 갱신일(updatedAt)을 표시합니다. (피그마 코멘트 #91)
      * 같은 시각이면 공유와 동시라 갱신으로 보지 않습니다.
      */
     private static boolean isUpdated(SafetyInformation item, RequestInformationPermission permission) {

@@ -82,7 +82,7 @@ public class SafetyInformationController {
      * 입력 규칙을 어기면 400 INVALID_INPUT, 없거나 다른 사람의 항목이면 404 SAFETY_INFO_NOT_FOUND
      */
     @Operation(summary = "항목 수정",
-            description = "항목의 이름과 내용을 수정합니다. 실제 변경 여부와 권한 부여 시각을 기준으로 담당자 화면의 '갱신됨' 표시가 결정됩니다.")
+            description = "항목의 이름과 내용을 수정합니다. 공유된 뒤 실제로 바뀐 항목은 담당자 화면에 갱신일이 표시됩니다. (실제 변경 여부와 권한 부여 시각 기준)")
     @PatchMapping("/{informationId}")
     public ApiResponse<SafetyInformationResponse> update(
             @AuthenticationPrincipal AuthenticatedUser user,     // 로그인한 사용자 (JWT 토큰에서 꺼냄, 요청 값으로 바꿀 수 없음)
