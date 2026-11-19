@@ -146,7 +146,7 @@ public class CareRequestSummaryReaderImpl implements CareRequestSummaryReader {
                 CareRequest r = assignment.getCareRequest();
                 responseNeeded.add(new ResponseNeededItem(r.getId(), ResponseNeededType.RESPONSE, r.getRequestType(),
                         r.getHelpType(), r.getStartsAt(), r.getPlace(), r.getRequesterId(),
-                        assignment.getResponseDeadline()));
+                        assignment.getResponseDeadline(), r.getSituationId()));
             }
         }
         for (RequestChangeProposal proposal : proposalRepository.findAllForAssignee(userId, ProposalStatus.PENDING)) {
@@ -154,7 +154,7 @@ public class CareRequestSummaryReaderImpl implements CareRequestSummaryReader {
                 CareRequest r = proposal.getCareRequest();
                 responseNeeded.add(new ResponseNeededItem(r.getId(), ResponseNeededType.RECONFIRMATION,
                         r.getRequestType(), r.getHelpType(), r.getStartsAt(), r.getPlace(), r.getRequesterId(),
-                        proposal.getResponseDeadline()));
+                        proposal.getResponseDeadline(), r.getSituationId()));
             }
         }
 
@@ -253,7 +253,8 @@ public class CareRequestSummaryReaderImpl implements CareRequestSummaryReader {
             boolean visible = request.getRequesterId().equals(viewerId) || Objects.equals(assigneeId, viewerId);
             if (visible) {
                 records.add(new PastRequestRecord(request.getId(), request.getHelpType(), request.getStartsAt(),
-                        request.getRequesterId(), assigneeId, RequestDisplayStatus.of(request, null, null)));
+                        request.getRequesterId(), assigneeId, RequestDisplayStatus.of(request, null, null),
+                        request.getEndsAt()));
             }
         }
         return records;
@@ -309,10 +310,12 @@ public class CareRequestSummaryReaderImpl implements CareRequestSummaryReader {
     private RequestSummary summary(CareRequest request, Map<Long, List<RequestAssignment>> assignments,
                                    LocalDateTime now) {
         RequestAssignment latest = latest(assignments.get(request.getId()));
+        RequestDisplayStatus status = RequestDisplayStatus.of(request, latest, now);
         return new RequestSummary(request.getId(), request.getRequestType(), request.getHelpType(),
                 request.getStartsAt(), request.getEndsAt(), request.getRequesterId(),
                 latest == null ? null : latest.getTargetUserId(),
-                RequestDisplayStatus.of(request, latest, now));
+                status,
+                status == RequestDisplayStatus.WAITING ? latest.getResponseDeadline() : null); // 응답 대기일 때만
     }
 
     private UpcomingSchedule upcoming(CareRequest request, RequestAssignment assignee) {
