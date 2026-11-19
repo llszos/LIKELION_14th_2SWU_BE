@@ -46,16 +46,32 @@ public class CareRequestCleanupService {
     private final CareRequestLifecycle lifecycle;
 
     /**
-     * 상황 종료 (F-04): 상황의 끝나지 않은 요청을 모두 취소합니다. (SITUATION_ENDED)
-     * 열린 지정은 요청 종료로 함께 마감되고, D는 요청의 모든 권한을 회수합니다.
+     * 상황 종료 (F-04): 상황의 끝나지 않은 요청을 정리합니다.
+     * - 진행 중이고 종료 시각이 이미 지난 요청: 취소하지 않고 완료합니다. (완료한 사용자 없음)
+     *   요청 종료 시각이 상황 종료 시각과 같을 때, 요청 자동 완료(스케줄러)보다 상황 종료가 먼저 처리되어도
+     *   정상적으로 끝난 돌봄이 취소로 남지 않게 합니다.
+     * - 그 외 끝나지 않은 요청: 모두 취소합니다. (SITUATION_ENDED)
+     * 열린 지정은 요청 종료로 함께 마감되고(완료는 지정을 마감하지 않음), D는 요청의 모든 권한을 회수합니다.
      */
     public void cancelRequestsOfEndedSituation(Long situationId, LocalDateTime occurredAt) {
         for (Long requestId : careRequestRepository.findIdsBySituationIdAndStatusIn(situationId, ONGOING)) {
             CareRequest request = lock(requestId);
-            if (!request.isTerminal()) {
+            if (request.isTerminal()) {
+                continue; // 조회와 잠금 사이에 다른 작업이 먼저 끝냄
+            }
+            if (isDueToComplete(request, occurredAt)) {
+                lifecycle.complete(request, null, occurredAt); // 스케줄러 자동 완료와 같은 처리
+            } else {
                 lifecycle.cancel(request, CancelReason.SITUATION_ENDED, null, occurredAt);
             }
         }
+    }
+
+    /** 진행 중이고 종료 시각이 됐는지 (요청 자동 완료 CareRequestAutoTransitionService.completeIfDue와 같은 기준) */
+    private static boolean isDueToComplete(CareRequest request, LocalDateTime occurredAt) {
+        return request.getStatus() == CareRequestStatus.IN_PROGRESS
+                && request.getEndsAt() != null                 // 급한 요청은 종료 시각이 없음
+                && !occurredAt.isBefore(request.getEndsAt());
     }
 
     /**
