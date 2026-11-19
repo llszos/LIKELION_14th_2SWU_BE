@@ -133,6 +133,16 @@ public class CareRequestSharingReaderImpl implements CareRequestSharingReader {
         return assignmentRepository.existsByCareRequestIdAndTargetUserIdAndClosedAtIsNull(requestId, userId);
     }
 
+    @Override
+    public Optional<Long> findLastAssignmentId(Long requestId) {
+        Objects.requireNonNull(requestId, "requestId는 필수입니다.");
+
+        // 화면 상태 계산과 같은 저장소 메서드를 재사용합니다. (assignment_order가 가장 큰 지정, 마감 여부 무관)
+        // 지정 ID(자동 증가) 순서가 아니라 C가 정한 부탁 순서로 판단합니다.
+        return assignmentRepository.findFirstByCareRequestIdOrderByAssignmentOrderDesc(requestId)
+                .map(RequestAssignment::getId);
+    }
+
     /**
      * 현재 담당자가 없으면(currentAssignee == null) 담당자 관련 세 값은 null
      */
