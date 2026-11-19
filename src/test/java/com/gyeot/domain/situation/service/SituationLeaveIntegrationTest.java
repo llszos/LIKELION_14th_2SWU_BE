@@ -1,5 +1,9 @@
 package com.gyeot.domain.situation.service;
 
+import com.gyeot.domain.relation.entity.RelationshipStatus;
+import com.gyeot.domain.relation.repository.RelationshipQueryRepository;
+import com.gyeot.domain.user.entity.AccountStatus;
+import com.gyeot.domain.user.repository.UserRepository;
 import com.gyeot.domain.safetycard.crypto.SafetyInformationCipher;
 import com.gyeot.domain.situation.entity.*;
 import com.gyeot.domain.situation.event.SituationParticipantRemovedEvent;
@@ -15,6 +19,8 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.context.annotation.Import;
 import org.springframework.context.event.EventListener;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,12 +36,15 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.when;
 
 /** 실제 MySQL과 독립 트랜잭션으로 저장, 잠금, 롤백을 검증합니다. */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import({JpaAuditingConfig.class, SafetyInformationCipher.class, ClockConfiguration.class,
-        SituationLeaveProcessor.class, JpaSituationLeaveStore.class, SituationLeaveIntegrationTest.Events.class})
+        SituationLeaveProcessor.class, JpaSituationLeaveStore.class, SituationLeaveIntegrationTest.Events.class,
+        SituationParticipantAddService.class, SituationParticipantRemovalService.class,
+        SituationParticipantLockReader.class, SituationParticipantRemovalProcessor.class})
 @ActiveProfiles("test")
 @Testcontainers
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -45,6 +54,10 @@ class SituationLeaveIntegrationTest {
             .withEnv("TZ", "Asia/Seoul");
 
     @Autowired SituationLeaveProcessor processor;
+    @Autowired SituationParticipantAddService addService;
+    @Autowired SituationParticipantRemovalService removalService;
+    @MockitoBean RelationshipQueryRepository relationships;
+    @MockitoBean UserRepository users;
     @Autowired SituationRepository situations;
     @Autowired SituationParticipantRepository participants;
     @Autowired PlatformTransactionManager transactionManager;
@@ -61,6 +74,8 @@ class SituationLeaveIntegrationTest {
             var situation = situations.save(Situation.create(1L, "돌봄", "동행",
                     LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 30)));
             situationId = situation.getId();
+            participants.save(SituationParticipant.create(situation, 1L, SituationParticipantRole.OWNER,
+                    LocalDateTime.of(2026, 11, 1, 9, 0)));
             participantId = participants.save(SituationParticipant.create(situation, 2L,
                     SituationParticipantRole.PARTICIPANT, LocalDateTime.of(2026, 11, 1, 9, 0))).getId();
         });
@@ -136,6 +151,46 @@ class SituationLeaveIntegrationTest {
         assertThat(savedOther.getStatus()).isEqualTo(SituationStatus.ENDED);
         assertThat(savedOther.getEndedAt()).isEqualTo(LocalDateTime.of(2026, 11, 15, 10, 0));
         assertThat(events.count.get()).isEqualTo(1);
+    }
+
+    @Test
+    void addReloadsPreloadedActiveHistoryAfterParticipantLeaves() {
+        when(users.existsById(2L)).thenReturn(true);
+        when(users.existsByIdAndAccountStatus(2L, AccountStatus.ACTIVE)).thenReturn(true);
+        when(relationships.existsBySourceUserIdAndTargetUserIdAndStatus(1L, 2L, RelationshipStatus.ACTIVE))
+                .thenReturn(true);
+        var leftAt = LocalDateTime.of(2026, 11, 15, 9, 0);
+
+        var addedId = new TransactionTemplate(transactionManager).execute(tx -> {
+            assertThat(participants.findById(participantId).orElseThrow().getStatus()).isEqualTo(SituationParticipantStatus.ACTIVE);
+            changeParticipationInNewTransaction(() -> participants.findById(participantId).orElseThrow().leave(leftAt));
+            var added = addService.add(situationId, 1L, 2L);
+            assertThat(added.participantId()).isNotEqualTo(participantId);
+            return added.participantId();
+        });
+
+        assertThat(participants.findById(participantId).orElseThrow().getStatus()).isEqualTo(SituationParticipantStatus.LEFT);
+        assertThat(participants.findById(addedId).orElseThrow().getStatus()).isEqualTo(SituationParticipantStatus.ACTIVE);
+    }
+
+    @Test
+    void removalReloadsPreloadedTargetAndKeepsOriginalRemovalTime() {
+        var removedAt = LocalDateTime.of(2026, 11, 15, 9, 0);
+        new TransactionTemplate(transactionManager).executeWithoutResult(tx -> {
+            assertThat(participants.findById(participantId).orElseThrow().getStatus()).isEqualTo(SituationParticipantStatus.ACTIVE);
+            changeParticipationInNewTransaction(() -> participants.findById(participantId).orElseThrow().remove(removedAt));
+            var result = removalService.remove(situationId, participantId, 1L);
+            assertThat(result.status()).isEqualTo(SituationParticipantStatus.REMOVED);
+            assertThat(result.leftAt()).isEqualTo(removedAt);
+        });
+        assertThat(participants.findById(participantId).orElseThrow().getLeftAt()).isEqualTo(removedAt);
+        assertThat(events.count.get()).isZero();
+    }
+
+    private void changeParticipationInNewTransaction(Runnable change) {
+        var independent = new TransactionTemplate(transactionManager);
+        independent.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        independent.executeWithoutResult(tx -> change.run());
     }
 
     static class Events {
