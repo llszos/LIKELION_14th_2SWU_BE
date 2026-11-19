@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -33,6 +34,30 @@ class SituationParticipantReaderImplTest {
         situationRepository = mock(SituationRepository.class);
         participantRepository = mock(SituationParticipantRepository.class);
         reader = new SituationParticipantReaderImpl(situationRepository, participantRepository);
+    }
+
+    @Test
+    void ACTIVE_ID_조회의_null은_저장소_접근_전에_거부한다() {
+        assertThatThrownBy(() -> reader.findActiveParticipantIds(null))
+                .isInstanceOf(NullPointerException.class);
+        verifyNoInteractions(situationRepository, participantRepository);
+    }
+
+    @Test
+    void ACTIVE_ID를_저장소_순서와_중복을_보존하여_반환한다() {
+        when(participantRepository.findUserIdsBySituationAndStatus(SITUATION_ID, SituationParticipantStatus.ACTIVE))
+                .thenReturn(List.of(30L, 10L, 30L));
+        assertThat(reader.findActiveParticipantIds(SITUATION_ID)).containsExactly(30L, 10L, 30L);
+        verify(participantRepository).findUserIdsBySituationAndStatus(SITUATION_ID, SituationParticipantStatus.ACTIVE);
+        verifyNoInteractions(situationRepository);
+    }
+
+    @Test
+    void ACTIVE_ID가_없으면_빈_목록을_반환한다() {
+        when(participantRepository.findUserIdsBySituationAndStatus(SITUATION_ID, SituationParticipantStatus.ACTIVE))
+                .thenReturn(List.of());
+        assertThat(reader.findActiveParticipantIds(SITUATION_ID)).isEmpty();
+        verifyNoInteractions(situationRepository);
     }
 
     @Test
