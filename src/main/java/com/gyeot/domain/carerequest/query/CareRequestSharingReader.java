@@ -75,6 +75,18 @@ public interface CareRequestSharingReader {
     boolean isCurrentTarget(Long requestId, Long userId);
 
     /**
+     * 요청의 마지막 대상 지정 ID를 조회합니다. (D 공개 항목 선택지 조회 이슈 #138)
+     * 요청 수정, 다시 부탁하기 화면에서 "마지막 대상에게 공개했던 항목"(selected)과
+     * "그 대상에게 공유된 뒤 수정한 항목"(updated)을 계산하는 기준 지정으로 사용합니다.
+     * - assignment_order가 가장 큰 지정입니다. 마감됐는지, 수락했는지와 상관없습니다. (화면 상태 계산 RequestDisplayStatus와 같은 기준)
+     * - 지정이 없거나 요청이 없으면 빈 Optional을 반환합니다.
+     *
+     * findById의 assignmentId는 현재 담당자(수락했고 마감되지 않은 지정)만 담아, 다시 부탁하기처럼 담당자가 없을 때는 null입니다.
+     * 또 공개 항목을 0개 고른 지정은 권한 행이 없어, D 데이터만으로는 마지막 지정을 알 수 없어서 따로 두었습니다.
+     */
+    Optional<Long> findLastAssignmentId(Long requestId);
+
+    /**
      * 공유 판단용 요청 정보
      * - situationId: 급한 요청은 null
      * - startsAt, endsAt: 급한 요청은 null (일반 요청 접근 기한은 endsAt, 급한 요청은 D의 expires_at)
