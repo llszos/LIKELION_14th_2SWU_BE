@@ -38,7 +38,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mysql.MySQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
@@ -288,7 +287,7 @@ public class TargetCandidateServiceTest {
 
     private void situation(Long situationId, Long creatorId, String status) {
         when(situationReader.findSituation(situationId)).thenReturn(Optional.of(new SituationSummary(
-                creatorId, LocalDate.of(2026, 11, 9), LocalDate.of(2026, 11, 20), status)));
+                creatorId, LocalDateTime.of(2026, 11, 9, 9, 0), LocalDateTime.of(2026, 11, 20, 18, 0), status)));
     }
 
     private CareRequest request(Long situationId) {
