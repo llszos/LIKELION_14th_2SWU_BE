@@ -19,6 +19,7 @@ import com.gyeot.domain.carerequest.enums.ChangeableField;
 import com.gyeot.domain.carerequest.enums.InvalidationReason;
 import com.gyeot.domain.carerequest.enums.NoAssigneeReason;
 import com.gyeot.domain.carerequest.enums.ProposalStatus;
+import com.gyeot.domain.carerequest.query.RecordAssigneeRule;
 import com.gyeot.domain.carerequest.query.RequestDisplayStatus;
 import com.gyeot.domain.carerequest.repository.RequestAssignmentRepository;
 import com.gyeot.domain.carerequest.repository.RequestChangeEventRepository;
@@ -113,7 +114,7 @@ public class CareRequestDetailService {
                 isRequester && latest != null ? latest.getResponseDeadlineHours() : null,
                 isRequester ? null : myAssignmentView(access.myAssignment()),
                 proposal == null ? null : proposalView(request, proposal),
-                actions(access, displayStatus, situation, proposal, now)
+                actions(access, displayStatus, situation, proposal, assignments, now)
         );
     }
 
@@ -240,7 +241,7 @@ public class CareRequestDetailService {
     /** 각 API 서비스의 검증과 같은 기준으로 판단합니다. (RequestAction 참조) */
     private List<RequestAction> actions(RequestAccess access, RequestDisplayStatus displayStatus,
                                         SituationSummary situation, RequestChangeProposal proposal,
-                                        LocalDateTime now) {
+                                        List<RequestAssignment> assignments, LocalDateTime now) {
         CareRequest request = access.request();
         CareRequestStatus status = request.getStatus();
         boolean beforeStart = request.isUrgent() || now.isBefore(request.getStartsAt());
@@ -266,7 +267,7 @@ public class CareRequestDetailService {
             if (request.isTerminal()) {
                 actions.add(RequestAction.DUPLICATE);
             }
-            if (status == CareRequestStatus.COMPLETED && isEnded(situation)) {
+            if (canViewPastSituation(access, situation, assignments)) {
                 actions.add(RequestAction.VIEW_PAST_SITUATION);
             }
             return actions;
@@ -274,34 +275,60 @@ public class CareRequestDetailService {
 
         RequestAssignment mine = access.myAssignment();
         if (access.role() == RequestViewerRole.TARGET) {
+            // 대상자는 수락한 적이 없어 기록상 담당자가 될 수 없음 (지난 상황 기록에 이 요청이 보이지 않음)
             if (status == CareRequestStatus.REQUESTED && mine.isOpen() && beforeStart) {
                 actions.add(RequestAction.RESPOND);
             }
             return actions;
         }
 
-        // 담당자: 지금도 담당자일 때만 (수락을 철회했거나 마감된 이전 담당자는 동작 없음)
-        if (!mine.isCurrentAssignee()) {
-            return actions;
-        }
-        if (status == CareRequestStatus.ACCEPTED) {
-            if (beforeStart) {
-                actions.add(RequestAction.WITHDRAW);
+        // 담당자: 동작 버튼은 지금도 담당자일 때만 (수락을 철회했거나 마감된 이전 담당자는 동작 없음)
+        // 단, 지난 상황에서 보기는 요청이 끝날 때 담당자였던 사람이면 지정이 마감됐어도 내려줌 (진행 중 취소 등)
+        if (mine.isCurrentAssignee()) {
+            if (status == CareRequestStatus.ACCEPTED) {
+                if (beforeStart) {
+                    actions.add(RequestAction.WITHDRAW);
+                }
+                actions.add(RequestAction.START); // 시작 버튼은 시작 시각 전에도 누를 수 있음
             }
-            actions.add(RequestAction.START); // 시작 버튼은 시작 시각 전에도 누를 수 있음
+            if (status == CareRequestStatus.IN_PROGRESS) {
+                actions.add(RequestAction.COMPLETE);
+            }
+            if (pendingProposal && status == CareRequestStatus.ACCEPTED && beforeStart
+                    && !proposal.isDeadlinePassed(now)) {
+                actions.add(RequestAction.ACCEPT_PROPOSAL);
+                actions.add(RequestAction.REJECT_PROPOSAL);
+            }
         }
-        if (status == CareRequestStatus.IN_PROGRESS) {
-            actions.add(RequestAction.COMPLETE);
-        }
-        if (pendingProposal && status == CareRequestStatus.ACCEPTED && beforeStart
-                && !proposal.isDeadlinePassed(now)) {
-            actions.add(RequestAction.ACCEPT_PROPOSAL);
-            actions.add(RequestAction.REJECT_PROPOSAL);
-        }
-        if (status == CareRequestStatus.COMPLETED && isEnded(situation)) {
+        if (canViewPastSituation(access, situation, assignments)) {
             actions.add(RequestAction.VIEW_PAST_SITUATION);
         }
         return actions;
+    }
+
+    /**
+     * 지난 상황에서 보기(N-04)를 내려줄지 판단합니다.
+     * 누르면 지난 상황 상세로 가므로, 그 화면에서 이 요청을 실제로 볼 수 있는 사람에게만 내려줍니다.
+     * - 요청이 끝났고(완료·취소·만료) 상황이 종료됐을 때
+     * - 요청자: 지난 상황의 모든 요청 기록을 봄 (요청자 = 상황 생성자라 지난 상황에 항상 들어갈 수 있음)
+     * - 그 외: 이 요청의 기록상 담당자(RecordAssigneeRule, 지난 상황 기록과 같은 규칙)이고,
+     *   지금도 상황 참여 중(ACTIVE)일 때만. 나가거나 제외된 사람은 지난 상황 상세가 404라 내려주지 않음 (B #95)
+     * 요청이 끝났는데 이 값이 없으면 FE는 "확인" 버튼을 보여 줍니다. (피그마 코멘트 #90)
+     */
+    private boolean canViewPastSituation(RequestAccess access, SituationSummary situation,
+                                         List<RequestAssignment> assignments) {
+        CareRequest request = access.request();
+        if (!request.isTerminal() || !isEnded(situation)) {
+            return false;
+        }
+        if (access.isRequester()) {
+            return true;
+        }
+        Long viewerId = access.myAssignment().getTargetUserId();
+        boolean recordAssignee = RecordAssigneeRule.find(request, assignments)
+                .map(assignment -> assignment.getTargetUserId().equals(viewerId))
+                .orElse(false);
+        return recordAssignee && situationReader.isActiveParticipant(request.getSituationId(), viewerId);
     }
 
     private static boolean isEnded(SituationSummary situation) {
