@@ -9,14 +9,13 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Flyway V1에 직접 넣은 DB 제약이 실제로 위반을 막는지 확인합니다. (#47, ERD 6.2)
+ * Flyway V1 및 V3에 직접 넣은 DB 제약이 실제로 위반을 막는지 확인합니다. (#47, ERD 6.2)
  *
  * - 엔티티에 매핑되지 않은 제약(생성 컬럼 + UNIQUE, CHECK)이라 Hibernate validate로는 확인되지 않아 따로 검사합니다.
  * - 서비스 규칙과 상관없이 DB 제약만 보려고, 엔티티를 거치지 않고 SQL로 직접 넣습니다.
@@ -71,7 +70,7 @@ class SchemaConstraintTest {
 
     @Test
     void 같은_상황에_같은_사용자의_활성_참여는_하나만_있을_수_있다() {
-        Long situationId = insertSituation(LocalDate.of(2026, 11, 16), LocalDate.of(2026, 11, 20));
+        Long situationId = insertSituation(NOW, NOW.plusDays(4));
         insertParticipant(situationId, 2L, "ACTIVE");
 
         assertViolates(() -> insertParticipant(situationId, 2L, "ACTIVE"), "uk_situation_participants_active");
@@ -79,7 +78,7 @@ class SchemaConstraintTest {
 
     @Test
     void 나가거나_제외된_참여_이력은_남고_다시_참여할_수_있다() {
-        Long situationId = insertSituation(LocalDate.of(2026, 11, 16), LocalDate.of(2026, 11, 20));
+        Long situationId = insertSituation(NOW, NOW.plusDays(4));
 
         assertThatCode(() -> {
             insertParticipant(situationId, 2L, "LEFT");
@@ -136,15 +135,16 @@ class SchemaConstraintTest {
     // === CHECK: 기간 ===
 
     @Test
-    void 상황_시작일이_종료일보다_늦으면_거부된다() {
-        assertViolates(() -> insertSituation(LocalDate.of(2026, 11, 20), LocalDate.of(2026, 11, 16)),
-                "chk_situations_period");
+    void 상황_시작이_종료와_같거나_늦으면_거부된다() {
+        assertViolates(() -> insertSituation(NOW, NOW), "chk_situations_time_period");
+        assertViolates(() -> insertSituation(NOW.plusHours(1), NOW),
+                "chk_situations_time_period");
     }
 
     @Test
-    void 상황_시작일과_종료일이_같으면_허용된다() {
-        assertThatCode(() -> insertSituation(LocalDate.of(2026, 11, 16), LocalDate.of(2026, 11, 16)))
-                .doesNotThrowAnyException(); // 시작일 <= 종료일
+    void 상황_시작이_종료보다_이전이면_같은_날이어도_허용된다() {
+        assertThatCode(() -> insertSituation(NOW, NOW.plusHours(1)))
+                .doesNotThrowAnyException(); // start_at < end_at
     }
 
     @Test
@@ -187,11 +187,11 @@ class SchemaConstraintTest {
                 """, NOW, sourceUserId, targetUserId, type, status);
     }
 
-    private Long insertSituation(LocalDate startDate, LocalDate endDate) {
+    private Long insertSituation(LocalDateTime startAt, LocalDateTime endAt) {
         jdbcTemplate.update("""
-                insert into situations (start_date, end_date, created_at, creator_id, updated_at, situation_type, title, status)
+                insert into situations (start_at, end_at, created_at, creator_id, updated_at, situation_type, title, status)
                 values (?, ?, ?, 1, ?, 'HOSPITAL', '병원 동행', 'ACTIVE')
-                """, startDate, endDate, NOW, NOW);
+                """, startAt, endAt, NOW, NOW);
         return lastInsertId();
     }
 

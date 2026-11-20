@@ -43,6 +43,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
@@ -203,6 +204,32 @@ public class CareRequestSummaryReaderImplTest {
         }
 
         @Test
+        void 응답_마감_시각은_응답_대기일_때만_현재_지정의_응답_기한이고_그_외는_null이다() {
+            CareRequest waiting = request(SITUATION_ID, 24);
+            RequestAssignment open = waiting(waiting, MINJAE);
+            CareRequest noAssignee = request(SITUATION_ID, 25);
+            unavailable(noAssignee, SEOYEON);                 // 어려움 → 담당자 없음
+            CareRequest deadlinePassed = request(SITUATION_ID, 26);
+            deadlinePassed(deadlinePassed, SEOYEON);          // 기한 지남 → 담당자 없음
+            CareRequest accepted = request(SITUATION_ID, 27);
+            accepted(accepted, MINJAE);
+            CareRequest noAssignment = request(SITUATION_ID, 28);
+            flushAndClear();
+
+            List<RequestSummary> list = reader.getSituationRequests(SITUATION_ID, REQUESTER_ID, NOW);
+
+            assertThat(list).extracting(RequestSummary::requestId, RequestSummary::displayStatus,
+                            RequestSummary::responseDeadline)
+                    .containsExactly(
+                            tuple(waiting.getId(), RequestDisplayStatus.WAITING, open.getResponseDeadline()),
+                            tuple(noAssignee.getId(), RequestDisplayStatus.NO_ASSIGNEE, null),
+                            tuple(deadlinePassed.getId(), RequestDisplayStatus.NO_ASSIGNEE, null),
+                            tuple(accepted.getId(), RequestDisplayStatus.ACCEPTED, null),
+                            tuple(noAssignment.getId(), RequestDisplayStatus.NO_ASSIGNEE, null));
+            assertThat(list.get(0).responseDeadline()).isEqualTo(NOW.plusHours(12));
+        }
+
+        @Test
         void 참여자는_지금_내가_대상자_담당자인_요청과_끝난_요청_중_내가_담당한_것만_본다() {
             CareRequest myWaiting = request(SITUATION_ID, 24);
             waiting(myWaiting, MINJAE);
@@ -268,6 +295,8 @@ public class CareRequestSummaryReaderImplTest {
             assertThat(item.deadline()).isEqualTo(NOW.plusHours(6));
             assertThat(item.place()).isEqualTo("○○병원");
             assertThat(item.requesterId()).isEqualTo(REQUESTER_ID);
+            assertThat(home.responseNeeded()).extracting(ResponseNeededItem::situationId)
+                    .containsOnly(SITUATION_ID); // 참여 상황 카드의 응답요청 N건 집계용
         }
 
         @Test
@@ -287,6 +316,24 @@ public class CareRequestSummaryReaderImplTest {
             assertThat(home.responseNeeded()).extracting(ResponseNeededItem::requestId, ResponseNeededItem::type)
                     .containsExactly(tuple(pending.getId(), ResponseNeededType.RECONFIRMATION));
             assertThat(home.responseNeeded().get(0).deadline()).isEqualTo(proposal.getResponseDeadline());
+            assertThat(home.responseNeeded().get(0).situationId()).isEqualTo(SITUATION_ID);
+        }
+
+        @Test
+        void 응답이_필요한_요청을_상황별로_묶으면_새_요청과_재확인을_함께_센다() {
+            waiting(request(SITUATION_ID, 24), MINJAE);                          // 상황 1: 새 요청
+            CareRequest toReconfirm = request(SITUATION_ID, 48);
+            RequestAssignment assignee = accepted(toReconfirm, MINJAE);
+            proposalRepository.save(RequestChangeProposal.create(toReconfirm, assignee,
+                    Set.of(ChangeableField.PLACE), null, null, "△△병원", null, NOW.minusHours(1))); // 상황 1: 재확인
+            waiting(request(OTHER_SITUATION_ID, 24), MINJAE);                    // 상황 2: 새 요청
+            unavailable(request(OTHER_SITUATION_ID, 25), MINJAE);                // 어려움 → 세지 않음
+            flushAndClear();
+
+            Map<Long, Long> countBySituation = reader.getHomeOverview(MINJAE, NOW).responseNeeded().stream()
+                    .collect(Collectors.groupingBy(ResponseNeededItem::situationId, Collectors.counting()));
+
+            assertThat(countBySituation).containsExactlyInAnyOrderEntriesOf(Map.of(SITUATION_ID, 2L, OTHER_SITUATION_ID, 1L));
         }
 
         @Test
@@ -302,8 +349,11 @@ public class CareRequestSummaryReaderImplTest {
 
             HomeRequestOverview home = reader.getHomeOverview(REQUESTER_ID, NOW);
 
-            assertThat(home.sentRequests()).extracting(RequestSummary::requestId)
-                    .containsExactly(waiting.getId(), noAssignee.getId(), accepted.getId());
+            assertThat(home.sentRequests()).extracting(RequestSummary::requestId, RequestSummary::responseDeadline)
+                    .containsExactly(
+                            tuple(waiting.getId(), NOW.plusHours(12)), // 응답 대기만 응답 마감 시각
+                            tuple(noAssignee.getId(), null),
+                            tuple(accepted.getId(), null));
             assertThat(home.noAssigneeCount()).isEqualTo(1);
             assertThat(home.responseNeeded()).isEmpty();
         }
@@ -372,6 +422,11 @@ public class CareRequestSummaryReaderImplTest {
                             tuple(done.getId(), MINJAE, RequestDisplayStatus.COMPLETED),
                             tuple(expired.getId(), null, RequestDisplayStatus.EXPIRED),        // 담당자 없이 만료
                             tuple(canceledAfterAccept.getId(), SEOYEON, RequestDisplayStatus.CANCELED));
+            assertThat(records).extracting(PastRequestRecord::startsAt, PastRequestRecord::endsAt)
+                    .containsExactly(
+                            tuple(NOW.plusHours(1), NOW.plusHours(4)),
+                            tuple(NOW.plusHours(2), NOW.plusHours(5)),
+                            tuple(NOW.plusHours(3), NOW.plusHours(6)));
         }
 
         @Test

@@ -10,7 +10,6 @@ import org.hibernate.boot.registry.StandardServiceRegistryBuilder;
 import org.hibernate.boot.spi.MetadataImplementor;
 import org.junit.jupiter.api.Test;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Set;
@@ -19,8 +18,8 @@ import java.util.stream.Collectors;
 import static org.junit.jupiter.api.Assertions.*;
 
 class SituationEntityTest {
-    private static final LocalDate START = LocalDate.of(2026, 11, 2);
-    private static final LocalDateTime JOINED = START.atTime(9, 0);
+    private static final LocalDateTime START = LocalDateTime.of(2026, 11, 2, 9, 15, 30);
+    private static final LocalDateTime JOINED = START;
     private static final LocalDateTime ENDED = JOINED.plusHours(1);
 
     private Situation situation() {
@@ -38,32 +37,50 @@ class SituationEntityTest {
         assertEquals(1L, s.getCreatorId());
         assertEquals("임시 유형", s.getSituationType());
         assertEquals("상황", s.getTitle());
-        assertEquals(START, s.getStartDate());
-        assertEquals(START.plusDays(1), s.getEndDate());
+        assertEquals(START, s.getStartAt());
+        assertEquals(START.plusDays(1), s.getEndAt());
         assertEquals(SituationStatus.ACTIVE, s.getStatus());
         assertNull(s.getEndedAt());
     }
 
     @Test
     void rejectsMissingSituationValues() {
-        assertThrows(IllegalArgumentException.class, () -> Situation.create(null, "유형", "제목", START, START));
+        assertThrows(IllegalArgumentException.class, () -> Situation.create(null, "유형", "제목", START, START.plusHours(1)));
         assertThrows(IllegalArgumentException.class, () -> Situation.create(1L, "유형", "제목", null, START));
         assertThrows(IllegalArgumentException.class, () -> Situation.create(1L, "유형", "제목", START, null));
         for (String invalid : new String[]{null, "", " "}) {
-            assertThrows(IllegalArgumentException.class, () -> Situation.create(1L, invalid, "제목", START, START));
-            assertThrows(IllegalArgumentException.class, () -> Situation.create(1L, "유형", invalid, START, START));
+            assertThrows(IllegalArgumentException.class, () -> Situation.create(1L, invalid, "제목", START, START.plusHours(1)));
+            assertThrows(IllegalArgumentException.class, () -> Situation.create(1L, "유형", invalid, START, START.plusHours(1)));
         }
     }
 
     @Test
-    void validatesDateRangeAndTextBoundaries() {
+    void validatesTimeRangeAndTextBoundaries() {
         assertThrows(IllegalArgumentException.class,
                 () -> Situation.create(1L, "유형", "제목", START.plusDays(1), START));
-        assertDoesNotThrow(() -> Situation.create(1L, "가".repeat(30), "가".repeat(150), START, START));
+        assertDoesNotThrow(() -> Situation.create(1L, "가".repeat(30), "가".repeat(150), START, START.plusHours(1)));
         assertThrows(IllegalArgumentException.class,
-                () -> Situation.create(1L, "가".repeat(31), "제목", START, START));
+                () -> Situation.create(1L, "가".repeat(31), "제목", START, START.plusHours(1)));
         assertThrows(IllegalArgumentException.class,
-                () -> Situation.create(1L, "유형", "가".repeat(151), START, START));
+                () -> Situation.create(1L, "유형", "가".repeat(151), START, START.plusHours(1)));
+    }
+
+    @Test
+    void rejectsEqualTimesAndReversedTimesOnTheSameDay() {
+        assertThrows(IllegalArgumentException.class,
+                () -> Situation.create(1L, "유형", "제목", START, START));
+        assertThrows(IllegalArgumentException.class,
+                () -> Situation.create(1L, "유형", "제목", START.plusMinutes(1), START));
+    }
+
+    @Test
+    void preservesTimeOfDayAndAllowsPeriodsAcrossMidnight() {
+        LocalDateTime start = LocalDateTime.of(2026, 11, 20, 23, 59, 59, 123456000);
+        LocalDateTime end = start.plusSeconds(1);
+        Situation s = Situation.create(1L, "유형", "제목", start, end);
+        assertEquals(start, s.getStartAt());
+        assertEquals(end, s.getEndAt());
+        assertDoesNotThrow(() -> Situation.create(1L, "유형", "제목", START, START.plusNanos(1)));
     }
 
     @Test
@@ -73,6 +90,7 @@ class SituationEntityTest {
         s.end(ENDED.plusHours(1));
         assertEquals(SituationStatus.ENDED, s.getStatus());
         assertEquals(ENDED, s.getEndedAt());
+        assertEquals(START.plusDays(1), s.getEndAt());
         assertThrows(IllegalArgumentException.class, () -> s.end(null));
         assertEquals(ENDED, s.getEndedAt());
     }
@@ -237,6 +255,8 @@ class SituationEntityTest {
                 assertEquals("bigint", sqlType(participants, name, metadata), name);
             }
             assertEquals("datetime(6)", sqlType(situations, "ended_at", metadata));
+            assertEquals("datetime(6)", sqlType(situations, "start_at", metadata));
+            assertEquals("datetime(6)", sqlType(situations, "end_at", metadata));
             assertEquals("datetime(6)", sqlType(participants, "joined_at", metadata));
             assertEquals("datetime(6)", sqlType(participants, "left_at", metadata));
             assertEquals(1, situations.getIndexes().size());
