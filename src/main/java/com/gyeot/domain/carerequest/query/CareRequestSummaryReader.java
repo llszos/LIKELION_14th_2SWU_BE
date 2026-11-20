@@ -3,6 +3,9 @@ package com.gyeot.domain.carerequest.query;
 import com.gyeot.domain.carerequest.enums.HelpType;
 import com.gyeot.domain.carerequest.enums.RequestType;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -16,7 +19,9 @@ import java.util.Map;
  * - 담당자 없음·응답 대기 판단은 RequestDisplayStatus 한 곳에서 계산합니다.
  * - now를 받는 메서드는 응답 기한 경과 여부를 계산합니다. 테스트에서 시각을 고정할 수 있도록 인자로 받습니다.
  *
- * TODO: B 담당자님 리뷰 후 확정 — 필드, 응답 필요 기준, 지난 상황 필터 방식
+ * 구현은 CareRequestSummaryReaderImpl입니다. (#67)
+ * - 기록상 담당자: 지난 상황 기록·도움 기록의 "담당자"는 요청이 끝날 때 담당자였던 사람입니다.
+ * - 수락했다가 시작 전에 철회한 사람은 담당자로 보지 않습니다. (RecordAssigneeRule)
  */
 public interface CareRequestSummaryReader {
 
@@ -33,13 +38,22 @@ public interface CareRequestSummaryReader {
     /**
      * 상황 안의 요청 목록 (시작 시각 순)
      * - 요청자(정보 주인)가 보면 전체
-     * - 그 외 참여자가 보면 본인이 대상자이거나 담당자인 요청만
+     * - 그 외 참여자가 보면 본인이 대상자이거나 담당자인 요청 + 끝난 요청 중 본인이 기록상 담당자인 요청
+     *   (다른 사람에게 넘어간 이전 대상, 수락 철회한 사람의 요청은 목록에서 빠짐. 상세는 계속 볼 수 있음)
+     * - 전제: 요청은 상황 OWNER만 만들 수 있어 요청자 = 상황 OWNER입니다. 그래서 요청자 기준 조회가 곧 OWNER 전체 조회입니다. (F-04)
      */
     List<RequestSummary> getSituationRequests(Long situationId, Long viewerId, LocalDateTime now);
 
     // === H-00 홈 ===
 
-    /** 홈의 요청 관련 영역 전체 (한눈에 보기 건수, 응답이 필요한 요청, 내가 보낸 요청, 다가오는 일정) */
+    /**
+     * 홈의 요청 관련 영역 전체 (한눈에 보기 건수, 응답이 필요한 요청, 내가 보낸 요청, 다가오는 일정)
+     * 응답이 필요한 요청 (F-06, F-11)
+     * - RESPONSE: 내가 지금 대상자이고, 미응답 또는 확인 후 답변이며, 아직 응답할 수 있는 요청
+     *   (일반 요청은 응답 기한이 지나도 시작 전이면 응답 가능하므로 시작 전까지 포함, F-06)
+     * - RECONFIRMATION: 내가 담당자인 요청의 대기 중 수정안 중 재확인 기한이 지나지 않은 것
+     * - 정렬: 기한이 빠른 순
+     */
     HomeRequestOverview getHomeOverview(Long userId, LocalDateTime now);
 
     // === H-04 지난 상황, N-04 지난 상황 상세 ===
@@ -50,10 +64,23 @@ public interface CareRequestSummaryReader {
     /**
      * 지난 상황의 요청별 결과 (시작 시각 순)
      * - 요청자(정보 주인)가 보면 전체
-     * - 그 외 참여자가 보면 본인이 담당한 요청만 (내가 도운 기록)
+     * - 그 외 참여자가 보면 본인이 기록상 담당자인 요청만 (내가 도운 기록, 나중에 취소된 요청 포함)
+     * - 전제: 요청자 = 상황 OWNER (요청 생성 정책, F-04). 그래서 OWNER가 보면 전체 기록이 나옵니다.
      */
     List<PastRequestRecord> getPastRequestRecords(Long situationId, Long viewerId);
 
+    // === 도움 기록 (F-22, B #64 GET /api/help-records) ===
+
+    /**
+     * 사용자의 도움 기록 (끝난 요청만: 완료·취소·만료)
+     * - GIVEN: 내가 기록상 담당자인 요청 (내가 도와준 기록)
+     * - RECEIVED: 내가 요청자인 요청 (내가 도움받은 기록, 담당자 없이 만료된 요청 포함)
+     * - ALL: 둘 다
+     * - personId: 상대방 필터. GIVEN이면 요청자, RECEIVED면 기록상 담당자가 이 사람인 것만. null이면 전체
+     * - 정렬은 C가 정했습니다: 시작 일시 최신순, 같으면 요청 ID 최신순.
+     *   pageable의 페이지 번호·크기만 쓰고 정렬(sort)은 무시합니다. (B가 C 엔티티 필드 이름을 알 필요가 없도록)
+     */
+    Page<HelpRecord> getHelpRecords(Long userId, HelpRecordFilter filter, Long personId, Pageable pageable);
 
     // === 반환 타입 ===
 
@@ -75,7 +102,9 @@ public interface CareRequestSummaryReader {
 
     /**
      * 요청 목록의 한 줄
-     * targetUserId: 가장 최근 지정의 대상자(수락했으면 담당자). 지정이 없으면 null
+     * - targetUserId: 가장 최근 지정의 대상자(수락했으면 담당자). 지정이 없으면 null
+     * - responseDeadline: 응답 대기(WAITING)일 때만 현재 지정의 응답 기한. 그 외 상태는 null
+     *   (상황 상세 F-04, 홈 보낸 요청 카드 F-34의 남은 시간 표시)
      */
     record RequestSummary(
             Long requestId,
@@ -85,8 +114,15 @@ public interface CareRequestSummaryReader {
             LocalDateTime endsAt,
             Long requesterId,
             Long targetUserId,
-            RequestDisplayStatus displayStatus
+            RequestDisplayStatus displayStatus,
+            LocalDateTime responseDeadline
     ) {
+        /** 응답 기한 추가 전 생성자 (B 테스트 호환). responseDeadline은 null */
+        public RequestSummary(Long requestId, RequestType requestType, HelpType helpType, LocalDateTime startsAt,
+                              LocalDateTime endsAt, Long requesterId, Long targetUserId,
+                              RequestDisplayStatus displayStatus) {
+            this(requestId, requestType, helpType, startsAt, endsAt, requesterId, targetUserId, displayStatus, null);
+        }
     }
 
     /** 다가오는 일정 한 줄 (수락됨·진행 중) */
@@ -127,6 +163,8 @@ public interface CareRequestSummaryReader {
      * 응답이 필요한 요청 한 줄
      * - RESPONSE: 새로 받은 요청(대상이 바뀌어 받은 요청 포함), deadline은 응답 기한
      * - RECONFIRMATION: 수정 후 재확인이 필요한 요청, deadline은 재확인 기한
+     * - situationId: 요청의 상황. 급한 요청은 상황이 없어 null
+     *   (참여 상황 카드의 '응답요청 N건'은 이 목록을 situationId로 묶어 셉니다. F-34, 홈 목록과 같은 기준)
      */
     record ResponseNeededItem(
             Long requestId,
@@ -136,8 +174,14 @@ public interface CareRequestSummaryReader {
             LocalDateTime startsAt,
             String place,
             Long requesterId,
-            LocalDateTime deadline
+            LocalDateTime deadline,
+            Long situationId
     ) {
+        /** 상황 ID 추가 전 생성자 (B 테스트 호환). situationId는 null */
+        public ResponseNeededItem(Long requestId, ResponseNeededType type, RequestType requestType, HelpType helpType,
+                                  LocalDateTime startsAt, String place, Long requesterId, LocalDateTime deadline) {
+            this(requestId, type, requestType, helpType, startsAt, place, requesterId, deadline, null);
+        }
     }
 
     enum ResponseNeededType {
@@ -156,6 +200,7 @@ public interface CareRequestSummaryReader {
      * 지난 상황의 요청 기록 한 줄 (민감정보 없이 도움 종류·담당자·날짜·상태만, F-22)
      * - assigneeId: 수락했던 담당자. 수락한 사람이 없었으면 null
      * - status: COMPLETED·CANCELED·EXPIRED. 감사 메시지(F-21) 버튼은 COMPLETED일 때만
+     * - endsAt: 요청 예정 종료 시각 (startsAt ~ endsAt 표시). 일정이 없는 요청은 null
      */
     record PastRequestRecord(
             Long requestId,
@@ -163,7 +208,39 @@ public interface CareRequestSummaryReader {
             LocalDateTime startsAt,
             Long requesterId,
             Long assigneeId,
-            RequestDisplayStatus status
+            RequestDisplayStatus status,
+            LocalDateTime endsAt
+    ) {
+        /** 예정 종료 시각 추가 전 생성자 (B 테스트 호환). endsAt은 null */
+        public PastRequestRecord(Long requestId, HelpType helpType, LocalDateTime startsAt, Long requesterId,
+                                 Long assigneeId, RequestDisplayStatus status) {
+            this(requestId, helpType, startsAt, requesterId, assigneeId, status, null);
+        }
+    }
+
+    /** 도움 기록 필터, 그리고 기록 한 줄에서 나의 역할 */
+    enum HelpRecordFilter {
+        ALL,      // 전체 (필터로만 사용)
+        GIVEN,    // 내가 도와준 기록
+        RECEIVED  // 내가 도움받은 기록
+    }
+
+    /**
+     * 도움 기록 한 줄 (민감정보 없이 도움 종류·담당자·날짜·상태만, F-22)
+     * - situationId, startsAt: 급한 요청(F-13)은 상황·일정이 없어 null
+     * - assigneeId: 기록상 담당자. 담당자 없이 끝났으면(만료 등) null
+     * - status: COMPLETED·CANCELED·EXPIRED
+     * - role: 이 기록에서 나의 역할 (GIVEN 또는 RECEIVED). ALL로 조회했을 때 화면 표시에 사용
+     */
+    record HelpRecord(
+            Long requestId,
+            Long situationId,
+            HelpType helpType,
+            LocalDateTime startsAt,
+            Long requesterId,
+            Long assigneeId,
+            RequestDisplayStatus status,
+            HelpRecordFilter role
     ) {
     }
 }

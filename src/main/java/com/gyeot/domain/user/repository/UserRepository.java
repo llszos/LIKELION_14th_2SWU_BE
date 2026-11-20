@@ -8,6 +8,8 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 public interface UserRepository extends JpaRepository<User, Long> {
@@ -33,4 +35,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from User u where u.id = :userId")
     Optional<User> findByIdForUpdate(@Param("userId") Long userId);
+
+    // 다른 영역에서 사용자 ID 여러 개에 해당하는 최소 프로필 정보만 조회합니다.
+    @Query("select u.id as id, u.name as name, u.accountStatus as accountStatus "
+            + "from User u where u.id in :userIds")
+    List<UserProfileProjection> findProfilesByIds(@Param("userIds") Collection<Long> userIds);
 }

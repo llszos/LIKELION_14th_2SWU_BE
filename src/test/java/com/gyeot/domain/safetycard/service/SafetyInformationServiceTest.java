@@ -1,12 +1,15 @@
 package com.gyeot.domain.safetycard.service;
 
 import com.gyeot.domain.access.query.SharingCountReader;
+import com.gyeot.domain.access.service.PermissionItemDeletionService;
 import com.gyeot.domain.safetycard.dto.request.SafetyInformationCreateRequest;
+import com.gyeot.domain.safetycard.dto.request.SafetyInformationUpdateRequest;
 import com.gyeot.domain.safetycard.dto.response.CategoryItemsResponse;
 import com.gyeot.domain.safetycard.dto.response.CategoryItemsResponse.Item;
 import com.gyeot.domain.safetycard.dto.response.CategoryItemsResponse.TypeItems;
 import com.gyeot.domain.safetycard.dto.response.SafetyCardSummaryResponse;
 import com.gyeot.domain.safetycard.dto.response.SafetyCardSummaryResponse.CategorySummary;
+import com.gyeot.domain.safetycard.dto.response.SafetyInformationDeleteResponse;
 import com.gyeot.domain.safetycard.dto.response.SafetyInformationResponse;
 import com.gyeot.domain.safetycard.entity.InformationCategory;
 import com.gyeot.domain.safetycard.entity.InformationType;
@@ -17,23 +20,40 @@ import com.gyeot.domain.safetycard.repository.SafetyInformationRepository;
 import com.gyeot.global.exception.BusinessException;
 import com.gyeot.global.exception.CommonErrorCode;
 import com.gyeot.global.exception.ErrorCode;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-/** DB 없이 Repository를 Mock으로 바꿔 응답 구성 규칙만 확인합니다. */
+/**
+ * DB 없이 Repository를 Mock으로 바꿔 응답 구성과 입력 규칙만 확인합니다.
+ *
+ * 항목 삭제의 권한 정리는 access 영역 서비스(PermissionItemDeletionService)를 Mock으로 두고 호출 여부와 순서만 확인합니다.
+ * 실제 회수와 information_id 정리는 access 영역 테스트와 통합 테스트에서 확인합니다.
+ */
 class SafetyInformationServiceTest {
+
+    // 오늘 = 2026-11-13 (생년월일 미래 날짜 판단 기준을 고정)
+    private static final Clock CLOCK =
+            Clock.fixed(Instant.parse("2026-11-13T03:00:00Z"), ZoneId.of("Asia/Seoul"));
 
     private static final Long USER_ID = 1L;
     // 분류별 유형 목록 (InformationType 선언 순서, Service가 Repository에 넘기는 값과 같아야 함)
@@ -44,13 +64,16 @@ class SafetyInformationServiceTest {
 
     private SafetyInformationRepository safetyInformationRepository;
     private SharingCountReader sharingCountReader;
+    private PermissionItemDeletionService permissionItemDeletionService;
     private SafetyInformationService service;
 
     @BeforeEach
     void setUp() {
         safetyInformationRepository = mock(SafetyInformationRepository.class);
         sharingCountReader = mock(SharingCountReader.class);
-        service = new SafetyInformationService(safetyInformationRepository, sharingCountReader); // Spring 없이 직접 만들어 테스트
+        permissionItemDeletionService = mock(PermissionItemDeletionService.class);
+        service = new SafetyInformationService(safetyInformationRepository, sharingCountReader,
+                permissionItemDeletionService, CLOCK); // Spring 없이 직접 만들어 테스트
 
         // 분류별 조회: 그 분류 유형의 항목만 DB에서 돌려준다고 가정 (건강 3개, 생활 1개)
         when(safetyInformationRepository.findAllByOwnerIdAndInformationTypeInOrderByIdAsc(USER_ID, HEALTH_TYPES)).thenReturn(List.of(
@@ -66,8 +89,8 @@ class SafetyInformationServiceTest {
         CategoryItemsResponse response = service.getCategoryItems(USER_ID, InformationCategory.HEALTH);
 
         assertThat(response.category()).isEqualTo(InformationCategory.HEALTH);
-        assertThat(response.categoryName()).isEqualTo("건강");
-        // 건강 유형 4개가 InformationType 선언 순서대로 (알레르기·주의사항은 항목이 없어도 포함)
+        assertThat(response.categoryName()).isEqualTo("건강 정보");
+        // 건강 유형 4개가 InformationType 선언 순서대로 (알러지, 주의사항은 항목이 없어도 포함)
         assertThat(response.types()).extracting(TypeItems::informationType).containsExactly(
                 InformationType.DISEASE, InformationType.MEDICATION, InformationType.ALLERGY, InformationType.CAUTION);
     }
@@ -77,7 +100,7 @@ class SafetyInformationServiceTest {
         List<TypeItems> types = service.getCategoryItems(USER_ID, InformationCategory.HEALTH).types();
 
         assertThat(types.get(1).items()).extracting(Item::informationId).containsExactly(12L, 13L); // 복용약 2개
-        assertThat(types.get(2).items()).isEmpty();                                                // 알레르기 없음
+        assertThat(types.get(2).items()).isEmpty();                                                // 알러지 없음
     }
 
     @Test
@@ -115,8 +138,8 @@ class SafetyInformationServiceTest {
         assertThat(response.categories()).extracting(CategorySummary::category).containsExactly(
                 InformationCategory.BASIC, InformationCategory.HEALTH, InformationCategory.LIFE, InformationCategory.ADVANCE_MESSAGE);
         assertThat(response.categories()).extracting(CategorySummary::lastUpdatedAt).containsExactly(
-                null,                                // 기본정보: 항목 없음
-                LocalDateTime.of(2026, 10, 1, 9, 30), // 건강: 질환·복용약 중 더 최근(복용약)
+                null,                                // 기본 정보: 항목 없음
+                LocalDateTime.of(2026, 10, 1, 9, 30), // 건강 정보: 질환, 복용약 중 더 최근(복용약)
                 LocalDateTime.of(2026, 9, 25, 18, 0), // 생활: 주소
                 null);                               // 미리 남기는 말: 항목 없음
         assertThat(response.sharingCount()).isEqualTo(2L); // SharingCountReader 값을 그대로 사용
@@ -182,9 +205,130 @@ class SafetyInformationServiceTest {
     }
 
     @Test
+    void 생년월일은_미래_날짜를_받지_않고_오늘까지는_받는다() {
+        // 오늘은 CLOCK 기준 2026-11-13
+        assertError(new SafetyInformationCreateRequest(InformationType.BIRTH_DATE, null, "2026-11-14"), CommonErrorCode.INVALID_INPUT); // 내일
+
+        when(safetyInformationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0)); // 저장 결과를 그대로 돌려줌
+        SafetyInformationResponse response = service.create(USER_ID,
+                new SafetyInformationCreateRequest(InformationType.BIRTH_DATE, null, "2026-11-13"));       // 오늘
+
+        assertThat(response.informationValue()).isEqualTo("2026-11-13");
+    }
+
+    @Test
     void 혈액형은_A_B_O_AB만_받는다() {
         assertError(new SafetyInformationCreateRequest(InformationType.BLOOD_TYPE, null, "AB형"), CommonErrorCode.INVALID_INPUT); // 표시용 문구
         assertError(new SafetyInformationCreateRequest(InformationType.BLOOD_TYPE, null, "C"), CommonErrorCode.INVALID_INPUT);
+    }
+
+    // === 항목 수정 (#38) ===
+
+    @Test
+    void 본인_항목이면_이름과_내용을_수정하고_반영_후_응답한다() {
+        SafetyInformation medication = item(12L, InformationType.MEDICATION, "혈압약", "아침 식후 1정", LocalDateTime.of(2026, 10, 1, 9, 30));
+        when(safetyInformationRepository.findByIdForUpdate(12L)).thenReturn(Optional.of(medication));
+
+        SafetyInformationResponse response = service.update(USER_ID, 12L,
+                new SafetyInformationUpdateRequest("혈압약", "아침 저녁 식후 1정"));
+
+        assertThat(response.informationId()).isEqualTo(12L);
+        assertThat(response.informationType()).isEqualTo(InformationType.MEDICATION); // 유형은 그대로
+        assertThat(response.informationValue()).isEqualTo("아침 저녁 식후 1정");
+        // updated_at을 응답에 담으려고 응답 전에 DB에 반영함
+        verify(safetyInformationRepository).flush();
+    }
+
+    @Test
+    void 없는_항목은_수정하지_않고_404다() {
+        when(safetyInformationRepository.findByIdForUpdate(99L)).thenReturn(Optional.empty());
+
+        assertNotFound(() -> service.update(USER_ID, 99L, new SafetyInformationUpdateRequest("혈압약", "내용")));
+        verify(safetyInformationRepository, never()).flush();
+    }
+
+    @Test
+    void 다른_사람_항목은_수정하지_않고_없는_항목과_같은_404다() {
+        SafetyInformation othersItem = othersItem(30L, InformationType.MEDICATION, "남의 약", "내용");
+        when(safetyInformationRepository.findByIdForUpdate(30L)).thenReturn(Optional.of(othersItem));
+
+        assertNotFound(() -> service.update(USER_ID, 30L, new SafetyInformationUpdateRequest("바꾼 이름", "바꾼 내용")));
+        assertThat(othersItem.getTitle()).isEqualTo("남의 약"); // 내용이 바뀌지 않음
+    }
+
+    @Test
+    void 수정도_기존_항목_유형의_입력_규칙을_따른다() {
+        // 주소(title 없는 유형)에 title을 보냄
+        SafetyInformation address = item(20L, InformationType.ADDRESS, null, "서울시 노원구", LocalDateTime.of(2026, 9, 25, 18, 0));
+        when(safetyInformationRepository.findByIdForUpdate(20L)).thenReturn(Optional.of(address));
+        // 생년월일에 미래 날짜를 보냄 (작성과 같은 규칙)
+        SafetyInformation birthDate = item(21L, InformationType.BIRTH_DATE, null, "2000-12-30", LocalDateTime.of(2026, 9, 25, 18, 0));
+        when(safetyInformationRepository.findByIdForUpdate(21L)).thenReturn(Optional.of(birthDate));
+
+        assertInvalidInput(() -> service.update(USER_ID, 20L, new SafetyInformationUpdateRequest("우리 집", "서울시 성북구")));
+        assertInvalidInput(() -> service.update(USER_ID, 21L, new SafetyInformationUpdateRequest(null, "2026-11-14")));
+
+        assertThat(address.getInformationValue()).isEqualTo("서울시 노원구"); // 검사에서 막혀 바뀌지 않음
+        assertThat(birthDate.getInformationValue()).isEqualTo("2000-12-30");
+    }
+
+    // === 항목 삭제 (#38) ===
+
+    @Test
+    void 본인_항목이면_권한을_먼저_정리하고_항목을_삭제한다() {
+        SafetyInformation allergy = item(13L, InformationType.ALLERGY, "땅콩", "호흡 곤란", LocalDateTime.of(2026, 10, 1, 9, 30));
+        when(safetyInformationRepository.findByIdForUpdate(13L)).thenReturn(Optional.of(allergy));
+
+        SafetyInformationDeleteResponse response = service.delete(USER_ID, 13L);
+
+        assertThat(response.informationId()).isEqualTo(13L);
+
+        // 권한 정리(회수 시각 = CLOCK 기준 지금) → 항목 삭제 순서
+        InOrder order = inOrder(permissionItemDeletionService, safetyInformationRepository);
+        order.verify(permissionItemDeletionService).revokeOnItemDeleted(USER_ID, 13L, LocalDateTime.now(CLOCK));
+        order.verify(safetyInformationRepository).delete(allergy);
+    }
+
+    @Test
+    void 없는_항목은_삭제하지_않고_권한도_건드리지_않는다() {
+        when(safetyInformationRepository.findByIdForUpdate(99L)).thenReturn(Optional.empty());
+
+        assertNotFound(() -> service.delete(USER_ID, 99L));
+        verifyNoInteractions(permissionItemDeletionService);
+        verify(safetyInformationRepository, never()).delete(any());
+    }
+
+    @Test
+    void 다른_사람_항목은_삭제하지_않고_권한도_건드리지_않는다() {
+        SafetyInformation othersItem = othersItem(30L, InformationType.ALLERGY, "남의 알러지", "내용");
+        when(safetyInformationRepository.findByIdForUpdate(30L)).thenReturn(Optional.of(othersItem));
+
+        assertNotFound(() -> service.delete(USER_ID, 30L));
+        verifyNoInteractions(permissionItemDeletionService);
+        verify(safetyInformationRepository, never()).delete(any());
+    }
+
+    // 404 SAFETY_INFO_NOT_FOUND로 거부되는지 확인 (항목 수정, 삭제)
+    private void assertNotFound(ThrowingCallable call) {
+        assertThatThrownBy(call)
+                .isInstanceOf(BusinessException.class)
+                .extracting(exception -> ((BusinessException) exception).getErrorCode())
+                .isEqualTo(SafetyCardErrorCode.SAFETY_INFO_NOT_FOUND);
+    }
+
+    // 400 INVALID_INPUT으로 거부되는지 확인 (항목 수정의 유형별 규칙)
+    private void assertInvalidInput(ThrowingCallable call) {
+        assertThatThrownBy(call)
+                .isInstanceOf(BusinessException.class)
+                .extracting(exception -> ((BusinessException) exception).getErrorCode())
+                .isEqualTo(CommonErrorCode.INVALID_INPUT);
+    }
+
+    // 다른 사용자(2번)의 항목 (본인 확인 거부용)
+    private SafetyInformation othersItem(Long id, InformationType type, String title, String value) {
+        SafetyInformation information = SafetyInformation.create(2L, type, title, value);
+        ReflectionTestUtils.setField(information, "id", id);
+        return information;
     }
 
     // 작성 요청이 주어진 에러 코드의 BusinessException으로 거부되는지 확인
