@@ -6,6 +6,10 @@ import com.gyeot.domain.home.controller.HomeController;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
+import com.gyeot.domain.user.query.UserProfileQuery;
+import com.gyeot.domain.situation.repository.SituationRepository;
+import com.gyeot.domain.situation.repository.SituationParticipantRepository;
+
 import java.time.Clock;
 
 import static org.assertj.core.api.Assertions.*;
@@ -16,6 +20,9 @@ class HomeContextTest {
     void C_Reader가_없으면_필수_의존성_누락으로_기동에_실패한다() {
         new ApplicationContextRunner()
                 .withBean(SharingCountReader.class, () -> mock(SharingCountReader.class))
+                .withBean(UserProfileQuery.class, () -> mock(UserProfileQuery.class))
+                .withBean(SituationRepository.class, () -> mock(SituationRepository.class))
+                .withBean(SituationParticipantRepository.class, () -> mock(SituationParticipantRepository.class))
                 .withBean(Clock.class, Clock::systemUTC)
                 .withUserConfiguration(HomeController.class, HomeService.class)
                 .run(context -> {
@@ -30,6 +37,9 @@ class HomeContextTest {
         new ApplicationContextRunner()
                 .withBean(CareRequestSummaryReader.class, () -> mock(CareRequestSummaryReader.class))
                 .withBean(SharingCountReader.class, () -> mock(SharingCountReader.class))
+                .withBean(UserProfileQuery.class, () -> mock(UserProfileQuery.class))
+                .withBean(SituationRepository.class, () -> mock(SituationRepository.class))
+                .withBean(SituationParticipantRepository.class, () -> mock(SituationParticipantRepository.class))
                 .withBean(Clock.class, Clock::systemUTC)
                 .withUserConfiguration(HomeController.class, HomeService.class)
                 .run(context -> assertThat(context).hasNotFailed().hasSingleBean(HomeController.class));

@@ -5,6 +5,9 @@ import com.gyeot.domain.carerequest.query.CareRequestSummaryReader;
 import com.gyeot.domain.carerequest.query.CareRequestSummaryReader.HomeRequestOverview;
 import com.gyeot.domain.carerequest.query.CareRequestSummaryReader.UpcomingSchedule;
 import com.gyeot.domain.carerequest.enums.HelpType;
+import com.gyeot.domain.user.query.UserProfileQuery;
+import com.gyeot.domain.situation.repository.SituationRepository;
+import com.gyeot.domain.situation.repository.SituationParticipantRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -17,14 +20,20 @@ import static org.mockito.Mockito.*;
 class HomeServiceTest {
     private CareRequestSummaryReader requests;
     private SharingCountReader sharings;
+    private UserProfileQuery profiles;
     private HomeService service;
+    private SituationRepository situations;
+    private SituationParticipantRepository participants;
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 17, 0, 0);
 
     @BeforeEach
     void setUp() {
         requests = mock(CareRequestSummaryReader.class);
         sharings = mock(SharingCountReader.class);
-        service = new HomeService(requests, sharings,
+        profiles = mock(UserProfileQuery.class);
+        situations = mock(SituationRepository.class);
+        participants = mock(SituationParticipantRepository.class);
+        service = new HomeService(requests, sharings, profiles, situations, participants,
                 Clock.fixed(Instant.parse("2026-11-16T15:00:00Z"), ZoneOffset.UTC));
     }
 
@@ -52,23 +61,64 @@ class HomeServiceTest {
         assertThat(result.responseNeededItems()).isEmpty();
         assertThat(result.sentOpenItems()).isEmpty();
         assertThat(result.upcomingSchedules()).isEmpty();
+        assertThat(result.situationCards().my()).isEmpty();
+        assertThat(result.situationCards().participating()).isEmpty();
+        assertThat(result.isNewUser()).isTrue();
+        when(participants.existsByUserId(10L)).thenReturn(true);
+        assertThat(service.getHome(10L).isNewUser()).isFalse();
         assertThat(result.counts()).isEqualTo(new com.gyeot.domain.home.dto.response.HomeResponse.Counts(0, 0, 0, 0));
     }
 
     @Test
     void 일정은_C_순서를_보존해_2개만_반환하고_전체_건수는_줄이지_않는다() {
         var first = new UpcomingSchedule(3L, HelpType.HOSPITAL, NOW.plusHours(1), null, 10L, 20L);
-        var second = new UpcomingSchedule(1L, HelpType.HOSPITAL, NOW.plusHours(1), null, 10L, 30L);
+        var second = new UpcomingSchedule(1L, HelpType.HOSPITAL, NOW.plusHours(1), null, 30L, 10L);
         var third = new UpcomingSchedule(2L, HelpType.HOSPITAL, NOW.plusHours(2), null, 10L, 40L);
         when(requests.getHomeOverview(10L, NOW)).thenReturn(new HomeRequestOverview(0, 0, 12,
                 List.of(), List.of(), List.of(first, second, third)));
+        when(profiles.findProfilesByUserIds(java.util.Set.of(20L, 30L))).thenReturn(java.util.Map.of(
+                20L, new UserProfileQuery.UserProfile(20L, "하음", false),
+                30L, new UserProfileQuery.UserProfile(30L, "서연", false)));
         var result = service.getHome(10L);
+        assertThat(result.upcomingSchedules()).extracting(item -> item.counterpartName()).containsExactly("하음", "서연");
         assertThat(result.upcomingSchedules()).extracting(item -> item.requestId()).containsExactly(3L, 1L);
         assertThat(result.upcomingSchedules().getFirst().startsAt()).isEqualTo(first.startsAt());
         assertThat(result.upcomingSchedules().getFirst().place()).isNull();
         assertThat(result.upcomingSchedules().getFirst().requesterId()).isEqualTo(first.requesterId());
         assertThat(result.upcomingSchedules().getFirst().assigneeId()).isEqualTo(first.assigneeId());
         assertThat(result.counts().upcomingSchedules()).isEqualTo(12);
+        verify(profiles).findProfilesByUserIds(java.util.Set.of(20L, 30L));
+    }
+
+    @Test
+    void 카드_탭을_나누고_참여_상황에는_일반_응답과_재확인을_함께_센다() {
+        var own = mock(SituationRepository.HomeCardRow.class);
+        when(own.getSituationId()).thenReturn(1L);
+        when(own.getCreatorId()).thenReturn(10L);
+        var joined = mock(SituationRepository.HomeCardRow.class);
+        when(joined.getSituationId()).thenReturn(2L);
+        when(joined.getCreatorId()).thenReturn(20L);
+        when(situations.findHomeCards(10L)).thenReturn(List.of(own, joined));
+        var needed = List.of(neededItem(CareRequestSummaryReader.ResponseNeededType.RESPONSE, 2L),
+                neededItem(CareRequestSummaryReader.ResponseNeededType.RECONFIRMATION, 2L),
+                neededItem(CareRequestSummaryReader.ResponseNeededType.RESPONSE, null));
+        when(requests.getHomeOverview(10L, NOW)).thenReturn(
+                new HomeRequestOverview(3, 0, 0, needed, List.of(), List.of()));
+
+        var response = service.getHome(10L);
+        assertThat(response.situationCards().my()).extracting(item -> item.situationId()).containsExactly(1L);
+        var card = response.situationCards().participating().getFirst();
+        assertThat(card.situationId()).isEqualTo(2L);
+        assertThat(card.requestCounts().responseNeeded()).isEqualTo(2);
+        assertThat(response.counts().responseNeeded()).isEqualTo(3);
+        assertThat(response.isNewUser()).isFalse();
+    }
+
+    private CareRequestSummaryReader.ResponseNeededItem neededItem(
+            CareRequestSummaryReader.ResponseNeededType type, Long situationId) {
+        return new CareRequestSummaryReader.ResponseNeededItem(1L, type,
+                com.gyeot.domain.carerequest.enums.RequestType.GENERAL, HelpType.HOSPITAL, NOW,
+                null, 20L, NOW, situationId);
     }
 
     @Test

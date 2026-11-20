@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import com.gyeot.domain.user.query.UserProfileQuery;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -40,6 +41,9 @@ class HomeControllerTest {
     @Autowired MockMvc mvc;
     @MockitoBean CareRequestSummaryReader requests;
     @MockitoBean SharingCountReader sharings;
+    @MockitoBean UserProfileQuery profiles;
+    @MockitoBean com.gyeot.domain.situation.repository.SituationRepository situations;
+    @MockitoBean com.gyeot.domain.situation.repository.SituationParticipantRepository participants;
     @MockitoBean JwtTokenProvider tokens;
     @MockitoBean UserRepository users;
     @MockitoBean com.gyeot.global.security.cookie.RefreshTokenCookieService refreshCookies;
@@ -76,22 +80,26 @@ class HomeControllerTest {
                 HelpType.HOSPITAL, at, null, 10L, at.minusHours(1));
         var sent = new RequestSummary(2L, RequestType.GENERAL, HelpType.HOSPITAL, at, at.plusHours(1),
                 20L, null, RequestDisplayStatus.NO_ASSIGNEE);
+        var waiting = new RequestSummary(4L, RequestType.GENERAL, HelpType.HOSPITAL, at, at.plusHours(1),
+                20L, 10L, RequestDisplayStatus.WAITING, at.minusHours(1));
         var next = new UpcomingSchedule(3L, HelpType.HOSPITAL, at, null, 10L, 20L);
         when(requests.getHomeOverview(eq(20L), any(LocalDateTime.class)))
-                .thenReturn(new HomeRequestOverview(1, 1, 8, List.of(needed), List.of(sent), List.of(next)));
+                .thenReturn(new HomeRequestOverview(1, 1, 8, List.of(needed), List.of(sent, waiting), List.of(next)));
         when(sharings.countActiveSharings(20L)).thenReturn(3L);
+        when(profiles.findProfilesByUserIds(java.util.Set.of(10L)))
+                .thenReturn(java.util.Map.of(10L, new UserProfileQuery.UserProfile(10L, null, true)));
 
         mvc.perform(get("/api/home").header("Authorization", "Bearer valid")
                         .param("userId", "999").param("viewerId", "999"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("success"))
-                .andExpect(jsonPath("$.data.*", hasSize(4)))
+                .andExpect(jsonPath("$.data.*", hasSize(6)))
                 .andExpect(jsonPath("$.data.counts.*", hasSize(4)))
                 .andExpect(jsonPath("$.data.counts.responseNeeded").value(1))
                 .andExpect(jsonPath("$.data.counts.unassigned").value(1))
                 .andExpect(jsonPath("$.data.counts.upcomingSchedules").value(8))
                 .andExpect(jsonPath("$.data.counts.activeSharings").value(3))
-                .andExpect(jsonPath("$.data.responseNeededItems[0].*", hasSize(8)))
+                .andExpect(jsonPath("$.data.responseNeededItems[0].*", hasSize(9)))
                 .andExpect(jsonPath("$.data.responseNeededItems[0].requestId").value(1))
                 .andExpect(jsonPath("$.data.responseNeededItems[0].type").value("RECONFIRMATION"))
                 .andExpect(jsonPath("$.data.responseNeededItems[0].requestType").value("GENERAL"))
@@ -101,8 +109,8 @@ class HomeControllerTest {
                 .andExpect(jsonPath("$.data.responseNeededItems[0].deadline").value("2026-11-17T08:30:00.123456"))
                 .andExpect(jsonPath("$.data.responseNeededItems[0].place").isEmpty())
                 .andExpect(jsonPath("$.data.responseNeededItems[0].title").doesNotExist())
-                .andExpect(jsonPath("$.data.responseNeededItems[0].requesterName").doesNotExist())
-                .andExpect(jsonPath("$.data.sentOpenItems[0].*", hasSize(8)))
+                .andExpect(jsonPath("$.data.responseNeededItems[0].requesterName").value("탈퇴한 사용자"))
+                .andExpect(jsonPath("$.data.sentOpenItems[0].*", hasSize(10)))
                 .andExpect(jsonPath("$.data.sentOpenItems[0].requestId").value(2))
                 .andExpect(jsonPath("$.data.sentOpenItems[0].requestType").value("GENERAL"))
                 .andExpect(jsonPath("$.data.sentOpenItems[0].helpType").value("HOSPITAL"))
@@ -111,16 +119,22 @@ class HomeControllerTest {
                 .andExpect(jsonPath("$.data.sentOpenItems[0].requesterId").value(20))
                 .andExpect(jsonPath("$.data.sentOpenItems[0].displayStatus").value("NO_ASSIGNEE"))
                 .andExpect(jsonPath("$.data.sentOpenItems[0].targetUserId").isEmpty())
-                .andExpect(jsonPath("$.data.upcomingSchedules[0].*", hasSize(6)))
+                .andExpect(jsonPath("$.data.upcomingSchedules[0].*", hasSize(7)))
                 .andExpect(jsonPath("$.data.upcomingSchedules[0].requestId").value(3))
                 .andExpect(jsonPath("$.data.upcomingSchedules[0].helpType").value("HOSPITAL"))
                 .andExpect(jsonPath("$.data.upcomingSchedules[0].requesterId").value(10))
                 .andExpect(jsonPath("$.data.upcomingSchedules[0].place").isEmpty())
                 .andExpect(jsonPath("$.data.upcomingSchedules[0].startsAt").value("2026-11-17T09:30:00.123456"))
                 .andExpect(jsonPath("$.data.upcomingSchedules[0].assigneeId").value(20))
+                .andExpect(jsonPath("$.data.sentOpenItems[0].targetUserName").isEmpty())
+                .andExpect(jsonPath("$.data.sentOpenItems[0].responseDeadline").isEmpty())
+                .andExpect(jsonPath("$.data.sentOpenItems[1].targetUserName").value("탈퇴한 사용자"))
+                .andExpect(jsonPath("$.data.sentOpenItems[1].responseDeadline").value("2026-11-17T08:30:00.123456"))
+                .andExpect(jsonPath("$.data.upcomingSchedules[0].counterpartName").value("탈퇴한 사용자"))
                 .andExpect(jsonPath("$.data.upcomingSchedules[0].scheduledAt").doesNotExist())
-                .andExpect(jsonPath("$.data.situationCards").doesNotExist())
-                .andExpect(jsonPath("$.data.isNewUser").doesNotExist());
+                .andExpect(jsonPath("$.data.situationCards.my").isEmpty())
+                .andExpect(jsonPath("$.data.situationCards.participating").isEmpty())
+                .andExpect(jsonPath("$.data.isNewUser").value(true));
         verify(requests).getHomeOverview(eq(20L), any(LocalDateTime.class));
         verify(sharings).countActiveSharings(20L);
         verifyNoMoreInteractions(requests, sharings);
