@@ -320,6 +320,34 @@ public class CareRequestDetailServiceTest {
         }
 
         @Test
+        void 취소되거나_만료됐어도_상황이_종료됐으면_지난_상황에서_보기를_돌려준다() {
+            situation("ENDED");
+            CareRequest canceled = request();
+            assignmentRepository.save(RequestAssignment.assign(canceled, MINJAE, 1, NOW.plusHours(24)))
+                    .close(AssignmentCloseReason.REQUEST_ENDED, NOW.minusMinutes(1));
+            canceled.cancel(CancelReason.REQUESTER_CANCELED, NOW.minusMinutes(1));
+            CareRequest expired = request();
+            assignmentRepository.save(RequestAssignment.assign(expired, SEOYEON, 1, NOW.plusHours(24)))
+                    .close(AssignmentCloseReason.REQUEST_ENDED, NOW.minusMinutes(1));
+            expired.expire(NOW.minusMinutes(1));
+            flushAndClear();
+
+            // 요청자는 지난 상황에서 완료·취소·만료 요청을 모두 봄
+            assertThat(detailService.getDetail(canceled.getId(), REQUESTER_ID).actions())
+                    .containsExactly(DUPLICATE, VIEW_PAST_SITUATION);
+            assertThat(detailService.getDetail(expired.getId(), REQUESTER_ID).actions())
+                    .containsExactly(DUPLICATE, VIEW_PAST_SITUATION);
+        }
+
+        @Test
+        void 요청이_끝났어도_상황이_진행_중이면_지난_상황에서_보기가_없다() {
+            CareRequest request = completed(); // 상황 ACTIVE (FE는 "확인" 버튼)
+            flushAndClear();
+
+            assertThat(detailService.getDetail(request.getId(), REQUESTER_ID).actions()).containsExactly(DUPLICATE);
+        }
+
+        @Test
         void 상황을_찾을_수_없으면_situation은_null이다() {
             when(situationReader.findSituation(SITUATION_ID)).thenReturn(Optional.empty());
             CareRequest request = request();
@@ -407,6 +435,19 @@ public class CareRequestDetailServiceTest {
             CareRequestDetailResponse detail = detailService.getDetail(request.getId(), MINJAE);
             assertThat(detail.status()).isEqualTo(CareRequestStatus.EXPIRED);
             assertThat(detail.actions()).isEmpty();
+        }
+
+        @Test
+        void 수락하지_않은_대상자는_상황이_종료돼도_지난_상황에서_보기가_없다() {
+            situation("ENDED");
+            when(situationReader.isActiveParticipant(SITUATION_ID, MINJAE)).thenReturn(true);
+            CareRequest request = request();
+            assignmentRepository.save(RequestAssignment.assign(request, MINJAE, 1, NOW.plusHours(24)))
+                    .close(AssignmentCloseReason.REQUEST_ENDED, NOW.minusMinutes(1));
+            request.cancel(CancelReason.REQUESTER_CANCELED, NOW.minusMinutes(1));
+            flushAndClear();
+
+            assertThat(detailService.getDetail(request.getId(), MINJAE).actions()).isEmpty();
         }
     }
 
@@ -509,10 +550,52 @@ public class CareRequestDetailServiceTest {
         @Test
         void 완료됐고_상황이_종료됐으면_지난_상황에서_보기를_돌려준다() {
             situation("ENDED");
+            when(situationReader.isActiveParticipant(SITUATION_ID, MINJAE)).thenReturn(true);
             CareRequest request = completed();
             flushAndClear();
 
             assertThat(detailService.getDetail(request.getId(), MINJAE).actions()).containsExactly(VIEW_PAST_SITUATION);
+        }
+
+        @Test
+        void 진행_중에_취소된_요청의_담당자도_상황에_남아_있으면_지난_상황에서_보기를_돌려준다() {
+            situation("ENDED");
+            when(situationReader.isActiveParticipant(SITUATION_ID, MINJAE)).thenReturn(true);
+            CareRequest request = request();
+            RequestAssignment assignee = accepted(request, MINJAE);
+            request.start(NOW.minusHours(3));
+            assignee.close(AssignmentCloseReason.REQUEST_ENDED, NOW.minusHours(1)); // 요청 취소로 지정도 마감
+            request.cancel(CancelReason.REQUESTER_CANCELED, NOW.minusHours(1));
+            flushAndClear();
+
+            // 지정은 마감됐지만 요청이 끝날 때 담당자였으므로(기록상 담당자) 지난 상황 기록에 이 요청이 보임
+            assertThat(detailService.getDetail(request.getId(), MINJAE).actions()).containsExactly(VIEW_PAST_SITUATION);
+        }
+
+        @Test
+        void 상황에서_나간_담당자는_지난_상황에서_보기가_없다() {
+            situation("ENDED");
+            when(situationReader.isActiveParticipant(SITUATION_ID, MINJAE)).thenReturn(false); // 나가거나 제외됨
+            CareRequest request = completed();
+            flushAndClear();
+
+            // 지난 상황 상세는 생성자·ACTIVE 참여자만 볼 수 있어(B), 눌러도 404가 되므로 내려주지 않음
+            assertThat(detailService.getDetail(request.getId(), MINJAE).actions()).isEmpty();
+        }
+
+        @Test
+        void 수락을_철회한_이전_담당자는_요청이_만료돼도_지난_상황에서_보기가_없다() {
+            situation("ENDED");
+            when(situationReader.isActiveParticipant(SITUATION_ID, MINJAE)).thenReturn(true);
+            CareRequest request = request();
+            RequestAssignment withdrawn = accepted(request, MINJAE);
+            withdrawn.close(AssignmentCloseReason.ACCEPTANCE_WITHDRAWN, NOW.minusHours(2));
+            request.revertToRequested();
+            request.expire(NOW.minusHours(1));
+            flushAndClear();
+
+            // 수락 철회한 사람은 기록상 담당자가 아니라 지난 상황 기록에 이 요청이 없음
+            assertThat(detailService.getDetail(request.getId(), MINJAE).actions()).isEmpty();
         }
     }
 
