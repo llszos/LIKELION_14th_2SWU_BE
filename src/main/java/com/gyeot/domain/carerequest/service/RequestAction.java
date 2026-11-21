@@ -16,5 +16,5 @@ public enum RequestAction {
     REJECT_PROPOSAL,    // 담당자: 수정 내용 거절 (ACCEPT_PROPOSAL과 같은 조건)
     WITHDRAW_PROPOSAL,  // 요청자: 수정 철회 (재확인 대기)
     DUPLICATE,          // 요청자: 같은 내용으로 새 요청 N-07 (완료·취소·만료)
-    VIEW_PAST_SITUATION // 요청자·담당자: 지난 상황에서 보기 (요청 완료, 상황 종료)
+    VIEW_PAST_SITUATION // 요청자·기록상 담당자(상황 참여 중): 지난 상황에서 보기 (요청 완료·취소·만료, 상황 종료)
 }

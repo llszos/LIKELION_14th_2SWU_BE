@@ -23,8 +23,9 @@ import java.util.Optional;
  *   수락 철회(ACCEPTANCE_WITHDRAWN), 시작 전 이탈로 마감된 지정은 담당자가 아닙니다.
  *
  * CareRequestRepository.findHelpRecords의 JPQL 조건도 이 규칙과 같게 작성했습니다. 바꿀 때는 둘을 함께 바꿉니다.
+ * 요청 상세의 '지난 상황에서 보기'(VIEW_PAST_SITUATION)도 이 규칙으로 지난 상황 기록에 보이는 사람을 판단합니다.
  */
-final class RecordAssigneeRule {
+public final class RecordAssigneeRule {
     private RecordAssigneeRule() {
     }
 
@@ -33,7 +34,7 @@ final class RecordAssigneeRule {
      * @param assignments 그 요청의 지정 전체
      * @return 기록상 담당자의 지정. 없으면(담당자 없이 만료 등) 빈 Optional
      */
-    static Optional<RequestAssignment> find(CareRequest request, Collection<RequestAssignment> assignments) {
+    public static Optional<RequestAssignment> find(CareRequest request, Collection<RequestAssignment> assignments) {
         if (request.getStartedAt() != null) {
             return assignments.stream()
                     .filter(RequestAssignment::isAccepted)
