@@ -32,7 +32,7 @@ class SituationLeaveProcessorTest {
 
     @BeforeEach
     void setUp() {
-        situation = Situation.create(1L, "돌봄", "병원 동행", LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 30));
+        situation = Situation.create(1L, "돌봄", "병원 동행", LocalDateTime.of(2026, 11, 1, 0, 0), LocalDateTime.of(2026, 12, 1, 0, 0));
         participant = participant(10L, now.minusDays(1));
         when(store.findSituationForUpdate(3L)).thenReturn(Optional.of(situation));
         when(store.findParticipantsForUpdate(3L, 2L)).thenReturn(List.of(participant));

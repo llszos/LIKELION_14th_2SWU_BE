@@ -27,7 +27,7 @@ class SituationParticipantAddServiceTest {
     private Situation s;
     private long nextParticipantId = 100;
     @BeforeEach void setUp(){
-        s=Situation.create(10L,"유형","이름",LocalDate.of(2026,11,1),LocalDate.of(2026,11,30));
+        s=Situation.create(10L,"유형","이름",LocalDateTime.of(2026, 11, 1, 0, 0),LocalDateTime.of(2026, 12, 1, 0, 0));
         ReflectionTestUtils.setField(s,"id",3L);
         when(situations.findForUpdate(3L)).thenReturn(Optional.of(s));
         when(em.find(Situation.class, 3L, LockModeType.PESSIMISTIC_WRITE)).thenReturn(s);

@@ -19,7 +19,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mysql.MySQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.*;
@@ -66,7 +65,7 @@ class SituationParticipantsQueryIntegrationTest {
         assertThatThrownBy(()->service.list(Long.MAX_VALUE,10L)).isInstanceOf(BusinessException.class);
     }
     private Situation save(){return situations.save(Situation.create(10L,"유형","이름",
-            LocalDate.of(2026,11,15),LocalDate.of(2026,11,20)));}
+            LocalDateTime.of(2026, 11, 15, 0, 0),LocalDateTime.of(2026, 11, 21, 0, 0)));}
     private SituationParticipant add(Situation s,Long user,SituationParticipantRole role,LocalDateTime at){
         return participants.save(SituationParticipant.create(s,user,role,at));
     }

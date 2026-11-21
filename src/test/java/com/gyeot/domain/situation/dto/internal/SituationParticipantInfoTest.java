@@ -7,7 +7,6 @@ import com.gyeot.domain.situation.entity.SituationParticipantStatus;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -16,7 +15,7 @@ class SituationParticipantInfoTest {
     private static final LocalDateTime JOINED = LocalDateTime.of(2026, 11, 15, 9, 15, 30, 123456000);
     private static final LocalDateTime LEFT = JOINED.plusHours(2);
     private final Situation situation = Situation.create(10L, "유형", "이름",
-            LocalDate.of(2026, 11, 15), LocalDate.of(2026, 11, 20));
+            LocalDateTime.of(2026, 11, 15, 0, 0), LocalDateTime.of(2026, 11, 21, 0, 0));
 
     @Test
     void mapsActiveOwnerWithoutChangingEntity() {

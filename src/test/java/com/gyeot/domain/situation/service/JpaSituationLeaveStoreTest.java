@@ -57,7 +57,7 @@ class JpaSituationLeaveStoreTest {
     }
 
     private Situation situation() {
-        var value = Situation.create(1L, "돌봄", "동행", LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 30));
+        var value = Situation.create(1L, "돌봄", "동행", LocalDateTime.of(2026, 11, 1, 0, 0), LocalDateTime.of(2026, 12, 1, 0, 0));
         ReflectionTestUtils.setField(value, "id", 1L);
         return value;
     }

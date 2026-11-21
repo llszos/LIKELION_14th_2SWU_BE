@@ -14,7 +14,6 @@ import com.gyeot.domain.carerequest.query.RequestDisplayStatus;
 import com.gyeot.domain.carerequest.service.RequestAction;
 import com.gyeot.domain.carerequest.service.RequestViewerRole;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
@@ -49,8 +48,12 @@ public record CareRequestDetailResponse(
         List<RequestAction> actions
 ) {
 
-    /** 요청이 속한 상황 (status: ACTIVE / ENDED) */
-    public record SituationView(Long situationId, LocalDate startDate, LocalDate endDate, String status) {
+    /**
+     * 요청이 속한 상황 (status: ACTIVE / ENDED)
+     * 기간은 Asia/Seoul 날짜시각 [startAt, endAt)입니다. 요청 일정은 startAt 이후 시작, endAt 이전(같아도 됨) 종료여야 합니다. (#116)
+     * endAt은 예정 종료 시각이고, 실제로 종료 처리된 시각이 아닙니다.
+     */
+    public record SituationView(Long situationId, LocalDateTime startAt, LocalDateTime endAt, String status) {
     }
 
     /** 사용자 (탈퇴했으면 name = "탈퇴한 사용자") */

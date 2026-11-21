@@ -7,7 +7,6 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import org.junit.jupiter.api.Test;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Optional;
 
@@ -21,7 +20,7 @@ class SituationParticipantLockReaderTest {
     private final EntityManager em = mock(EntityManager.class);
     private final SituationParticipantLockReader reader = new SituationParticipantLockReader(situations, participants, em);
     private final Situation situation = Situation.create(10L, "유형", "이름",
-            LocalDate.of(2026, 11, 15), LocalDate.of(2026, 11, 20));
+            LocalDateTime.of(2026, 11, 15, 0, 0), LocalDateTime.of(2026, 11, 21, 0, 0));
 
     @Test
     void locksParentBeforeLookingUpParticipationPrimaryKeyAndReloading() {

@@ -6,7 +6,6 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /** ERD 4.4 situations. 생성·수정 시각은 BaseEntity가 관리합니다. */
@@ -27,19 +26,22 @@ public class Situation extends BaseEntity {
     @Column(name = "creator_id", nullable = false)
     private Long creatorId;
 
-    // TODO: SituationType 허용값 확정 후 enum과 EnumType.STRING 매핑으로 전환합니다.
-    // 임의의 유형·기본값은 지정하지 않습니다. 현재는 필수·길이만 검증합니다.
+    // 기존 문자열 저장값과의 호환성을 유지합니다. 신규 API 입력은 SituationType으로 제한합니다.
     @Column(name = "situation_type", nullable = false, length = 30)
     private String situationType;
+
+    @Column(name = "custom_situation_type", length = 15)
+    private String customSituationType;
 
     @Column(name = "title", nullable = false, length = 150)
     private String title;
 
-    @Column(name = "start_date", nullable = false)
-    private LocalDate startDate;
+    @Column(name = "start_at", nullable = false)
+    // 오프셋 없는 Asia/Seoul 현지 시각입니다. endAt은 예정 종료, endedAt은 실제 처리 시각입니다.
+    private LocalDateTime startAt;
 
-    @Column(name = "end_date", nullable = false)
-    private LocalDate endDate;
+    @Column(name = "end_at", nullable = false)
+    private LocalDateTime endAt;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20, columnDefinition = "VARCHAR(20)")  // MySQL ENUM 대신 VARCHAR, 길이는 length와 같게 (#36)
@@ -50,21 +52,30 @@ public class Situation extends BaseEntity {
 
     /** 상황만 생성합니다. OWNER 참여 행의 동시 저장은 후속 Service의 트랜잭션 책임입니다. */
     public static Situation create(Long creatorId, String situationType, String title,
-                                   LocalDate startDate, LocalDate endDate) {
-        if (creatorId == null || startDate == null || endDate == null) {
-            throw new IllegalArgumentException("생성자 ID와 상황 시작일·종료일은 필수입니다.");
+                                   LocalDateTime startAt, LocalDateTime endAt) {
+        return create(creatorId, situationType, title, startAt, endAt, null);
+    }
+
+    public static Situation create(Long creatorId, String situationType, String title,
+                                   LocalDateTime startAt, LocalDateTime endAt, String customSituationType) {
+        if (creatorId == null || startAt == null || endAt == null) {
+            throw new IllegalArgumentException("생성자 ID와 상황 시작·종료 예정 시각은 필수입니다.");
         }
         validateText(situationType, 30, "상황 유형");
         validateText(title, 150, "상황 이름");
-        if (startDate.isAfter(endDate)) {
-            throw new IllegalArgumentException("상황 시작일은 종료일보다 늦을 수 없습니다.");
+        if (!SituationType.isCustomTextValid(situationType, customSituationType)) {
+            throw new IllegalArgumentException("상황 종류와 기타 문구가 올바르지 않습니다.");
+        }
+        if (!startAt.isBefore(endAt)) {
+            throw new IllegalArgumentException("상황 시작 시각은 종료 예정 시각보다 빨라야 합니다.");
         }
         Situation situation = new Situation();
         situation.creatorId = creatorId;
         situation.situationType = situationType;
+        situation.customSituationType = customSituationType == null ? null : customSituationType.strip();
         situation.title = title;
-        situation.startDate = startDate;
-        situation.endDate = endDate;
+        situation.startAt = startAt;
+        situation.endAt = endAt;
         situation.status = SituationStatus.ACTIVE;
         situation.endedAt = null;
         return situation;

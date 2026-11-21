@@ -84,7 +84,7 @@ class SituationParticipantRemovalProcessorTest {
     }
 
     private SituationParticipant participant(SituationParticipantRole role) {
-        var situation = Situation.create(10L, "유형", "이름", LocalDate.of(2026, 11, 15), LocalDate.of(2026, 11, 20));
+        var situation = Situation.create(10L, "유형", "이름", LocalDateTime.of(2026, 11, 15, 0, 0), LocalDateTime.of(2026, 11, 21, 0, 0));
         ReflectionTestUtils.setField(situation, "id", 3L);
         var participant = SituationParticipant.create(situation, role == SituationParticipantRole.OWNER ? 10L : 20L,
                 role, occurredAt.minusDays(1));

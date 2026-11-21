@@ -53,7 +53,7 @@ class SituationParticipantRemovalResultTest {
     }
 
     private SituationParticipant participant() {
-        var situation = Situation.create(10L, "유형", "이름", LocalDate.of(2026, 11, 15), LocalDate.of(2026, 11, 20));
+        var situation = Situation.create(10L, "유형", "이름", LocalDateTime.of(2026, 11, 15, 0, 0), LocalDateTime.of(2026, 11, 21, 0, 0));
         ReflectionTestUtils.setField(situation, "id", 3L);
         var participant = SituationParticipant.create(situation, 20L, SituationParticipantRole.PARTICIPANT, time.minusDays(1));
         ReflectionTestUtils.setField(participant, "id", 7L);

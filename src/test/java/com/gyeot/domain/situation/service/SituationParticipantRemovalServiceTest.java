@@ -33,7 +33,7 @@ class SituationParticipantRemovalServiceTest {
     private SituationParticipant target;
 
     @BeforeEach void setUp() {
-        situation = Situation.create(10L, "유형", "이름", LocalDate.of(2026,11,1), LocalDate.of(2026,11,30));
+        situation = Situation.create(10L, "유형", "이름", LocalDateTime.of(2026, 11, 1, 0, 0), LocalDateTime.of(2026, 12, 1, 0, 0));
         ReflectionTestUtils.setField(situation, "id", 3L);
         owner = participant(10L, SituationParticipantRole.OWNER, 5L);
         target = participant(20L, SituationParticipantRole.PARTICIPANT, 7L);

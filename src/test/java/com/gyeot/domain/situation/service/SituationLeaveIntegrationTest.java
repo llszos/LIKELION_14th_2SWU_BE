@@ -30,7 +30,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mysql.MySQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -72,7 +71,7 @@ class SituationLeaveIntegrationTest {
         events.fail = false;
         new TransactionTemplate(transactionManager).executeWithoutResult(tx -> {
             var situation = situations.save(Situation.create(1L, "돌봄", "동행",
-                    LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 30)));
+                    LocalDateTime.of(2026, 11, 1, 0, 0), LocalDateTime.of(2026, 12, 1, 0, 0)));
             situationId = situation.getId();
             participants.save(SituationParticipant.create(situation, 1L, SituationParticipantRole.OWNER,
                     LocalDateTime.of(2026, 11, 1, 9, 0)));
@@ -134,7 +133,7 @@ class SituationLeaveIntegrationTest {
         Long otherId = new TransactionTemplate(transactionManager).execute(tx -> {
             var previousReference = participants.findById(participantId).orElseThrow();
             var unrelated = situations.save(Situation.create(9L, "돌봄", "다른 상황",
-                    LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 30)));
+                    LocalDateTime.of(2026, 11, 1, 0, 0), LocalDateTime.of(2026, 12, 1, 0, 0)));
             var endedAt = LocalDateTime.of(2026, 11, 15, 10, 0);
             unrelated.end(endedAt);
             var response = processor.leave(situationId, 2L);

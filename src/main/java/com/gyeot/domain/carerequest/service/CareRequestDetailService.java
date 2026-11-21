@@ -95,7 +95,7 @@ public class CareRequestDetailService {
         return new CareRequestDetailResponse(
                 request.getId(),
                 situation == null ? null : new SituationView(request.getSituationId(),
-                        situation.startDate(), situation.endDate(), situation.status()),
+                        situation.startAt(), situation.endAt(), situation.status()),
                 request.getRequestType(),
                 request.getHelpType(),
                 request.getDescription(),
