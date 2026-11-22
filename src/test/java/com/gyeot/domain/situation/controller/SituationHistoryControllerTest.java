@@ -2,6 +2,8 @@ package com.gyeot.domain.situation.controller;
 
 import com.gyeot.domain.situation.dto.response.SituationHistoryListResponse;
 import com.gyeot.domain.situation.service.SituationHistoryService;
+import com.gyeot.domain.situation.service.SituationHistoryService.Filter;
+import com.gyeot.domain.situation.dto.response.SituationHistoryPeopleResponse;
 import com.gyeot.global.exception.BusinessException;
 import com.gyeot.global.exception.CommonErrorCode;
 import com.gyeot.global.exception.GlobalExceptionHandler;
@@ -39,27 +41,46 @@ class SituationHistoryControllerTest {
 
     @Test
     void 인증_사용자와_기본_페이지로_목록을_조회한다() throws Exception {
-        when(service.list(10L, 0, 20)).thenReturn(new SituationHistoryListResponse(List.of(), 0, 20, false));
+        when(service.list(10L, 0, 20, Filter.ALL, null)).thenReturn(new SituationHistoryListResponse(List.of(), 0, 20, false));
         mvc.perform(get("/api/situations/history")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("success"))
                 .andExpect(jsonPath("$.data.items").isEmpty())
                 .andExpect(jsonPath("$.data.page").value(0))
                 .andExpect(jsonPath("$.data.size").value(20))
                 .andExpect(jsonPath("$.data.hasNext").value(false));
-        verify(service).list(10L, 0, 20);
+        verify(service).list(10L, 0, 20, Filter.ALL, null);
     }
 
     @Test
     void 명시한_페이지와_크기를_전달한다() throws Exception {
-        when(service.list(10L, 1, 100)).thenReturn(new SituationHistoryListResponse(List.of(), 1, 100, false));
-        mvc.perform(get("/api/situations/history").param("page", "1").param("size", "100"))
+        when(service.list(10L, 1, 100, Filter.HELPED, 20L)).thenReturn(new SituationHistoryListResponse(List.of(), 1, 100, false));
+        mvc.perform(get("/api/situations/history").param("page", "1").param("size", "100")
+                        .param("filter", "HELPED").param("personId", "20"))
                 .andExpect(status().isOk());
-        verify(service).list(10L, 1, 100);
+        verify(service).list(10L, 1, 100, Filter.HELPED, 20L);
+    }
+
+    @Test
+    void 사람_후보는_인증_사용자와_선택한_탭으로_조회한다() throws Exception {
+        when(service.people(10L, Filter.RECEIVED)).thenReturn(new SituationHistoryPeopleResponse(
+                List.of(new SituationHistoryPeopleResponse.Item(20L, "탈퇴한 사용자"))));
+        mvc.perform(get("/api/situations/history/people").param("filter", "RECEIVED").param("userId", "999"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].userId").value(20))
+                .andExpect(jsonPath("$.data.items[0].name").value("탈퇴한 사용자"));
+        verify(service).people(10L, Filter.RECEIVED);
+    }
+
+    @Test
+    void 지원하지_않는_필터는_400이다() throws Exception {
+        mvc.perform(get("/api/situations/history").param("filter", "GIVEN"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        verifyNoInteractions(service);
     }
 
     @Test
     void 크기_제한_위반은_400이다() throws Exception {
-        when(service.list(10L, 0, 101)).thenThrow(new BusinessException(CommonErrorCode.INVALID_INPUT));
+        when(service.list(10L, 0, 101, Filter.ALL, null)).thenThrow(new BusinessException(CommonErrorCode.INVALID_INPUT));
         mvc.perform(get("/api/situations/history").param("size", "101"))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
     }
@@ -79,7 +100,7 @@ class SituationHistoryControllerTest {
         var end = java.time.LocalDateTime.of(2027, 1, 1, 0, 0);
         var actual = end.plusMinutes(5);
         var item = new SituationHistoryListResponse.Item(1L, "연말 돌봄", "돌봄", start, end, actual);
-        when(service.list(10L, 0, 20)).thenReturn(
+        when(service.list(10L, 0, 20, Filter.ALL, null)).thenReturn(
                 new SituationHistoryListResponse(List.of(item), 0, 20, false));
         mvc.perform(get("/api/situations/history"))
                 .andExpect(status().isOk())

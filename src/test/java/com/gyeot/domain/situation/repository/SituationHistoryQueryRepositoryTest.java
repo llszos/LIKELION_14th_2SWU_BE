@@ -117,6 +117,27 @@ class SituationHistoryQueryRepositoryTest {
         assertThat(em.find(Situation.class, activePastPeriod.getId()).getStatus()).isEqualTo(SituationStatus.ACTIVE);
     }
 
+    @Test
+    void 필터_후_페이징하고_후보에도_같은_접근_조건을_적용한다() {
+        var owned = save(10L, ENDED.minusHours(1));
+        var joined = save(20L, ENDED);
+        var hidden = save(20L, ENDED.plusHours(1));
+        var active = save(10L, null);
+        join(joined, 10L);
+        em.flush();
+        em.clear();
+
+        var ids = java.util.Set.of(owned.getId(), joined.getId(), hidden.getId(), active.getId());
+        var first = repository.findFilteredHistory(10L, ids, page(0, 1));
+        assertThat(first.getContent()).extracting(Situation::getId).containsExactly(joined.getId());
+        assertThat(first.hasNext()).isTrue();
+        var next = repository.findFilteredHistory(10L, ids, page(1, 1));
+        assertThat(next.getContent()).extracting(Situation::getId).containsExactly(owned.getId());
+        assertThat(next.hasNext()).isFalse();
+        assertThat(repository.findAccessibleHistoryIds(10L, ids))
+                .containsExactlyInAnyOrder(owned.getId(), joined.getId());
+    }
+
     private PageRequest page(int page, int size) {
         return PageRequest.of(page, size, Sort.by(Sort.Order.desc("endedAt"), Sort.Order.desc("id")));
     }
