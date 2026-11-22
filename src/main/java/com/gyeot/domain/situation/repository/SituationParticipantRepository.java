@@ -34,6 +34,8 @@ public interface SituationParticipantRepository extends JpaRepository<SituationP
     List<SituationParticipant> findHistoryForUpdate(
             @Param("situationId") Long situationId, @Param("userId") Long userId);
 
+    boolean existsByUserId(Long userId);
+
     /** 역할·상황 상태는 제한하지 않으며 중복 참여 행의 사용자 ID도 보존합니다. */
     @Query("""
             select p.userId

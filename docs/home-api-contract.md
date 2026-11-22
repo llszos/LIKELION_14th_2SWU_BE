@@ -1,70 +1,44 @@
-# GET /api/home — B 구현 계약과 통합 조건
+# GET /api/home — F-34 응답 계약
 
-## 근거와 범위
-- Issue #65: https://github.com/llszos/LIKELION_14th_2SWU_BE/issues/65
-- Notion 홈 통합 조회(2026-11-15 FE 피드백): https://app.notion.com/p/4118b259919e81fb8015d556c1efb4df
-- 해당 명세는 여전히 '명세 초안'이며 기존 JSON 예시는 FE 추가 제안을 반영하지 않았다고 명시한다.
-- 이 변경은 기존 C/D 계약을 조합한 기본 홈 HTTP API이다. F-34 전체 화면 완성을 의미하지 않는다.
+[이슈 #65](https://github.com/llszos/LIKELION_14th_2SWU_BE/issues/65) · [후속 PR #147](https://github.com/llszos/LIKELION_14th_2SWU_BE/pull/147) · [real API 홈 통합 조회](https://app.notion.com/p/4118b259919e81fb8015d556c1efb4df)
 
 ## 요청과 공통 응답
-인증된 GET /api/home. 경로·쿼리·본문으로 사용자 ID를 받지 않고 principal의 userId만 사용한다.
-공통 ApiResponse의 data 아래에 counts, responseNeededItems, sentOpenItems, upcomingSchedules를 반환한다.
-미인증·잘못된 토큰·비활성 계정은 기존 보안 정책의 401이다.
-C Reader는 필수 의존성으로 직접 주입한다. 구현 Bean이 없으면 기동에 실패한다.
-C null 결과·C/D 조회 실패는 공통 500으로 전달하며 0이나 빈 배열로 숨기지 않는다.
 
-## 집계 매핑
-| 응답 | 원본과 범위 |
+인증된 `GET /api/home`은 인증 정보의 사용자 ID로 조회한다. 공통 `ApiResponse.data`에 `counts`, `responseNeededItems`, `sentOpenItems`, `upcomingSchedules`, `situationCards`, `isNewUser`를 반환한다. 미인증·잘못된 토큰·비활성 계정은 공통 401로 처리하고, 의존 조회 실패는 공통 500으로 처리한다.
+
+## 상단 집계
+
+| 필드 | 집계 대상 |
 | --- | --- |
-| counts.responseNeeded | C responseNeededCount. 응답 필요 목록 전체 수(재확인 포함 여부 등은 C가 판단) |
-| counts.unassigned | C noAssigneeCount. 내가 보낸 요청 중 담당자 없음 |
-| counts.upcomingSchedules | C upcomingCount. 내가 부탁했거나 맡은 수락됨·진행 중 요청 전체 수 |
-| counts.activeSharings | D countActiveSharings(userId). ACTIVE 권한의 (요청, 담당자) 묶음 수 |
+| `counts.responseNeeded` | 로그인 사용자가 응답해야 하는 일반 응답과 재확인 요청 |
+| `counts.unassigned` | 내가 보낸 요청 중 담당자가 없는 요청 |
+| `counts.upcomingSchedules` | 내가 부탁했거나 맡은 수락·진행 중 일정 전체 |
+| `counts.activeSharings` | 활성 공유 권한이 있는 요청·담당자 묶음. D 안심카드의 `sharingCount`와 같은 기준 |
 
-B는 현재 시각을 서울 LocalDateTime으로 C에 전달하며 조회 조건·저장소 쿼리를 중복 구현하지 않는다.
-목록 최대 2개 제한으로 전체 예정 건수를 다시 계산하지 않는다.
+기존 FE 연동을 위해 `counts.upcomingSchedules`와 `counts.activeSharings`를 유지한다. 일정 전체 건수는 `counts.upcomingSchedules`, 화면에 표시할 일정 최대 2개는 최상위 `upcomingSchedules` 배열에서 읽는다.
 
-## 목록의 실제 직렬화 필드
-| 목록 | 필드 |
+## 요청·일정 목록
+
+| 목록 | 응답 필드 |
 | --- | --- |
-| responseNeededItems | requestId, type, requestType, helpType, startsAt, place, requesterId, deadline |
-| sentOpenItems | requestId, requestType, helpType, startsAt, endsAt, requesterId, targetUserId, displayStatus |
-| upcomingSchedules | requestId, helpType, startsAt, place, requesterId, assigneeId |
+| `responseNeededItems[]` | `requestId`, `type`, `requestType`, `helpType`, `startsAt`, `place`, `requesterId`, `deadline`, `requesterName` |
+| `sentOpenItems[]` | `requestId`, `requestType`, `helpType`, `startsAt`, `endsAt`, `requesterId`, `targetUserId`, `displayStatus`, `targetUserName`, `responseDeadline` |
+| `upcomingSchedules[]` | `requestId`, `helpType`, `startsAt`, `place`, `requesterId`, `assigneeId`, `counterpartName` |
 
-B 전용 응답 record로 C 결과를 필드별 매핑한다. 기존 JSON 필드명·타입·enum·nullable을 유지하며 Entity/민감정보를 추가하지 않는다.
-- upcomingSchedules는 C 순서를 보존하여 앞의 최대 2개만 반환한다. 시작시각순 정렬 책임은 C에 있다.
-- responseNeededItems/sentOpenItems 순서도 C 결과를 보존한다. B에서 재정렬·추가 제한하지 않는다.
-- 목록은 null 대신 빈 배열, 실제 빈 집계는 0이다. 원본 필드의 null은 그대로 유지한다(place, targetUserId 등).
-- 날짜는 LocalDateTime을 그대로 직렬화한다. 오프셋을 임의 추가하거나 날짜로 축약하지 않는다.
-- responseNeededItems.type은 RESPONSE 또는 RECONFIRMATION이며 저장 status/displayStatus와 다르다.
-- targetUserId를 hasAssignee로 간주하지 않는다.
+- `responseNeededItems[].type`은 일반 응답 `RESPONSE` 또는 재확인 `RECONFIRMATION`이며, `deadline`은 해당 응답의 마감 시각이다.
+- 보낸 요청은 `WAITING`, `NO_ASSIGNEE`, `ACCEPTED`, `IN_PROGRESS`를 포함한다. `responseDeadline`은 `WAITING`일 때 현재 지정의 응답 마감 시각이며 그 외에는 null이다. `NO_ASSIGNEE`일 때 `targetUserName`은 null이다.
+- `counterpartName`은 내가 부탁한 일정이면 담당자 이름, 내가 맡은 일정이면 요청자 이름이다. A 프로필을 일괄 조회하며, 표시 대상이나 프로필이 없으면 null, 탈퇴 프로필은 `탈퇴한 사용자`로 표시한다.
+- C 조회 순서를 유지하고, 다가오는 일정은 시작 시각순으로 최대 2개를 반환한다. 빈 목록은 빈 배열이다. 날짜·시간은 서울 현지 시각을 오프셋 없이 반환한다.
 
-## FE 초안과의 차이 / 합의 필요
-- title, 사용자 이름·프로필, requester/target 객체, counterpartName은 제공하지 않는다. helpType과 사용자 ID가 실제 C 계약이다.
-- 일정은 scheduledAt이 아닌 startsAt, 응답 기한은 responseDeadline이 아닌 deadline이다.
-- sentOpenItems는 저장 status 대신 C의 displayStatus를 제공한다. 응답 필요 목록에는 displayStatus가 없으며 type을 제공한다.
-- counts.upcomingScheduleCount 및 sharingCount로의 이름 변경은 미확정이다. 기존 counts.upcomingSchedules/activeSharings를 유지한다.
-- FE가 위 실제 필드명·enum·null 정책을 수용하는지 A/B/C/D/FE 합의가 필요하다. 이 문서는 Notion을 확정 상태로 변경하지 않는다.
+## 상황 카드와 신규 사용자
 
-## F-34 화면 충족 상태
-| 분류 | 항목과 조건 |
-| --- | --- |
-| 구현 | 기본 상단 집계, 응답 필요/보낸 요청/예정 일정, 실제 빈 목록·0 |
-| FE 재사용 가능(선행 API 통합 필요) | #118 진행 중 상황 목록의 기본 situationId/name/type/status/startAt/endAt. D-day·진행 바는 FE 계산 가능 |
-| 필수 누락(전체 화면 기준) | 나의/참여 상황 분리 카드, isOwner/참여자 수, 카드별 요청 통계·다음 일정·잔여 일정 수. #118 기본 목록만으로 모두 충족되지 않음 |
-| 추가 협의 필요 | 카드 공통 DTO·소유/참여 분류·집계 범위, 신규 사용자 판정(isNewUser), A 사용자 표시명/탈퇴 처리, C 추가 필드 및 null 규칙 |
+- `situationCards.my`는 내가 생성한 진행 중 상황, `situationCards.participating`은 다른 사용자가 생성한 진행 중 상황이다. 두 배열 모두 조회자가 ACTIVE로 참여한 상황만 포함한다. 생성 시각과 ID 내림차순으로 반환한다.
+- 카드의 필드는 `situationId`, `name`, `startAt`, `endAt`, `participantCount`, `isOwner`, `nextSchedule`, `remainingScheduleCount`, `requestCounts`다. `participantCount`는 ACTIVE 참여자 수다.
+- `nextSchedule`은 가장 가까운 수락·진행 중 일정의 `startsAt`, `helpType`, `assigneeName`을 반환한다. 일정이 없으면 null이고, `remainingScheduleCount`는 첫 일정을 제외한 건수다.
+- `requestCounts`는 `accepted`, `inProgress`, `waiting`, `noAssignee`, `responseNeeded`를 제공한다. 나의 상황 카드는 C Reader의 상황별 상태 집계를 사용한다. 참여 상황 카드의 수락·진행 중 건수와 일정은 내가 담당하는 요청만 포함하며, `waiting`과 `noAssignee`는 0이다.
+- `responseNeeded`는 조회자의 일반 응답과 재확인을 상황별로 합산한다. #143의 `situationId`를 기준으로 집계하고 상황 ID가 없는 급한 요청은 카드 건수에서 제외한다.
+- `isNewUser`는 상황을 생성하거나 참여한 이력이 한 번도 없을 때 true다. 종료·나가기·제외 이력이 있으면 현재 카드가 비어 있어도 false다.
 
-현재 Reader getSituationStats가 일부 카드 통계를 제공하더라도 사용자별 상황 소유/참여 분류 계약은 별도다.
-추가 Repository나 다른 PR 제품 코드를 복사하여 임의로 화면 계약을 확정하지 않는다.
-빈 배열/0 응답은 지원하지만 '최초 가입'과 '현재 활동 없음' 구분은 지원하지 않는다.
+## 연동과 검증
 
-## 선행 PR과 병합 전 조건
-- #98 C 실제 구현은 develop 병합 완료다. #133 전용 worktree에서 develop 8a7e7c91을 충돌 없이 통합하고 리뷰 수정을 검증했다.
-  ObjectProvider 지연 조회를 제거하고 CareRequestSummaryReader를 직접 주입한다.
-- C upcoming 계약은 최대 2개다. B의 limit(2)는 중복이지만 기존 HTTP 응답의 최대 크기 보장을 방어적으로 유지한다.
-- D SharingCountReader 구현은 develop에 있으며 그대로 재사용한다.
-- #116/#118의 Entity·Repository·Flyway 및 C 제품 코드를 변경하지 않았다.
-  #116 시간 모델·마이그레이션과 #118 상황 목록은 상황 카드 통합 시 선행 확인 대상이다.
-- B 테스트는 실제 보안 필터/Controller/Service와 Mock C/D/User를 연결한다.
-  실제 #98 구현, D 쿼리, MySQL, 최종 FE 통합 검증은 별도이며 통과로 표시하지 않는다.
-- 전체 F-34 완료 선언/Issue 자동 종료 전에 카드 및 신규 사용자 정책을 합의하고 누락을 구현해야 한다.
+C의 `CareRequestSummaryReader`, D의 `SharingCountReader`, A의 `UserProfileQuery`를 사용한다. DB 스키마와 Flyway 마이그레이션 변경은 없다. 로컬에서는 홈 응답과 상황 조회에 대한 MySQL 통합 테스트를 포함해 관련 테스트 55개를 확인했다. 개발 서버 응답은 배포 후 검증한다.
