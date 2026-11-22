@@ -83,7 +83,7 @@ public class HomeService {
     private CareRequestSummaryReader.SituationRequestStats participatingStats(
             Long situationId, Long userId, LocalDateTime now) {
         var requests = requestReader.getSituationRequests(situationId, userId, now);
-        var scheduled = new ArrayList<CareRequestSummaryReader.UpcomingSchedule>();
+        CareRequestSummaryReader.UpcomingSchedule next = null;
         int accepted = 0;
         int inProgress = 0;
         for (var request : requests) {
@@ -96,11 +96,12 @@ public class HomeService {
                 default -> { continue; }
             }
             // C Reader가 시작 시각 순서로 정렬한, 조회자가 담당하는 일정입니다.
-            scheduled.add(new CareRequestSummaryReader.UpcomingSchedule(request.requestId(), request.helpType(),
-                    request.startsAt(), null, request.requesterId(), request.targetUserId()));
+            if (next == null) {
+                next = new CareRequestSummaryReader.UpcomingSchedule(request.requestId(), request.helpType(),
+                        request.startsAt(), null, request.requesterId(), request.targetUserId());
+            }
         }
-        return new CareRequestSummaryReader.SituationRequestStats(accepted, inProgress, 0, 0,
-                scheduled.isEmpty() ? null : scheduled.getFirst());
+        return new CareRequestSummaryReader.SituationRequestStats(accepted, inProgress, 0, 0, next);
     }
 
     private record CardData(HomeCardRow row, boolean owner, CareRequestSummaryReader.SituationRequestStats stats,

@@ -2,12 +2,34 @@ package com.gyeot.domain.situation.repository;
 
 import com.gyeot.domain.situation.entity.Situation;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 public interface SituationRepository extends JpaRepository<Situation, Long> {
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select s from Situation s where s.id = :id")
+    Optional<Situation> findForUpdate(@Param("id") Long id);
+
+    /** 참여 이력 수와 무관하게 상황별 한 행만 반환합니다. 정렬은 호출자의 Pageable로 고정합니다. */
+    @Query("""
+            select s from Situation s
+            where s.status = com.gyeot.domain.situation.entity.SituationStatus.ACTIVE
+              and exists (
+                select p.id from SituationParticipant p
+                where p.situation = s and p.userId = :userId
+                  and p.status = com.gyeot.domain.situation.entity.SituationParticipantStatus.ACTIVE
+              )
+            """)
+    Slice<Situation> findActiveForParticipant(@Param("userId") Long userId, Pageable pageable);
+
     @Query("""
             select s.id as situationId, s.creatorId as creatorId, s.title as name,
                    s.startAt as startAt, s.endAt as endAt, count(p) as participantCount

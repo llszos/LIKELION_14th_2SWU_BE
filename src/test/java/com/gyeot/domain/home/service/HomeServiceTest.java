@@ -105,13 +105,35 @@ class HomeServiceTest {
         when(requests.getHomeOverview(10L, NOW)).thenReturn(
                 new HomeRequestOverview(3, 0, 0, needed, List.of(), List.of()));
 
+        var accepted = com.gyeot.domain.carerequest.query.RequestDisplayStatus.ACCEPTED;
+        var inProgress = com.gyeot.domain.carerequest.query.RequestDisplayStatus.IN_PROGRESS;
+        when(requests.getSituationRequests(2L, 10L, NOW)).thenReturn(List.of(
+                scheduleItem(1L, 30L, NOW, accepted),
+                scheduleItem(2L, 10L, NOW.plusHours(1), inProgress),
+                scheduleItem(3L, 10L, NOW.plusHours(2), accepted)));
+        when(profiles.findProfilesByUserIds(java.util.Set.of(10L, 20L))).thenReturn(java.util.Map.of(
+                10L, new UserProfileQuery.UserProfile(10L, "하음", false)));
+
         var response = service.getHome(10L);
         assertThat(response.situationCards().my()).extracting(item -> item.situationId()).containsExactly(1L);
         var card = response.situationCards().participating().getFirst();
         assertThat(card.situationId()).isEqualTo(2L);
         assertThat(card.requestCounts().responseNeeded()).isEqualTo(2);
+        assertThat(card.requestCounts().accepted()).isEqualTo(1);
+        assertThat(card.requestCounts().inProgress()).isEqualTo(1);
+        assertThat(card.nextSchedule().startsAt()).isEqualTo(NOW.plusHours(1));
+        assertThat(card.nextSchedule().assigneeName()).isEqualTo("하음");
+        assertThat(card.remainingScheduleCount()).isEqualTo(1);
         assertThat(response.counts().responseNeeded()).isEqualTo(3);
         assertThat(response.isNewUser()).isFalse();
+    }
+
+    private CareRequestSummaryReader.RequestSummary scheduleItem(
+            Long requestId, Long targetId, LocalDateTime startsAt,
+            com.gyeot.domain.carerequest.query.RequestDisplayStatus status) {
+        return new CareRequestSummaryReader.RequestSummary(requestId,
+                com.gyeot.domain.carerequest.enums.RequestType.GENERAL, HelpType.HOSPITAL,
+                startsAt, startsAt.plusHours(1), 20L, targetId, status);
     }
 
     private CareRequestSummaryReader.ResponseNeededItem neededItem(
