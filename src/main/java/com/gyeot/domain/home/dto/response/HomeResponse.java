@@ -7,6 +7,9 @@ import com.gyeot.domain.carerequest.query.RequestDisplayStatus;
 import com.gyeot.domain.carerequest.enums.HelpType;
 import com.gyeot.domain.carerequest.enums.RequestType;
 
+import com.gyeot.domain.situation.service.SituationCardActivity.NextSchedule;
+import com.gyeot.domain.situation.service.SituationCardActivity.RequestCounts;
+
 import java.time.LocalDateTime;
 import com.gyeot.domain.user.query.UserProfileQuery.UserProfile;
 
@@ -64,10 +67,6 @@ public record HomeResponse(Counts counts, List<ResponseNeededItem> responseNeede
     public record SituationCard(Long situationId, String name, LocalDateTime startAt, LocalDateTime endAt,
                                 long participantCount, boolean isOwner, NextSchedule nextSchedule,
                                 int remainingScheduleCount, RequestCounts requestCounts) {}
-
-    public record NextSchedule(LocalDateTime startsAt, HelpType helpType, String assigneeName) {}
-
-    public record RequestCounts(int accepted, int inProgress, int waiting, int noAssignee, long responseNeeded) {}
 
     /** upcomingSchedules는 표시 목록 크기가 아닌 C가 제공하는 전체 예정 일정 수입니다. */
     public record Counts(int responseNeeded, int unassigned, int upcomingSchedules, long activeSharings) {}
