@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.Lock;
 import jakarta.persistence.LockModeType;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import com.gyeot.domain.situation.dto.internal.SituationParticipantInfo;
@@ -35,6 +36,19 @@ public interface SituationParticipantRepository extends JpaRepository<SituationP
             @Param("situationId") Long situationId, @Param("userId") Long userId);
 
     boolean existsByUserId(Long userId);
+
+    @Query("""
+            select p.situation.id as situationId, count(p) as participantCount
+            from SituationParticipant p
+            where p.situation.id in :situationIds and p.status = ACTIVE
+            group by p.situation.id
+            """)
+    List<ActiveCount> countActiveBySituationIds(@Param("situationIds") Collection<Long> situationIds);
+
+    interface ActiveCount {
+        Long getSituationId();
+        long getParticipantCount();
+    }
 
     /** 역할·상황 상태는 제한하지 않으며 중복 참여 행의 사용자 ID도 보존합니다. */
     @Query("""

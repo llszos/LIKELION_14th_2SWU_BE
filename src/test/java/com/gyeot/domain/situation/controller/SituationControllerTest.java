@@ -47,9 +47,11 @@ class SituationControllerTest {
     }
 
     @Test
-    void usesAuthenticatedUserAndDefaultsAndReturnsOnlyBasicFields() throws Exception {
+    void usesAuthenticatedUserAndDefaultsAndReturnsCardFields() throws Exception {
         LocalDateTime start = LocalDateTime.of(2026, 11, 20, 9, 0);
-        var item = new SituationListResponse.Item(1L, "회복", "유형", start, start.plusHours(1), SituationStatus.ACTIVE);
+        var item = new SituationListResponse.Item(1L, "회복", "유형", start, start.plusHours(1), SituationStatus.ACTIVE,
+                2, new com.gyeot.domain.situation.service.SituationCardActivity.RequestCounts(0, 0, 0, 0, 1),
+                null, 0);
         when(service.listActive(20L, 0, 20))
                 .thenReturn(new SituationListResponse(List.of(item), 0, 20, false));
 
@@ -63,8 +65,10 @@ class SituationControllerTest {
                 .andExpect(jsonPath("$.data.items[0].startAt").value("2026-11-20T09:00:00"))
                 .andExpect(jsonPath("$.data.items[0].endAt").value("2026-11-20T10:00:00"))
                 .andExpect(jsonPath("$.data.items[0].status").value("ACTIVE"))
-                .andExpect(jsonPath("$.data.items[0].requestCounts").doesNotExist())
-                .andExpect(jsonPath("$.data.items[0].participantCount").doesNotExist())
+                .andExpect(jsonPath("$.data.items[0].requestCounts.responseNeeded").value(1))
+                .andExpect(jsonPath("$.data.items[0].participantCount").value(2))
+                .andExpect(jsonPath("$.data.items[0].nextSchedule").isEmpty())
+                .andExpect(jsonPath("$.data.items[0].remainingScheduleCount").value(0))
                 .andExpect(jsonPath("$.data.items[0].isOwner").doesNotExist())
                 .andExpect(jsonPath("$.data.page").value(0))
                 .andExpect(jsonPath("$.data.size").value(20))
@@ -137,9 +141,12 @@ class SituationControllerTest {
                 8L, com.gyeot.domain.carerequest.enums.RequestType.GENERAL,
                 com.gyeot.domain.carerequest.enums.HelpType.HOSPITAL, start, start.plusHours(1), 10L, 30L,
                 com.gyeot.domain.carerequest.query.RequestDisplayStatus.NO_ASSIGNEE);
+        var waiting = new com.gyeot.domain.carerequest.query.CareRequestSummaryReader.RequestSummary(
+                9L, request.requestType(), request.helpType(), start, start.plusHours(1), 10L, 20L,
+                com.gyeot.domain.carerequest.query.RequestDisplayStatus.WAITING, start.minusHours(1));
         var situation = Situation.create(10L, "OTHER", "상황", start, start.plusHours(2), "통원 지원");
         when(service.detailActive(1L, 20L))
-                .thenReturn(SituationDetailResponse.from(situation, 20L, 4, List.of(request), java.util.Map.of()));
+                .thenReturn(SituationDetailResponse.from(situation, 20L, 4, List.of(request, waiting), java.util.Map.of()));
 
         mvc.perform(get("/api/situations/1"))
                 .andExpect(status().isOk())
@@ -151,6 +158,8 @@ class SituationControllerTest {
                 .andExpect(jsonPath("$.data.requests[0].endsAt").value("2026-11-20T10:00:00"))
                 .andExpect(jsonPath("$.data.requests[0].targetUserId").value(30))
                 .andExpect(jsonPath("$.data.requests[0].displayStatus").value("NO_ASSIGNEE"))
+                .andExpect(jsonPath("$.data.requests[0].responseDeadline").isEmpty())
+                .andExpect(jsonPath("$.data.requests[1].responseDeadline").value("2026-11-20T08:00:00"))
                 .andExpect(jsonPath("$.data.requests[0].scheduledAt").doesNotExist())
                 .andExpect(jsonPath("$.data.requests[0].assigneeId").doesNotExist())
                 .andExpect(jsonPath("$.data.requests[0].targetUserName").doesNotExist())

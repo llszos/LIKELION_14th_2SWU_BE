@@ -43,7 +43,8 @@ public record SituationDetailResponse(
 
     public record RequestItem(Long requestId, RequestType requestType, HelpType helpType,
                               LocalDateTime startsAt, LocalDateTime endsAt, Long requesterId,
-                              Long targetUserId, RequestDisplayStatus displayStatus, String targetUserName) {
+                              Long targetUserId, RequestDisplayStatus displayStatus, String targetUserName,
+                              LocalDateTime responseDeadline) {
         private static RequestItem from(RequestSummary request, Map<Long, UserProfile> profiles) {
             String name = null;
             if (request.targetUserId() != null) {
@@ -53,7 +54,8 @@ public record SituationDetailResponse(
                 };
             }
             return new RequestItem(request.requestId(), request.requestType(), request.helpType(), request.startsAt(),
-                    request.endsAt(), request.requesterId(), request.targetUserId(), request.displayStatus(), name);
+                    request.endsAt(), request.requesterId(), request.targetUserId(), request.displayStatus(), name,
+                    request.responseDeadline());
         }
 
         private static String displayName(UserProfile profile) {

@@ -1,5 +1,6 @@
 package com.gyeot.domain.situation.service;
 
+import com.gyeot.domain.carerequest.query.CareRequestSummaryReader;
 import com.gyeot.domain.situation.entity.Situation;
 import com.gyeot.domain.situation.entity.SituationStatus;
 import com.gyeot.domain.situation.repository.SituationRepository;
@@ -21,8 +22,11 @@ import static org.mockito.Mockito.*;
 class SituationQueryServiceTest {
     private final SituationRepository repository = mock(SituationRepository.class);
     private final SituationParticipantRepository participantRepository = mock(SituationParticipantRepository.class);
+    private final CareRequestSummaryReader reader = mock(CareRequestSummaryReader.class);
+    private final org.springframework.beans.factory.ObjectProvider<CareRequestSummaryReader> readers =
+            mock(org.springframework.beans.factory.ObjectProvider.class);
     private final SituationQueryService service = new SituationQueryService(repository, participantRepository,
-            mock(org.springframework.beans.factory.ObjectProvider.class), java.time.Clock.systemUTC(), ids -> java.util.Map.of());
+            readers, java.time.Clock.systemUTC(), ids -> java.util.Map.of());
 
     @Test
     void mapsBasicFieldsAndSliceMetadataUsingFixedDescendingOrder() {
@@ -33,6 +37,13 @@ class SituationQueryServiceTest {
         when(repository.findActiveForParticipant(20L, pageable))
                 .thenReturn(new SliceImpl<>(List.of(situation), pageable, true));
 
+        when(readers.getIfAvailable()).thenReturn(reader);
+        when(reader.getHomeOverview(eq(20L), any())).thenReturn(
+                new CareRequestSummaryReader.HomeRequestOverview(0, 0, 0, List.of(), List.of(), List.of()));
+        var count = mock(SituationParticipantRepository.ActiveCount.class);
+        when(count.getSituationId()).thenReturn(7L);
+        when(count.getParticipantCount()).thenReturn(2L);
+        when(participantRepository.countActiveBySituationIds(java.util.Set.of(7L))).thenReturn(List.of(count));
         var result = service.listActive(20L, 2, 3);
 
         assertEquals(2, result.page());
@@ -46,6 +57,9 @@ class SituationQueryServiceTest {
         assertEquals(start, item.startAt());
         assertEquals(start.plusHours(2), item.endAt());
         assertEquals(SituationStatus.ACTIVE, item.status());
+        assertEquals(2L, item.participantCount());
+        assertEquals(0, item.requestCounts().responseNeeded());
+        assertNull(item.nextSchedule());
         verify(repository).findActiveForParticipant(20L, pageable);
     }
 

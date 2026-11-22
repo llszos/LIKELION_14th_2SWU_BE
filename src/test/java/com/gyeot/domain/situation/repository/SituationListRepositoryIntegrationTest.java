@@ -1,6 +1,7 @@
 package com.gyeot.domain.situation.repository;
 
 import com.gyeot.domain.safetycard.crypto.SafetyInformationCipher;
+import com.gyeot.domain.carerequest.query.CareRequestSummaryReaderImpl;
 import com.gyeot.domain.situation.entity.Situation;
 import com.gyeot.domain.situation.entity.SituationParticipant;
 import com.gyeot.domain.situation.entity.SituationParticipantRole;
@@ -27,7 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /** 일회용 MySQL에서 EXISTS 필터·중복 제거·정렬·Slice 경계를 검증합니다. */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({JpaAuditingConfig.class, SafetyInformationCipher.class, SituationQueryService.class, com.gyeot.domain.user.query.UserProfileQueryImpl.class,
+@Import({JpaAuditingConfig.class, SafetyInformationCipher.class, CareRequestSummaryReaderImpl.class, SituationQueryService.class, com.gyeot.domain.user.query.UserProfileQueryImpl.class,
         com.gyeot.global.config.ClockConfiguration.class})
 @ActiveProfiles("test")
 @Testcontainers
@@ -67,6 +68,7 @@ class SituationListRepositoryIntegrationTest {
         var result = service.listActive(20L, 0, 20);
         assertThat(result.items()).extracting(item -> item.situationId())
                 .containsExactlyInAnyOrder(owner.getId(), active.getId());
+        assertThat(result.items()).allSatisfy(item -> assertThat(item.participantCount()).isEqualTo(1));
         assertThat(result.hasNext()).isFalse();
     }
 
