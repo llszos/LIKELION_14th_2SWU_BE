@@ -33,7 +33,7 @@ class SituationHistoryContextTest {
             var repository = context.getBean(SituationHistoryQueryRepository.class);
             var pageable = PageRequest.of(0, 20, Sort.by(Sort.Order.desc("endedAt"), Sort.Order.desc("id")));
             when(repository.findHistory(10L, pageable)).thenReturn(new SliceImpl<>(List.of(), pageable, false));
-            var response = context.getBean(SituationHistoryController.class).list(new AuthenticatedUser(10L), 0, 20);
+            var response = context.getBean(SituationHistoryController.class).list(new AuthenticatedUser(10L), 0, 20, SituationHistoryService.Filter.ALL, null);
             assertThat(response.status()).isEqualTo("success");
             assertThat(response.data().items()).isEmpty();
             assertThat(response.data().hasNext()).isFalse();
