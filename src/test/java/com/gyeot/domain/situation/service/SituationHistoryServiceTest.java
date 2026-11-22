@@ -46,6 +46,9 @@ class SituationHistoryServiceTest {
         var situation = ended();
         var pageable = PageRequest.of(2, 20, Sort.by(Sort.Order.desc("endedAt"), Sort.Order.desc("id")));
         when(repository.findHistory(10L, pageable)).thenReturn(new SliceImpl<>(List.of(situation), pageable, true));
+        when(provider.getIfAvailable()).thenReturn(reader);
+        when(reader.getPastSituationStats(List.of(1L))).thenReturn(java.util.Map.of(
+                1L, new CareRequestSummaryReader.PastSituationStats(2, 1)));
         var result = service.list(10L, 2, 20, Filter.ALL, null);
         assertThat(result.page()).isEqualTo(2);
         assertThat(result.size()).isEqualTo(20);
@@ -57,7 +60,8 @@ class SituationHistoryServiceTest {
         assertThat(item.startAt()).isEqualTo(situation.getStartAt());
         assertThat(item.endAt()).isEqualTo(situation.getEndAt());
         assertThat(item.endedAt()).isEqualTo(situation.getEndedAt());
-        verifyNoInteractions(provider, reader);
+        assertThat(item.requestCount()).isEqualTo(2);
+        verify(reader).getPastSituationStats(List.of(1L));
     }
 
     @Test
@@ -67,6 +71,7 @@ class SituationHistoryServiceTest {
         var result = service.list(10L, 0, 20, Filter.ALL, null);
         assertThat(result.items()).isEmpty();
         assertThat(result.hasNext()).isFalse();
+        verifyNoInteractions(provider, reader);
     }
 
     @Test
@@ -89,10 +94,13 @@ class SituationHistoryServiceTest {
         when(repository.findFilteredHistory(10L, java.util.Set.of(1L, 2L), pageable))
                 .thenReturn(new SliceImpl<>(List.of(ended()), pageable, true));
 
+        when(reader.getPastSituationStats(List.of(1L))).thenReturn(java.util.Map.of());
         var result = service.list(10L, 0, 1, Filter.ALL, 20L);
         assertThat(result.hasNext()).isTrue();
         assertThat(result.items()).extracting(item -> item.situationId()).containsExactly(1L);
         verify(repository).findFilteredHistory(10L, java.util.Set.of(1L, 2L), pageable);
+        assertThat(result.items().getFirst().requestCount()).isZero();
+        verify(reader).getPastSituationStats(List.of(1L));
 
         when(repository.findFilteredHistory(10L, java.util.Set.of(1L), pageable))
                 .thenReturn(new SliceImpl<>(List.of(ended()), pageable, false));

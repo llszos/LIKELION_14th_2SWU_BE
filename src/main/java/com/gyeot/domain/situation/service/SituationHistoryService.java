@@ -9,6 +9,7 @@ import com.gyeot.domain.situation.dto.response.SituationHistoryDetailResponse;
 import com.gyeot.domain.situation.dto.response.SituationHistoryListResponse;
 import com.gyeot.domain.situation.dto.response.SituationHistoryPeopleResponse;
 import com.gyeot.domain.situation.repository.SituationHistoryQueryRepository;
+import com.gyeot.domain.situation.entity.Situation;
 import com.gyeot.global.exception.BusinessException;
 import com.gyeot.global.exception.CommonErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -16,12 +17,14 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -44,7 +47,7 @@ public class SituationHistoryService {
         }
         var pageable = PageRequest.of(page, size, Sort.by(Sort.Order.desc("endedAt"), Sort.Order.desc("id")));
         if (filter == Filter.ALL && personId == null) {
-            return SituationHistoryListResponse.from(repository.findHistory(userId, pageable));
+            return withRequestCounts(repository.findHistory(userId, pageable));
         }
 
         var situationIds = completedRecords(userId, filter)
@@ -53,7 +56,16 @@ public class SituationHistoryService {
         if (situationIds.isEmpty()) {
             return new SituationHistoryListResponse(List.of(), page, size, false);
         }
-        return SituationHistoryListResponse.from(repository.findFilteredHistory(userId, situationIds, pageable));
+        return withRequestCounts(repository.findFilteredHistory(userId, situationIds, pageable));
+    }
+
+    private SituationHistoryListResponse withRequestCounts(Slice<Situation> page) {
+        if (page.isEmpty()) {
+            return SituationHistoryListResponse.from(page, Map.of());
+        }
+        var ids = page.stream().map(Situation::getId).toList();
+        var counts = Objects.requireNonNull(reader().getPastSituationStats(ids), "지난 상황 요청 집계가 필요합니다.");
+        return SituationHistoryListResponse.from(page, counts);
     }
 
     public SituationHistoryPeopleResponse people(Long userId, Filter filter) {

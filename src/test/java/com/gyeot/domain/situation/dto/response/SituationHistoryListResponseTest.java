@@ -3,6 +3,7 @@ package com.gyeot.domain.situation.dto.response;
 import com.gyeot.domain.situation.entity.Situation;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.SliceImpl;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -17,7 +18,8 @@ class SituationHistoryListResponseTest {
         Situation situation = Situation.create(10L, "돌봄", "지난 돌봄", start, end);
         LocalDateTime actualEnd = start.plusHours(2);
         situation.end(actualEnd);
-        var item = SituationHistoryListResponse.from(new SliceImpl<>(List.of(situation))).items().getFirst();
+        ReflectionTestUtils.setField(situation, "id", 1L);
+        var item = SituationHistoryListResponse.from(new SliceImpl<>(List.of(situation)), java.util.Map.of()).items().getFirst();
         assertThat(item.startAt()).isEqualTo(start);
         assertThat(item.endAt()).isEqualTo(end);
         assertThat(item.endedAt()).isEqualTo(actualEnd);
@@ -30,7 +32,7 @@ class SituationHistoryListResponseTest {
             LocalDateTime end = midnight.plusNanos(offset);
             Situation situation = Situation.create(10L, "돌봄", "연말", midnight.minusHours(1), end);
             situation.end(end.plusMinutes(1));
-            var item = SituationHistoryListResponse.Item.from(situation);
+            var item = SituationHistoryListResponse.Item.from(situation, 0);
             assertThat(item.startAt()).isEqualTo(midnight.minusHours(1));
             assertThat(item.endAt()).isEqualTo(end);
             assertThat(item.endedAt()).isEqualTo(end.plusMinutes(1));
