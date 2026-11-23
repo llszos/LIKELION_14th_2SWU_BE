@@ -3,7 +3,9 @@ package com.gyeot.domain.relation.controller;
 import com.gyeot.domain.relation.dto.request.InvitationCreateRequest;
 import com.gyeot.domain.relation.dto.response.InvitationCreateResponse;
 import com.gyeot.domain.relation.dto.response.InvitationDetailsResponse;
+import com.gyeot.domain.relation.dto.response.SentInvitationListResponse;
 import com.gyeot.domain.relation.service.InvitationService;
+import com.gyeot.domain.relation.service.SentInvitationListService;
 import com.gyeot.global.common.ApiResponse;
 import com.gyeot.global.security.auth.AuthenticatedUser;
 import io.swagger.v3.oas.annotations.Operation;
@@ -29,6 +31,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class InvitationController {
 
     private final InvitationService invitationService;
+    private final SentInvitationListService sentInvitationListService;
+
+    @GetMapping("/sent")
+    @Operation(summary = "보낸 초대 목록 조회", description = "로그인 사용자가 발신한 나의 사람·보호자 초대를 최근 생성순으로 조회합니다.")
+    public ResponseEntity<ApiResponse<SentInvitationListResponse>> getSentInvitations(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser
+    ) {
+        return ResponseEntity.ok(ApiResponse.success(
+                sentInvitationListService.getSentInvitations(authenticatedUser.userId())));
+    }
 
     @GetMapping("/{token}")
     @Operation(summary = "초대 링크 조회", description = "링크의 초대 유형, 발신자, 상태, 만료 여부와 보호자 인원 제한을 조회합니다.")
