@@ -195,6 +195,26 @@ class SituationParticipantReaderIntegrationTest {
         assertThat(reader.isActiveParticipant(situation.getId(), 20L)).isTrue();
     }
 
+    @Test
+    void 홈_카드는_현재_참여하는_진행_중_상황만_반환하고_과거_참여_이력은_별도로_확인한다() {
+        Situation active = saveSituation(10L);
+        Situation ended = saveSituation(30L);
+        ended.end(END);
+        saveParticipant(active, 10L, SituationParticipantRole.OWNER);
+        saveParticipant(active, 20L, SituationParticipantRole.PARTICIPANT);
+        saveParticipant(active, 40L, SituationParticipantRole.PARTICIPANT).leave(JOINED_AT.plusHours(1));
+        saveParticipant(ended, 20L, SituationParticipantRole.PARTICIPANT);
+        flushAndClear();
+
+        var cards = situationRepository.findHomeCards(20L);
+        assertThat(cards).hasSize(1);
+        assertThat(cards.getFirst().getSituationId()).isEqualTo(active.getId());
+        assertThat(cards.getFirst().getParticipantCount()).isEqualTo(2);
+        assertThat(situationRepository.findHomeCards(40L)).isEmpty();
+        assertThat(participantRepository.existsByUserId(40L)).isTrue();
+        assertThat(participantRepository.existsByUserId(99L)).isFalse();
+    }
+
     private Situation saveSituation(Long creatorId) {
         return situationRepository.save(Situation.create(creatorId, "돌봄", "병원 동행", START, END));
     }

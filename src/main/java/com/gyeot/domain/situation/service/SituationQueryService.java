@@ -8,6 +8,8 @@ import com.gyeot.domain.situation.entity.SituationParticipantStatus;
 import com.gyeot.domain.situation.entity.SituationStatus;
 import com.gyeot.domain.situation.exception.SituationQueryErrorCode;
 import com.gyeot.domain.situation.repository.SituationParticipantRepository;
+import com.gyeot.domain.situation.repository.SituationParticipantRepository.ActiveCount;
+import com.gyeot.domain.situation.entity.Situation;
 import com.gyeot.domain.situation.repository.SituationRepository;
 import com.gyeot.global.exception.BusinessException;
 import com.gyeot.global.exception.CommonErrorCode;
@@ -20,7 +22,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.Objects;
 
 @Service
@@ -42,10 +47,7 @@ public class SituationQueryService {
             throw new BusinessException(SituationQueryErrorCode.SITUATION_NOT_FOUND);
         }
         // B 접근 검증을 먼저 마친 뒤, 실제 조회자 ID를 C에 전달합니다.
-        CareRequestSummaryReader reader = requestReaders.getIfAvailable();
-        if (reader == null) {
-            throw new IllegalStateException("상황 요청 요약 조회 구현이 준비되지 않았습니다.");
-        }
+        CareRequestSummaryReader reader = requestReader();
         LocalDateTime now = LocalDateTime.now(clock);
         var stats = Objects.requireNonNull(reader.getSituationStats(List.of(situationId), now),
                 "상황 요청 통계는 null일 수 없습니다.");
@@ -66,6 +68,34 @@ public class SituationQueryService {
         }
         var pageable = PageRequest.of(page, size,
                 Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
-        return SituationListResponse.from(repository.findActiveForParticipant(userId, pageable));
+        var pageOfSituations = repository.findActiveForParticipant(userId, pageable);
+        if (pageOfSituations.isEmpty()) {
+            return new SituationListResponse(List.of(), pageOfSituations.getNumber(),
+                    pageOfSituations.getSize(), pageOfSituations.hasNext());
+        }
+
+        var creators = pageOfSituations.stream().collect(Collectors.toMap(Situation::getId, Situation::getCreatorId));
+        var participantCounts = participantRepository.countActiveBySituationIds(creators.keySet()).stream()
+                .collect(Collectors.toMap(ActiveCount::getSituationId, ActiveCount::getParticipantCount));
+        LocalDateTime now = LocalDateTime.now(clock.withZone(ZoneId.of("Asia/Seoul")));
+        var reader = requestReader();
+        var activity = SituationCardActivity.load(creators, userId, now, reader,
+                reader.getHomeOverview(userId, now).responseNeeded());
+        var assigneeIds = activity.values().stream().map(SituationCardActivity::nextAssigneeId)
+                .filter(Objects::nonNull).distinct().toList();
+        var names = assigneeIds.isEmpty() ? Map.<Long, UserProfileQuery.UserProfile>of()
+                : profiles.findProfilesByUserIds(assigneeIds);
+
+        return SituationListResponse.from(pageOfSituations.map(situation ->
+                SituationListResponse.Item.from(situation, participantCounts.getOrDefault(situation.getId(), 0L),
+                        activity.get(situation.getId()), names)));
+    }
+
+    private CareRequestSummaryReader requestReader() {
+        var reader = requestReaders.getIfAvailable();
+        if (reader == null) {
+            throw new IllegalStateException("상황 요청 요약 조회 구현이 준비되지 않았습니다.");
+        }
+        return reader;
     }
 }

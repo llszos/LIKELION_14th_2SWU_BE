@@ -7,6 +7,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 /** 잠정 권한: 생성자 또는 ACTIVE 참여자. LEFT·REMOVED 허용 정책은 확정 전입니다. */
@@ -22,6 +24,14 @@ public interface SituationHistoryQueryRepository extends Repository<Situation, L
 
     @Query("select s from Situation s where " + ACCESS)
     Slice<Situation> findHistory(@Param("userId") Long userId, Pageable pageable);
+
+    @Query("select s from Situation s where s.id in :situationIds and " + ACCESS)
+    Slice<Situation> findFilteredHistory(@Param("userId") Long userId,
+                                         @Param("situationIds") Collection<Long> situationIds, Pageable pageable);
+
+    @Query("select s.id from Situation s where s.id in :situationIds and " + ACCESS)
+    List<Long> findAccessibleHistoryIds(@Param("userId") Long userId,
+                                        @Param("situationIds") Collection<Long> situationIds);
 
     @Query("select s from Situation s where s.id = :situationId and " + ACCESS)
     Optional<Situation> findAccessibleHistory(@Param("situationId") Long situationId, @Param("userId") Long userId);
