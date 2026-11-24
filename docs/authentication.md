@@ -40,7 +40,7 @@ public Long me(@AuthenticationPrincipal AuthenticatedUser user) {
 - 로그인·재발급·로그아웃 요청에는 브라우저의 쿠키 전송 설정(`credentials: "include"`)을 사용합니다.
 - Access Token 만료 시 `POST /api/auth/refresh`를 호출합니다. 동시에 여러 요청이 만료되면 재발급 요청은 하나로 합칩니다.
 - 로그아웃은 `POST /api/auth/logout`으로 현재 Refresh Token 세션을 폐기하고 쿠키를 지웁니다. 기존 Access Token은 최대 15분 더 유효할 수 있으므로 프론트에서도 즉시 삭제합니다.
-- 로그인·회원가입·재발급·로그아웃·CSRF 조회와 `GET /api/invitations/**`는 공개 경로입니다. 이 경로에서는 만료되거나 잘못된 `Authorization` 헤더를 무시합니다. 그 외 인증 필요 경로의 잘못된 토큰은 공통 401 응답을 반환합니다.
+- 로그인·회원가입·재발급·로그아웃·CSRF 조회와 초대 링크 조회 `GET /api/invitations/{token}`는 공개 경로입니다. 보낸 초대 목록 `GET /api/invitations/sent`은 로그인해야 합니다. 공개 경로에서는 만료되거나 잘못된 `Authorization` 헤더를 무시하고, 그 외 인증 필요 경로의 잘못된 토큰은 공통 401 응답을 반환합니다.
 - 공개 경로에 Access Token을 보내지 않는 것을 권장합니다. 특히 로그인·재발급 요청은 Axios 등의 기본 Authorization 헤더 설정에서 제외할 수 있습니다.
 - Access Token 인증 실패 응답 예시는 다음과 같습니다.
 
