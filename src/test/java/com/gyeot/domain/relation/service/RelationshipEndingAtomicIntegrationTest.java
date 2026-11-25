@@ -230,7 +230,10 @@ class RelationshipEndingAtomicIntegrationTest {
                 """);
 
         assertThatThrownBy(() -> relationshipService.endRelationship(fixture.sourceUserId(), fixture.relationshipId()))
-                .isInstanceOf(RuntimeException.class);
+                .isInstanceOf(RuntimeException.class)
+                .satisfies(exception -> assertThat(causeChainContains(exception, "injected D failure"))
+                        .as("D 권한 회수 단계에서 주입한 실패가 예외 원인 체인에 포함되어야 합니다.")
+                        .isTrue());
 
         assertCascadeRolledBack(fixture);
         jdbcTemplate.execute("DROP TRIGGER IF EXISTS " + triggerName);
@@ -340,6 +343,15 @@ class RelationshipEndingAtomicIntegrationTest {
                 .filter(log -> permissionIds.contains(log.getPermissionId()))
                 .filter(log -> log.getEventType() == AccessEventType.AUTO_REVOKED)
                 .count();
+    }
+
+    private boolean causeChainContains(Throwable throwable, String expectedMessage) {
+        for (Throwable cause = throwable; cause != null; cause = cause.getCause()) {
+            if (cause.getMessage() != null && cause.getMessage().contains(expectedMessage)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private enum FailurePoint { NONE, B_AFTER_PARTICIPANT_REMOVED, C_AFTER_ASSIGNMENT_CLOSED }
