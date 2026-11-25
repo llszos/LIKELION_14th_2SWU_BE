@@ -10,6 +10,7 @@ import com.gyeot.domain.carerequest.entity.CareRequest;
 import com.gyeot.domain.carerequest.entity.RequestAssignment;
 import com.gyeot.domain.carerequest.enums.AssignmentCloseReason;
 import com.gyeot.domain.carerequest.enums.AssignmentResponseStatus;
+import com.gyeot.domain.carerequest.enums.CancelReason;
 import com.gyeot.domain.carerequest.enums.CareRequestStatus;
 import com.gyeot.domain.carerequest.enums.HelpType;
 import com.gyeot.domain.carerequest.repository.CareRequestRepository;
@@ -186,6 +187,33 @@ class RelationshipEndingAtomicIntegrationTest {
     }
 
     @Test
+    void relationshipEndCancelsInProgressRequestAndRevokesPermissionAsRequestEnded() {
+        Fixture fixture = createInProgressMyPersonFixture();
+
+        relationshipService.endRelationship(fixture.sourceUserId(), fixture.relationshipId());
+
+        tx.executeWithoutResult(status -> {
+            assertThat(relationshipRepository.findById(fixture.relationshipId()).orElseThrow().getStatus())
+                    .isEqualTo(RelationshipStatus.ENDED);
+            Chain chain = fixture.chains().get(0);
+            assertThat(participantRepository.findById(chain.participantId()).orElseThrow().getStatus())
+                    .isEqualTo(SituationParticipantStatus.REMOVED);
+            CareRequest request = careRequestRepository.findById(chain.requestId()).orElseThrow();
+            assertThat(request.getStatus()).isEqualTo(CareRequestStatus.CANCELED);
+            assertThat(request.getCancelReason()).isEqualTo(CancelReason.RELATIONSHIP_ENDED);
+            assertThat(request.getCanceledAt()).isNotNull();
+            RequestAssignment assignment = assignmentRepository.findById(chain.assignmentId()).orElseThrow();
+            assertThat(assignment.getCloseReason()).isEqualTo(AssignmentCloseReason.REQUEST_ENDED);
+            assertThat(assignment.getClosedAt()).isNotNull();
+            RequestInformationPermission permission = permissionRepository.findById(chain.permissionId()).orElseThrow();
+            assertThat(permission.getStatus()).isEqualTo(PermissionStatus.REVOKED);
+            assertThat(permission.getRevokeReason()).isEqualTo(RevokeReason.REQUEST_ENDED);
+            assertThat(permission.getRevokedAt()).isNotNull();
+        });
+        assertThat(accessLogsFor(fixture.chains())).isEqualTo(1);
+    }
+
+    @Test
     void failureAfterParticipantCleanupRollsBackAllDomainsAndAllowsRetry() {
         Fixture fixture = createMyPersonFixture();
         failureInjection.failAt(FailurePoint.B_AFTER_PARTICIPANT_REMOVED);
@@ -266,13 +294,31 @@ class RelationshipEndingAtomicIntegrationTest {
         });
     }
 
+    private Fixture createInProgressMyPersonFixture() {
+        return tx.execute(status -> {
+            long sourceId = saveUser("in-progress-source");
+            long targetId = saveUser("in-progress-target");
+            Relationship relationship = relationshipRepository.save(
+                    Relationship.createMyPerson(sourceId, targetId, "친구"));
+            emergencyContactRepository.save(EmergencyContact.create(sourceId, targetId, 1));
+            Chain chain = createChain(sourceId, targetId, true);
+            return new Fixture(sourceId, targetId, relationship.getId(), List.of(chain));
+        });
+    }
+
     private long saveUser(String prefix) {
         return userRepository.save(User.register(prefix + "-" + UUID.randomUUID() + "@example.com", "test-hash", prefix))
                 .getId();
     }
 
     private Chain createChain(long ownerId, long targetId) {
+        return createChain(ownerId, targetId, false);
+    }
+
+    private Chain createChain(long ownerId, long targetId, boolean inProgress) {
         LocalDateTime now = LocalDateTime.now(clock).truncatedTo(ChronoUnit.MICROS);
+        LocalDateTime startsAt = inProgress ? now.minusMinutes(10) : now.plusDays(1);
+        LocalDateTime endsAt = inProgress ? now.plusMinutes(50) : startsAt.plusHours(1);
         Situation situation = situationRepository.save(Situation.create(ownerId, "RECOVERY", "통합 검증",
                 now.minusDays(1), now.plusDays(2)));
         participantRepository.save(SituationParticipant.create(situation, ownerId,
@@ -281,16 +327,20 @@ class RelationshipEndingAtomicIntegrationTest {
                 SituationParticipantRole.PARTICIPANT, now.minusMinutes(30)));
 
         CareRequest request = careRequestRepository.save(CareRequest.createGeneral(situation.getId(), ownerId,
-                HelpType.CHECK_IN, null, "집", now.plusDays(1), now.plusDays(1).plusHours(1), null));
+                HelpType.CHECK_IN, null, "집", startsAt, endsAt, null));
         RequestAssignment assignment = assignmentRepository.save(
                 RequestAssignment.assign(request, targetId, 1, request.getStartsAt()));
-        assignment.respond(AssignmentResponseStatus.AVAILABLE, now);
+        LocalDateTime acceptedAt = inProgress ? startsAt.minusMinutes(5) : now;
+        assignment.respond(AssignmentResponseStatus.AVAILABLE, acceptedAt);
         request.accept();
+        if (inProgress) {
+            request.start(now);
+        }
 
         SafetyInformation information = safetyInformationRepository.save(
                 SafetyInformation.create(ownerId, InformationType.MEDICATION, "복용약", "하루 한 번"));
         RequestInformationPermission permission = permissionRepository.save(RequestInformationPermission.createActive(
-                request.getId(), assignment.getId(), information.getId(), InformationType.MEDICATION, now, null));
+                request.getId(), assignment.getId(), information.getId(), InformationType.MEDICATION, acceptedAt, null));
         return new Chain(situation.getId(), participant.getId(), request.getId(), assignment.getId(), permission.getId());
     }
 
