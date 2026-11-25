@@ -441,6 +441,28 @@ class PermissionWriterTest {
     }
 
     @Test
+    void 정보_주인_탈퇴는_열린_권한을_USER_WITHDRAWN으로_회수하고_삭제할_모든_ID를_돌려준다() {
+        RequestInformationPermission pending = pending(100L, 10L);
+        RequestInformationPermission active = active(101L, 10L);
+        RequestInformationPermission alreadyRevoked = active(102L, 10L);
+        alreadyRevoked.revoke(RevokeReason.ASSIGNMENT_CLOSED, NOW.minusDays(1));
+        when(permissionRepository.findAllByInformationIdInForUpdate(List.of(10L)))
+                .thenReturn(List.of(pending, active, alreadyRevoked));
+
+        List<Long> permissionIds = writer.revokeForOwnerWithdrawal(List.of(10L), OWNER_ID, NOW);
+
+        assertThat(permissionIds).containsExactly(100L, 101L, 102L);
+        assertRevoked(pending, RevokeReason.USER_WITHDRAWN);
+        assertRevoked(active, RevokeReason.USER_WITHDRAWN);
+        assertThat(alreadyRevoked.getRevokeReason()).isEqualTo(RevokeReason.ASSIGNMENT_CLOSED);
+        assertThat(savedLogs()).singleElement().satisfies(log -> {
+            assertThat(log.getPermissionId()).isEqualTo(101L);
+            assertThat(log.getEventType()).isEqualTo(AccessEventType.AUTO_REVOKED);
+            assertThat(log.getActorUserId()).isNull();
+        });
+    }
+
+    @Test
     void 요청_ID가_없으면_요청_단위로_회수하지_않는다() {
         assertThatThrownBy(() -> writer.revokeRequest(null, RevokeReason.REQUEST_ENDED, OWNER_ID, NOW))
                 .isInstanceOf(NullPointerException.class);

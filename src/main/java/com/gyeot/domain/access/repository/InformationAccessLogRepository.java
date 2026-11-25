@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 
 /**
  * 정보 접근 이력(information_access_logs)을 DB에 저장, 조회, 삭제합니다.
@@ -18,6 +19,11 @@ import java.time.LocalDateTime;
  */
 
 public interface InformationAccessLogRepository extends JpaRepository<InformationAccessLog, Long> { // JpaRepository<다룰 엔티티, 그 엔티티의 ID 타입>
+
+    /** 권한 행을 삭제해도 접근 이력은 보존하도록 연결 ID만 NULL로 바꿉니다. (회원 탈퇴, ERD 9.6) */
+    @Modifying
+    @Query("update InformationAccessLog l set l.permissionId = null where l.permissionId in :permissionIds")
+    int clearPermissionIds(@Param("permissionIds") Collection<Long> permissionIds);
 
     /**
      * 기준 시각보다 이전(<)에 일어난 이력을 한 번에 삭제합니다. (보존 기간 2년 정리, #44)

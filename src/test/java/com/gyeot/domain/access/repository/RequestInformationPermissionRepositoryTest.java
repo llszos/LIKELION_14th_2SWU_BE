@@ -1,12 +1,18 @@
 package com.gyeot.domain.access.repository;
 
+import com.gyeot.domain.access.entity.AccessEventType;
+import com.gyeot.domain.access.entity.InformationAccessLog;
 import com.gyeot.domain.access.entity.RequestInformationPermission;
 import com.gyeot.domain.access.entity.RevokeReason;
+import com.gyeot.domain.access.service.PermissionUserWithdrawalService;
+import com.gyeot.domain.access.service.PermissionWriter;
 import com.gyeot.domain.safetycard.crypto.SafetyInformationCipher;
 import com.gyeot.domain.safetycard.entity.InformationType;
 import com.gyeot.domain.safetycard.entity.SafetyInformation;
 import com.gyeot.domain.safetycard.repository.SafetyInformationRepository;
+import com.gyeot.domain.user.event.UserWithdrawnEvent;
 import com.gyeot.global.config.JpaAuditingConfig;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -36,7 +42,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE) // 내장 DB로 바꾸지 않고 아래 MySQL 사용
-@Import({JpaAuditingConfig.class, SafetyInformationCipher.class}) // created_at 자동 입력과 안심카드 암호화
+@Import({JpaAuditingConfig.class, SafetyInformationCipher.class, PermissionWriter.class,
+        PermissionUserWithdrawalService.class}) // 생성 시각, 암호화, 탈퇴 정리 서비스
 @ActiveProfiles("test")
 @Testcontainers
 class RequestInformationPermissionRepositoryTest {
@@ -53,6 +60,9 @@ class RequestInformationPermissionRepositoryTest {
 
     @Autowired private RequestInformationPermissionRepository permissionRepository;
     @Autowired private SafetyInformationRepository safetyInformationRepository;
+    @Autowired private InformationAccessLogRepository accessLogRepository;
+    @Autowired private PermissionUserWithdrawalService permissionUserWithdrawalService;
+    @Autowired private EntityManager entityManager;
 
     // === 공유 카드 후보 ===
 
@@ -121,6 +131,28 @@ class RequestInformationPermissionRepositoryTest {
         saveActive(40L, saveItem(OWNER_ID, "혈압약"));
 
         assertThat(permissionRepository.findRequestIdByAssignmentId(99L)).isEmpty();
+    }
+
+    @Test
+    void 정보_주인_탈퇴는_회수_이력을_남기고_원본과_권한을_삭제하며_기존_접근_이력은_보존한다() {
+        Long informationId = saveItem(OWNER_ID, "알레르기");
+        RequestInformationPermission permission = saveActive(40L, informationId);
+        accessLogRepository.save(InformationAccessLog.create(permission.getId(), OWNER_ID, OTHER_ID,
+                informationId, InformationType.MEDICATION, AccessEventType.GRANTED, NOW.minusHours(1)));
+        accessLogRepository.flush();
+
+        permissionUserWithdrawalService.cleanupOwnerData(new UserWithdrawnEvent(OWNER_ID, NOW));
+        permissionRepository.flush();
+        safetyInformationRepository.flush();
+        entityManager.clear(); // bulk delete는 영속성 컨텍스트를 자동으로 비우지 않음
+
+        assertThat(permissionRepository.findById(permission.getId())).isEmpty();
+        assertThat(safetyInformationRepository.findById(informationId)).isEmpty();
+        assertThat(accessLogRepository.findAll())
+                .hasSize(2)
+                .allSatisfy(log -> assertThat(log.getPermissionId()).isNull())
+                .extracting(InformationAccessLog::getEventType)
+                .containsExactlyInAnyOrder(AccessEventType.GRANTED, AccessEventType.AUTO_REVOKED);
     }
 
     // === 도우미 ===

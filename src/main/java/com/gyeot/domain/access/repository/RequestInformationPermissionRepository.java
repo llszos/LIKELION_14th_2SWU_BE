@@ -225,6 +225,16 @@ public interface RequestInformationPermissionRepository extends JpaRepository<Re
     List<RequestInformationPermission> findAllByInformationIdAndStatusIn(@Param("informationId") Long informationId,
                                                                          @Param("statuses") Collection<PermissionStatus> statuses);
 
+    /** 회원 탈퇴 시 삭제할 안심카드 항목들의 권한을 모두 잠급니다. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from RequestInformationPermission p where p.informationId in :informationIds order by p.id")
+    List<RequestInformationPermission> findAllByInformationIdInForUpdate(@Param("informationIds") Collection<Long> informationIds);
+
+    /** 정보 주인 탈퇴 시 해당 안심카드 항목의 권한 행을 삭제합니다. */
+    @Modifying(flushAutomatically = true)
+    @Query("delete from RequestInformationPermission p where p.id in :permissionIds")
+    int deleteAllByPermissionIdIn(@Param("permissionIds") Collection<Long> permissionIds);
+
     /**
      * 삭제되는 안심카드 항목을 가리키던 모든 권한의 information_id를 NULL로 바꿉니다. (#38, ERD 9.5 삭제 순서 4)
      *

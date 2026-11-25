@@ -6,6 +6,8 @@ import com.gyeot.domain.carerequest.event.CareRequestAssignmentClosedEvent;
 import com.gyeot.domain.carerequest.event.CareRequestCanceledEvent;
 import com.gyeot.domain.carerequest.event.CareRequestCompletedEvent;
 import com.gyeot.domain.carerequest.event.CareRequestExpiredEvent;
+import com.gyeot.domain.carerequest.enums.AssignmentCloseReason;
+import com.gyeot.domain.carerequest.enums.CancelReason;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -17,8 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
  * - 회수 사유는 끝나는 범위로 정합니다.
  *   요청 자체가 끝나면(완료, 취소, 만료) REQUEST_ENDED로 그 요청의 모든 열린 권한을 끝내고,
  *   지정 하나만 끝나면(수락 철회, 지정 마감) ASSIGNMENT_CLOSED로 그 지정의 열린 권한만 끝냅니다.
- * - 취소 사유(cancelReason)나 마감 사유(closeReason)가 회원 탈퇴여도 위 규칙을 따릅니다.
- *   탈퇴 전용 사유(USER_WITHDRAWN)는 회원 탈퇴 처리(#49, SHOULD 1차)에서 다룹니다.
+ * - 회원 탈퇴로 인한 취소·지정 마감은 USER_WITHDRAWN 사유로 기록합니다. 그 밖의 취소·마감은 기존 사유를 씁니다.
  *
  * - 이벤트를 발행한 C 트랜잭션 안에서만 실행합니다. (MANDATORY)
  *   C는 요청 행을 잠근 트랜잭션 안에서 동기로 발행하므로, 같은 요청의 부여와 회수가 순서대로 처리됩니다.
@@ -62,7 +63,9 @@ public class PermissionRevokeService {
         permissionWriter.lockItemsOfRequest(event.requestId());
 
         // assignmentId는 쓰지 않음 (NULL일 수 있고, 요청이 끝나면 모든 지정의 권한을 끝내야 함)
-        permissionWriter.revokeRequest(event.requestId(), RevokeReason.REQUEST_ENDED,
+        RevokeReason reason = event.cancelReason() == CancelReason.USER_WITHDRAWN
+                ? RevokeReason.USER_WITHDRAWN : RevokeReason.REQUEST_ENDED;
+        permissionWriter.revokeRequest(event.requestId(), reason,
                 event.requesterId(), event.occurredAt());
     }
 
@@ -108,8 +111,9 @@ public class PermissionRevokeService {
         // 회수할 권한의 항목 행을 먼저 잠금 (항목 삭제와 같은 권한을 동시에 바꾸지 않게, #38 잠금 규칙)
         permissionWriter.lockItemsOfAssignment(event.assignmentId(), null);
 
-        // closeReason은 회수 사유를 나누는 데 쓰지 않음 (모두 지정 하나만 끝난 경우)
-        permissionWriter.revokeAssignment(event.assignmentId(), RevokeReason.ASSIGNMENT_CLOSED,
+        RevokeReason reason = event.closeReason() == AssignmentCloseReason.USER_WITHDRAWN
+                ? RevokeReason.USER_WITHDRAWN : RevokeReason.ASSIGNMENT_CLOSED;
+        permissionWriter.revokeAssignment(event.assignmentId(), reason,
                 event.requesterId(), event.occurredAt());
     }
 }

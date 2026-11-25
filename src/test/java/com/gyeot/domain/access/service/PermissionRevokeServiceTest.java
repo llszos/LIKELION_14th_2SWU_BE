@@ -87,6 +87,14 @@ class PermissionRevokeServiceTest {
     }
 
     @Test
+    void 회원_탈퇴로_요청이_취소되면_USER_WITHDRAWN으로_회수한다() {
+        service.revokeOnCanceled(new CareRequestCanceledEvent(
+                REQUEST_ID, REQUESTER_ID, CancelReason.USER_WITHDRAWN, ASSIGNMENT_ID, TARGET_ID, NOW));
+
+        verify(permissionWriter).revokeRequest(REQUEST_ID, RevokeReason.USER_WITHDRAWN, REQUESTER_ID, NOW);
+    }
+
+    @Test
     void 요청_만료면_요청의_모든_권한을_REQUEST_ENDED로_회수한다() {
 
         service.revokeOnExpired(new CareRequestExpiredEvent(
@@ -117,21 +125,23 @@ class PermissionRevokeServiceTest {
     }
 
     @Test
-    void 지정_마감이면_마감_사유와_상관없이_그_지정의_권한만_ASSIGNMENT_CLOSED로_회수한다() {
+    void 지정_마감이면_일반_사유는_ASSIGNMENT_CLOSED_탈퇴는_USER_WITHDRAWN으로_회수한다() {
 
-        // C가 이 이벤트로 보내는 마감 사유: 관계 해제, 상황 나가기, 대상자 회원 탈퇴
+        // 일반 마감 사유는 ASSIGNMENT_CLOSED로 기록
         for (AssignmentCloseReason closeReason : new AssignmentCloseReason[]{
                 AssignmentCloseReason.RELATIONSHIP_ENDED,
-                AssignmentCloseReason.PARTICIPANT_LEFT,
-                AssignmentCloseReason.USER_WITHDRAWN}) {
+                AssignmentCloseReason.PARTICIPANT_LEFT}) {
 
             service.revokeOnAssignmentClosed(new CareRequestAssignmentClosedEvent(
                     REQUEST_ID, REQUESTER_ID, ASSIGNMENT_ID, TARGET_ID, closeReason, NOW));
         }
 
-        // 세 사유 모두 같은 호출 (회원 탈퇴 전용 사유는 #49 범위)
-        verify(permissionWriter, times(3))
+        verify(permissionWriter, times(2))
                 .revokeAssignment(ASSIGNMENT_ID, RevokeReason.ASSIGNMENT_CLOSED, REQUESTER_ID, NOW);
+        service.revokeOnAssignmentClosed(new CareRequestAssignmentClosedEvent(
+                REQUEST_ID, REQUESTER_ID, ASSIGNMENT_ID, TARGET_ID, AssignmentCloseReason.USER_WITHDRAWN, NOW));
+        verify(permissionWriter).revokeAssignment(
+                ASSIGNMENT_ID, RevokeReason.USER_WITHDRAWN, REQUESTER_ID, NOW);
         verify(permissionWriter, never()).revokeRequest(any(), any(), any(), any());
     }
 }
