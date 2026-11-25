@@ -8,9 +8,13 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
+import java.util.List;
 
 /** 나의 사람·보호자 초대를 저장하고 조회합니다. */
 public interface InvitationRepository extends JpaRepository<Invitation, Long> {
+
+    /** 사용자가 발신한 초대를 최근 생성순으로 조회합니다. */
+    List<Invitation> findAllByInviterIdOrderByCreatedAtDescIdDesc(Long inviterId);
 
     // 링크 토큰으로 초대를 찾습니다. 토큰 원문 대신 해시를 조건으로 사용합니다.
     Optional<Invitation> findByTokenHash(String tokenHash);

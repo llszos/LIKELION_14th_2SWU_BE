@@ -17,7 +17,7 @@ import java.util.List;
  * 관계 자격 확인 시에는 활성 상태를 조건으로 전달해야 합니다.
  * 상황 참여 여부와 요청 상태는 각 담당 영역에서 별도로 검증합니다.
  *
- * 목록 조회 결과의 순서는 보장하지 않습니다.
+ * 별도 OrderBy 조건이 없는 목록 조회 결과의 순서는 보장하지 않습니다.
  */
 public interface RelationshipQueryRepository
         extends Repository<Relationship, Long> {
@@ -53,6 +53,13 @@ public interface RelationshipQueryRepository
     // 사용자를 관계 대상으로 등록한 관계를 상태별로 조회합니다.
     List<Relationship> findAllByTargetUserIdAndStatus(
             Long targetUserId,
+            RelationshipStatus status
+    );
+
+    /** 로그인 사용자가 나의 사람 관계의 대상자인 활성 관계를 최근 등록순으로 조회합니다. */
+    List<Relationship> findAllByTargetUserIdAndRelationshipTypeAndStatusOrderByCreatedAtDescIdDesc(
+            Long targetUserId,
+            RelationshipType relationshipType,
             RelationshipStatus status
     );
 

@@ -42,6 +42,11 @@ public class PublicApiRequestMatcher implements RequestMatcher {
             return true;
         }
 
+        // 보낸 초대 목록은 로그인 사용자의 데이터이므로 공개 경로에서 제외합니다.
+        if (HttpMethod.GET.matches(method) && path.equals("/api/invitations/sent")) {
+            return false;
+        }
+
         return HttpMethod.GET.matches(method)
                 && (path.equals("/api/invitations") || path.startsWith("/api/invitations/"));
     }
