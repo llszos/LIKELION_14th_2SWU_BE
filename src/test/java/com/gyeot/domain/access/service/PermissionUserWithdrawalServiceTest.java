@@ -73,4 +73,20 @@ class PermissionUserWithdrawalServiceTest {
         verify(permissionRepository, never()).deleteAllByPermissionIdIn(org.mockito.ArgumentMatchers.anyList());
         verify(informationRepository, never()).deleteAll(org.mockito.ArgumentMatchers.<SafetyInformation>anyList());
     }
+
+    @Test
+    void 남은_항목이_없어도_이미_삭제한_항목의_과거_권한은_연결을_끊고_삭제한다() {
+        when(informationRepository.findIdsByOwnerIdOrderByIdAsc(USER_ID)).thenReturn(List.of());
+        when(permissionRepository.findIdsOfDeletedItemsByRequesterId(USER_ID)).thenReturn(List.of(401L));
+
+        service.cleanupOwnerData(new UserWithdrawnEvent(USER_ID, WITHDRAWN_AT));
+
+        // 항목 삭제 때 이미 회수된 권한이라 회수 처리는 다시 하지 않음
+        verify(permissionWriter, never()).revokeForOwnerWithdrawal(org.mockito.ArgumentMatchers.anyList(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        InOrder order = inOrder(accessLogRepository, permissionRepository);
+        order.verify(accessLogRepository).clearPermissionIds(List.of(401L));
+        order.verify(permissionRepository).deleteAllByPermissionIdIn(List.of(401L));
+        verify(informationRepository, never()).deleteAll(org.mockito.ArgumentMatchers.<SafetyInformation>anyList());
+    }
 }
