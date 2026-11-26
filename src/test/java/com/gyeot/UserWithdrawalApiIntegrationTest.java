@@ -10,7 +10,6 @@ import com.gyeot.global.security.jwt.JwtTokenProvider;
 import com.gyeot.global.security.refresh.repository.RefreshTokenRepository;
 import com.gyeot.global.security.refresh.service.RefreshTokenGenerator;
 import com.gyeot.global.security.refresh.service.RefreshTokenService;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -43,12 +42,6 @@ class UserWithdrawalApiIntegrationTest {
     @Autowired private RefreshTokenGenerator refreshTokenGenerator;
     @Autowired private JwtTokenProvider jwtTokenProvider;
     @Autowired private UserWithdrawalService userWithdrawalService;
-
-    @BeforeEach
-    void cleanDatabase() {
-        refreshTokenRepository.deleteAll();
-        userRepository.deleteAll();
-    }
 
     @Test
     void authenticatedUserCanWithdrawAndAllOfTheirSessionsAreRevoked() throws Exception {
