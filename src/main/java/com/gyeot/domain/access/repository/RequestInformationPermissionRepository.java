@@ -225,6 +225,30 @@ public interface RequestInformationPermissionRepository extends JpaRepository<Re
     List<RequestInformationPermission> findAllByInformationIdAndStatusIn(@Param("informationId") Long informationId,
                                                                          @Param("statuses") Collection<PermissionStatus> statuses);
 
+    /** 회원 탈퇴 시 삭제할 안심카드 항목들의 권한을 모두 잠급니다. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from RequestInformationPermission p where p.informationId in :informationIds order by p.id")
+    List<RequestInformationPermission> findAllByInformationIdInForUpdate(@Param("informationIds") Collection<Long> informationIds);
+
+    /**
+     * 정보 주인이 탈퇴 전에 이미 삭제한 항목의 과거 권한 ID를 찾습니다. (회원 탈퇴, ERD 9.6)
+     * 항목을 삭제하면 권한의 information_id가 NULL이 되어(ERD 9.5) 항목 주인으로는 찾을 수 없으므로,
+     * 그 권한이 속한 요청의 요청자로 찾습니다. 이 권한들은 항목 삭제 때 이미 회수돼 회수 이력도 남아 있습니다.
+     */
+    @Query("""
+            select p.id
+            from RequestInformationPermission p
+            where p.informationId is null
+              and p.requestId in (select r.id from CareRequest r where r.requesterId = :ownerUserId)
+            order by p.id
+            """)
+    List<Long> findIdsOfDeletedItemsByRequesterId(@Param("ownerUserId") Long ownerUserId);
+
+    /** 정보 주인 탈퇴 시 해당 안심카드 항목의 권한 행을 삭제합니다. */
+    @Modifying(flushAutomatically = true)
+    @Query("delete from RequestInformationPermission p where p.id in :permissionIds")
+    int deleteAllByPermissionIdIn(@Param("permissionIds") Collection<Long> permissionIds);
+
     /**
      * 삭제되는 안심카드 항목을 가리키던 모든 권한의 information_id를 NULL로 바꿉니다. (#38, ERD 9.5 삭제 순서 4)
      *

@@ -531,6 +531,25 @@ public class PermissionWriter {
     }
 
     /**
+     * 회원 탈퇴로 정보 주인의 모든 안심카드 원본을 없앱니다. 열려 있던 권한은 USER_WITHDRAWN으로 회수하고,
+     * 과거 권한도 포함해 삭제 대상 permission ID를 돌려줍니다. 이력은 회수 처리에서 보존합니다.
+     */
+    public List<Long> revokeForOwnerWithdrawal(Collection<Long> informationIds, Long ownerUserId,
+                                               LocalDateTime withdrawnAt) {
+        Objects.requireNonNull(informationIds, "informationIds는 필수입니다.");
+        Objects.requireNonNull(ownerUserId, "ownerUserId는 필수입니다.");
+        Objects.requireNonNull(withdrawnAt, "withdrawnAt은 필수입니다.");
+        if (informationIds.isEmpty()) {
+            return List.of();
+        }
+
+        List<RequestInformationPermission> permissions =
+                permissionRepository.findAllByInformationIdInForUpdate(informationIds);
+        revokeByRequestEvent(permissions, RevokeReason.USER_WITHDRAWN, ownerUserId, withdrawnAt);
+        return permissions.stream().map(RequestInformationPermission::getId).toList();
+    }
+
+    /**
      * 정보 주인이 공유 카드를 직접 철회할 때 권한을 OWNER_REVOKED로 끝냅니다. (F-30 공유 직접 철회, #46)
      *
      * - ACTIVE 권한만 끝냅니다. 그 밖(이미 REVOKED, PENDING)은 건너뜁니다. 같은 철회가 다시 와도 결과와 이력이 같습니다.
