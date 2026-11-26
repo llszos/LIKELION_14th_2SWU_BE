@@ -6,7 +6,9 @@ import com.gyeot.domain.user.dto.response.LoginResponse;
 import com.gyeot.domain.user.dto.response.SignupResponse;
 import com.gyeot.domain.user.service.AuthService;
 import com.gyeot.domain.user.service.LoginSession;
+import com.gyeot.domain.user.service.UserWithdrawalService;
 import com.gyeot.global.common.ApiResponse;
+import com.gyeot.global.security.auth.AuthenticatedUser;
 import com.gyeot.global.security.cookie.RefreshTokenCookieService;
 import com.gyeot.global.security.refresh.service.IssuedRefreshToken;
 import com.gyeot.global.security.refresh.service.RefreshTokenService;
@@ -20,13 +22,15 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 
 /**
- * 이메일·비밀번호 기반 회원가입·로그인 API입니다.
+ * 이메일·비밀번호 기반 인증과 계정 탈퇴 API입니다.
  */
 @RestController
 @RequestMapping("/api/auth")
@@ -38,15 +42,17 @@ public class AuthController {
     private final JwtTokenProvider jwtTokenProvider;
     private final RefreshTokenCookieService cookieService;
     private final JwtProperties jwtProperties;
+    private final UserWithdrawalService userWithdrawalService;
 
     public AuthController(AuthService authService, RefreshTokenService refreshTokenService,
                           JwtTokenProvider jwtTokenProvider, RefreshTokenCookieService cookieService,
-                          JwtProperties jwtProperties) {
+                          JwtProperties jwtProperties, UserWithdrawalService userWithdrawalService) {
         this.authService = authService;
         this.refreshTokenService = refreshTokenService;
         this.jwtTokenProvider = jwtTokenProvider;
         this.cookieService = cookieService;
         this.jwtProperties = jwtProperties;
+        this.userWithdrawalService = userWithdrawalService;
     }
 
     @PostMapping("/signup")
@@ -101,6 +107,19 @@ public class AuthController {
     @Operation(summary = "로그아웃", description = "현재 로그인 세션의 Refresh Token을 폐기합니다.")
     public ResponseEntity<ApiResponse<Void>> logout(HttpServletRequest request) {
         refreshTokenService.revokeCurrentSession(cookieService.readRefreshTokenIfPresent(request).orElse(null));
+        HttpHeaders headers = new HttpHeaders();
+        headers.setCacheControl("no-store");
+        cookieService.clearRefreshTokenCookie(headers);
+        return ResponseEntity.ok().headers(headers).body(ApiResponse.success());
+    }
+
+    @DeleteMapping("/withdraw")
+    @Operation(summary = "회원 탈퇴", description = "인증된 사용자의 계정을 비식별화하고 모든 Refresh Token을 폐기합니다.")
+    public ResponseEntity<ApiResponse<Void>> withdraw(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser
+    ) {
+        userWithdrawalService.withdraw(authenticatedUser.userId());
+
         HttpHeaders headers = new HttpHeaders();
         headers.setCacheControl("no-store");
         cookieService.clearRefreshTokenCookie(headers);

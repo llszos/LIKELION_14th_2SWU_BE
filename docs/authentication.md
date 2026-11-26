@@ -19,6 +19,15 @@
 
 로그아웃은 HTTP 200과 `ApiResponse.success()`를 반환하고, `data`는 `null`입니다. CSRF 토큰 조회도 같은 성공 응답 형식으로 감쌉니다.
 
+## 회원 탈퇴
+
+- `DELETE /api/auth/withdraw`는 Access Token 인증이 필요하며 요청 본문은 없습니다.
+- 사용자 ID는 요청값이 아니라 `AuthenticatedUser`에서 가져옵니다.
+- 성공하면 HTTP 200과 공통 성공 응답(`data: null`)을 반환합니다.
+- `UserWithdrawalService`가 사용자 개인정보를 비식별화하고 모든 Refresh Token을 폐기한 뒤 `UserWithdrawnEvent`를 발행합니다. 이벤트 후처리 실패는 같은 트랜잭션을 롤백합니다.
+- 응답에서 Refresh Token 쿠키를 만료시킵니다. 탈퇴한 계정의 기존 Access Token도 이후 요청에서 인증되지 않습니다.
+- 같은 Access Token을 다시 사용하면 JWT 필터에서 HTTP 401로 거절됩니다. 이미 탈퇴한 계정을 서비스에서 다시 탈퇴시키면 `USER_ALREADY_WITHDRAWN` 오류가 발생합니다.
+
 인증 오류와 Security 필터 오류도 공통 응답 형식을 사용합니다. 인증 실패는 401, 인증된 사용자의 권한 부족과 CSRF 검증 실패는 403입니다. Refresh 재발급이 실패하면 Refresh Token 쿠키를 만료시키며, 비활성 계정으로 재발급이 거부된 경우에도 쿠키를 만료시킵니다.
 
 ## 로그인 사용자 ID
