@@ -27,6 +27,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -118,7 +119,8 @@ class SafetyInformationControllerTest {
                                 {"informationType":"MEDICATION","title":"혈압약","informationValue":"   "}
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+                .andExpect(jsonPath("$.code").value("INVALID_INPUT"))
+                .andExpect(jsonPath("$.message").value("항목 내용을 입력해 주세요.")); // 영어 기본 문구가 아닌 한글 문구 (#156)
 
         // 항목 유형 없음 (@NotNull)
         mvc.perform(post("/api/safety-information")
@@ -127,8 +129,46 @@ class SafetyInformationControllerTest {
                                 {"title":"혈압약","informationValue":"아침 식후 1정"}
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+                .andExpect(jsonPath("$.code").value("INVALID_INPUT"))
+                .andExpect(jsonPath("$.message").value("항목 유형을 선택해 주세요."));
 
         verify(service, never()).create(any(), any()); // 요청 검증에서 막혀 Service는 호출되지 않음
+    }
+
+    @Test
+    void 이름이나_내용이_최대_길이를_넘으면_한글_메시지로_400이다() throws Exception {
+        // 항목 이름 151자 (@Size max 150)
+        mvc.perform(post("/api/safety-information")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"informationType\":\"MEDICATION\",\"title\":\"" + "a".repeat(151)
+                                + "\",\"informationValue\":\"아침 식후 1정\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_INPUT"))
+                .andExpect(jsonPath("$.message").value("항목 이름은 150자 이하로 입력해 주세요."));
+
+        // 항목 내용 1001자 (@Size max 1000)
+        mvc.perform(post("/api/safety-information")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"informationType\":\"MEDICATION\",\"title\":\"혈압약\",\"informationValue\":\""
+                                + "b".repeat(1001) + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_INPUT"))
+                .andExpect(jsonPath("$.message").value("항목 내용은 1000자 이하로 입력해 주세요."));
+
+        verify(service, never()).create(any(), any());
+    }
+
+    @Test
+    void 수정에서도_내용이_공백이면_한글_메시지로_400이다() throws Exception {
+        mvc.perform(patch("/api/safety-information/12")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"title":"혈압약","informationValue":"   "}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_INPUT"))
+                .andExpect(jsonPath("$.message").value("항목 내용을 입력해 주세요."));
+
+        verify(service, never()).update(any(), any(), any());
     }
 }
