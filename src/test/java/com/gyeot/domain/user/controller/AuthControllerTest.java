@@ -6,6 +6,7 @@ import com.gyeot.domain.user.dto.response.LoginResponse;
 import com.gyeot.domain.user.dto.response.SignupResponse;
 import com.gyeot.domain.user.service.AuthService;
 import com.gyeot.domain.user.service.LoginSession;
+import com.gyeot.domain.user.service.UserWithdrawalService;
 import com.gyeot.global.security.cookie.RefreshTokenCookieService;
 import com.gyeot.global.security.jwt.JwtProperties;
 import com.gyeot.global.security.jwt.JwtTokenProvider;
@@ -36,6 +37,7 @@ class AuthControllerTest {
     @Mock private RefreshTokenService refreshTokenService;
     @Mock private JwtTokenProvider jwtTokenProvider;
     @Mock private RefreshTokenCookieService cookieService;
+    @Mock private UserWithdrawalService userWithdrawalService;
 
     private MockMvc mockMvc;
     private LocalValidatorFactoryBean validator;
@@ -47,7 +49,7 @@ class AuthControllerTest {
 
         mockMvc = MockMvcBuilders
                 .standaloneSetup(new AuthController(authService, refreshTokenService,
-                        jwtTokenProvider, cookieService, new JwtProperties()))
+                        jwtTokenProvider, cookieService, new JwtProperties(), userWithdrawalService))
                 .setValidator(validator)
                 .build();
     }
