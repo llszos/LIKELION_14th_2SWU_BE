@@ -17,6 +17,7 @@ import com.gyeot.domain.carerequest.enums.HelpType;
 import com.gyeot.domain.carerequest.repository.CareRequestRepository;
 import com.gyeot.domain.carerequest.repository.RequestAssignmentRepository;
 import com.gyeot.domain.carerequest.repository.RequestChangeEventRepository;
+import com.gyeot.domain.carerequest.service.CareRequestCleanupService;
 import com.gyeot.domain.safetycard.entity.InformationType;
 import com.gyeot.domain.safetycard.entity.SafetyInformation;
 import com.gyeot.domain.safetycard.repository.SafetyInformationRepository;
@@ -27,6 +28,7 @@ import com.gyeot.domain.situation.entity.SituationParticipantRole;
 import com.gyeot.domain.situation.entity.SituationParticipantStatus;
 import com.gyeot.domain.situation.repository.SituationParticipantRepository;
 import com.gyeot.domain.situation.repository.SituationRepository;
+import com.gyeot.domain.situation.service.SituationMembershipCleanupService;
 import com.gyeot.domain.user.entity.AccountStatus;
 import com.gyeot.domain.user.entity.User;
 import com.gyeot.domain.user.event.UserWithdrawnEvent;
@@ -37,12 +39,14 @@ import com.gyeot.global.security.auth.AuthException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,12 +65,16 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 
 /**
  * 회원 탈퇴(A)부터 B 참여 종료, C 요청 정리, D 안심카드와 접근 권한 정리까지 실제 MySQL 한 트랜잭션으로 확인합니다. (#49, ERD 9.6)
  *
  * - 진입점은 UserWithdrawalService.withdraw이고, B, C, D 리스너는 모두 실제 빈입니다.
- * - 리스너 실행 순서는 바꾸지 않고 스프링이 정한 한 가지 순서로만 실행합니다. (C 먼저, D 먼저를 각각 검증하지는 않음)
+ * - 리스너 실행 순서는 탈퇴 처리 메서드의 @Order로 B → C → D 고정입니다. (#159) 이 순서 하나를 보장하는지 확인하며, 다른 순서를 따로 검증하지는 않습니다.
+ * - B, C, D 정리 서비스는 실제 동작을 유지한 spy로 감싸 호출 순서만 확인합니다.
  * - 쓰기와 확인을 각각 커밋된 트랜잭션으로 나누려고 테스트 메서드에는 트랜잭션을 걸지 않습니다. (끝나면 직접 지움)
  * - DB 실패는 MySQL 트리거로 안심카드 원본 삭제(D 마지막 단계)에서 일으킵니다.
  */
@@ -85,6 +93,9 @@ class UserWithdrawalCleanupIntegrationTest {
     private static final String FAIL_TRIGGER = "fail_withdrawal_safety_information_delete";
 
     @Autowired private UserWithdrawalService withdrawalService;
+    @MockitoSpyBean private SituationMembershipCleanupService situationCleanupService;   // B (실제 동작 유지)
+    @MockitoSpyBean private CareRequestCleanupService careRequestCleanupService;          // C (실제 동작 유지)
+    @MockitoSpyBean private PermissionUserWithdrawalService permissionWithdrawalService;  // D (실제 동작 유지)
     @Autowired private ApplicationEventPublisher eventPublisher;
     @Autowired private UserRepository userRepository;
     @Autowired private SituationRepository situationRepository;
@@ -133,6 +144,20 @@ class UserWithdrawalCleanupIntegrationTest {
         withdrawalService.withdraw(fixture.ownerId());
 
         assertOwnerCleanedUp(fixture);
+    }
+
+    @Test
+    void 탈퇴_이벤트는_B_C_D_순서로_처리된다() {
+        Fixture fixture = createFixture(Stage.IN_PROGRESS);
+
+        withdrawalService.withdraw(fixture.ownerId());
+
+        // C 요청 정리가 D 원본 정리보다 먼저 실행돼야 C 요청 → D 항목 잠금 순서를 지킴 (#159)
+        InOrder order = inOrder(situationCleanupService, careRequestCleanupService, permissionWithdrawalService);
+        order.verify(situationCleanupService).userWithdrawn(any(UserWithdrawnEvent.class));
+        order.verify(careRequestCleanupService).removeWithdrawnUser(eq(fixture.ownerId()), any(LocalDateTime.class));
+        order.verify(permissionWithdrawalService).cleanupOwnerData(any(UserWithdrawnEvent.class));
+        assertOwnerCleanedUp(fixture); // 순서를 고정해도 결과는 기존과 같음
     }
 
     @Test

@@ -7,6 +7,7 @@ import com.gyeot.domain.situation.event.SituationParticipantRemovedEvent;
 import com.gyeot.domain.user.event.UserWithdrawnEvent;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 /**
@@ -40,8 +41,12 @@ public class CareRequestCleanupListener {
                 event.occurredAt());
     }
 
-    /** 회원 탈퇴 → 내 요청 취소, 내가 맡은 지정 마감 */
+    /**
+     * 회원 탈퇴 → 내 요청 취소, 내가 맡은 지정 마감
+     * 처리 순서: B(100) → C(200) → D(300). C 요청 정리가 D 원본 정리보다 먼저 실행돼 C 요청 → D 항목 잠금 순서를 지킴 (#159)
+     */
     @EventListener
+    @Order(200)
     public void onUserWithdrawn(UserWithdrawnEvent event) {
         cleanupService.removeWithdrawnUser(event.userId(), event.occurredAt());
     }
