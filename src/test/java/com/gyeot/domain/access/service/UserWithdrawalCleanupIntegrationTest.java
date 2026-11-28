@@ -13,6 +13,7 @@ import com.gyeot.domain.carerequest.enums.AssignmentCloseReason;
 import com.gyeot.domain.carerequest.enums.AssignmentResponseStatus;
 import com.gyeot.domain.carerequest.enums.CancelReason;
 import com.gyeot.domain.carerequest.enums.CareRequestStatus;
+import com.gyeot.domain.carerequest.enums.ChangeEventType;
 import com.gyeot.domain.carerequest.enums.HelpType;
 import com.gyeot.domain.carerequest.repository.CareRequestRepository;
 import com.gyeot.domain.carerequest.repository.RequestAssignmentRepository;
@@ -36,11 +37,16 @@ import com.gyeot.domain.user.repository.UserRepository;
 import com.gyeot.domain.user.service.UserWithdrawalService;
 import com.gyeot.global.security.auth.AuthErrorCode;
 import com.gyeot.global.security.auth.AuthException;
+import com.gyeot.global.security.refresh.repository.RefreshTokenRepository;
+import com.gyeot.global.security.refresh.service.RefreshTokenGenerator;
+import com.gyeot.global.security.refresh.service.RefreshTokenService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.event.EventListener;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.ApplicationEventPublisher;
@@ -61,6 +67,7 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -82,6 +89,7 @@ import static org.mockito.Mockito.inOrder;
 @ActiveProfiles("test")
 @Testcontainers
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
+@Import(UserWithdrawalCleanupIntegrationTest.WithdrawalEventProbe.class)
 class UserWithdrawalCleanupIntegrationTest {
 
     @Container
@@ -93,6 +101,10 @@ class UserWithdrawalCleanupIntegrationTest {
     private static final String FAIL_TRIGGER = "fail_withdrawal_safety_information_delete";
 
     @Autowired private UserWithdrawalService withdrawalService;
+    @Autowired private RefreshTokenService refreshTokenService;
+    @Autowired private RefreshTokenRepository refreshTokenRepository;
+    @Autowired private RefreshTokenGenerator refreshTokenGenerator;
+    @Autowired private WithdrawalEventProbe withdrawalEventProbe;
     @MockitoSpyBean private SituationMembershipCleanupService situationCleanupService;   // B (실제 동작 유지)
     @MockitoSpyBean private CareRequestCleanupService careRequestCleanupService;          // C (실제 동작 유지)
     @MockitoSpyBean private PermissionUserWithdrawalService permissionWithdrawalService;  // D (실제 동작 유지)
@@ -116,6 +128,7 @@ class UserWithdrawalCleanupIntegrationTest {
     @BeforeEach
     void setUp() {
         tx = new TransactionTemplate(transactionManager);
+        withdrawalEventProbe.reset();
     }
 
     @AfterEach
@@ -138,7 +151,7 @@ class UserWithdrawalCleanupIntegrationTest {
     // === 정보 주인(요청자) 탈퇴 ===
 
     @Test
-    void 요청자가_탈퇴하면_요청은_탈퇴로_취소되고_안심카드와_권한은_삭제되며_접근_이력은_남는다() {
+    void requesterWithdrawalCancelsRequestsAndRemovesSafetyCardPermissionsButRetainsAccessLogs() {
         Fixture fixture = createFixture(Stage.IN_PROGRESS);
 
         withdrawalService.withdraw(fixture.ownerId());
@@ -147,7 +160,7 @@ class UserWithdrawalCleanupIntegrationTest {
     }
 
     @Test
-    void 탈퇴_이벤트는_B_C_D_순서로_처리된다() {
+    void withdrawalEventIsProcessedInBcdOrder() {
         Fixture fixture = createFixture(Stage.IN_PROGRESS);
 
         withdrawalService.withdraw(fixture.ownerId());
@@ -161,7 +174,7 @@ class UserWithdrawalCleanupIntegrationTest {
     }
 
     @Test
-    void 탈퇴_전에_삭제한_항목의_과거_권한도_요청자_탈퇴_때_삭제되고_이력은_남는다() {
+    void withdrawalRemovesPermissionsForPreviouslyDeletedItemsAndRetainsAccessLogs() {
         Fixture fixture = createFixture(Stage.IN_PROGRESS);
         Long deletedItemId = tx.execute(status -> safetyInformationRepository.save(
                 SafetyInformation.create(fixture.ownerId(), InformationType.CAUTION, "계단", "천천히 부축")).getId());
@@ -188,7 +201,7 @@ class UserWithdrawalCleanupIntegrationTest {
     }
 
     @Test
-    void 탈퇴_이벤트가_다시_와도_요청_이력과_접근_이력이_늘지_않는다() {
+    void redeliveredWithdrawalEventDoesNotDuplicateRequestOrAccessHistory() {
         Fixture fixture = createFixture(Stage.IN_PROGRESS);
         withdrawalService.withdraw(fixture.ownerId());
         int requestEventCount = requestEventCount(fixture);
@@ -200,6 +213,7 @@ class UserWithdrawalCleanupIntegrationTest {
                 eventPublisher.publishEvent(new UserWithdrawnEvent(fixture.ownerId(), withdrawnAt)));
 
         assertOwnerCleanedUp(fixture);
+        assertThat(userRepository.findById(fixture.ownerId()).orElseThrow().getWithdrawnAt()).isEqualTo(withdrawnAt);
         assertThat(requestEventCount(fixture)).isEqualTo(requestEventCount);
         assertThat(ownerLogs(fixture)).hasSize(accessLogCount);
 
@@ -210,8 +224,10 @@ class UserWithdrawalCleanupIntegrationTest {
     }
 
     @Test
-    void 안심카드_삭제에서_DB_오류가_나면_탈퇴_전체가_롤백되고_다시_시도하면_정리된다() {
+    void safetyInformationDeletionFailureRollsBackWithdrawalAndAllowsRetry() {
         Fixture fixture = createFixture(Stage.IN_PROGRESS);
+        var firstSession = refreshTokenService.issueInitial(fixture.ownerId());
+        var secondSession = refreshTokenService.issueInitial(fixture.ownerId());
         jdbcTemplate.execute("""
                 CREATE TRIGGER fail_withdrawal_safety_information_delete BEFORE DELETE ON safety_information
                 FOR EACH ROW
@@ -229,27 +245,61 @@ class UserWithdrawalCleanupIntegrationTest {
 
         assertNothingChanged(fixture);
         assertThat(requestEventCount(fixture)).isEqualTo(requestEventCount); // C 요청 이력도 되돌아감
+        assertThat(refreshTokenRepository.findByTokenHash(refreshTokenGenerator.hash(firstSession.rawToken()))
+                .orElseThrow().getRevokedAt()).isNull();
+        assertThat(refreshTokenRepository.findByTokenHash(refreshTokenGenerator.hash(secondSession.rawToken()))
+                .orElseThrow().getRevokedAt()).isNull();
 
         jdbcTemplate.execute("DROP TRIGGER IF EXISTS " + FAIL_TRIGGER);
         withdrawalService.withdraw(fixture.ownerId());
         assertOwnerCleanedUp(fixture);
+        assertThat(requestEventCount(fixture)).isEqualTo(requestEventCount + 1);
+        assertThat(refreshTokenRepository.findByTokenHash(refreshTokenGenerator.hash(firstSession.rawToken()))
+                .orElseThrow().getRevokedAt()).isNotNull();
+        assertThat(refreshTokenRepository.findByTokenHash(refreshTokenGenerator.hash(secondSession.rawToken()))
+                .orElseThrow().getRevokedAt()).isNotNull();
     }
 
     // === 담당자, 대상자 탈퇴 ===
 
     @Test
-    void 진행_중_담당자가_탈퇴하면_요청은_취소되고_권한은_탈퇴_사유로_회수되며_행이_남는다() {
+    void inProgressAssigneeWithdrawalCancelsRequestAndRevokesPermissionWithoutDeletingRecords() {
         Fixture fixture = createFixture(Stage.IN_PROGRESS);
+        var firstSession = refreshTokenService.issueInitial(fixture.assigneeId());
+        var secondSession = refreshTokenService.issueInitial(fixture.assigneeId());
+        var otherUserSession = refreshTokenService.issueInitial(fixture.ownerId());
 
         withdrawalService.withdraw(fixture.assigneeId());
 
         tx.executeWithoutResult(status -> {
+            User withdrawn = userRepository.findById(fixture.assigneeId()).orElseThrow();
+            assertThat(withdrawn.getAccountStatus()).isEqualTo(AccountStatus.WITHDRAWN);
+            assertThat(withdrawn.getEmail()).isNull();
+            assertThat(withdrawn.getName()).isNull();
+            assertThat(withdrawn.getPasswordHash()).isNull();
+            assertThat(withdrawn.getWithdrawnAt()).isNotNull();
+
             CareRequest request = careRequestRepository.findById(fixture.requestId()).orElseThrow();
             assertThat(request.getStatus()).isEqualTo(CareRequestStatus.CANCELED);
             assertThat(request.getCancelReason()).isEqualTo(CancelReason.USER_WITHDRAWN);
             assertThat(participantRepository.findById(fixture.assigneeParticipantId()).orElseThrow().getStatus())
                     .isEqualTo(SituationParticipantStatus.LEFT);
+            assertThat(participantRepository.findById(fixture.assigneeOwnerParticipantId()).orElseThrow().getStatus())
+                    .isEqualTo(SituationParticipantStatus.ACTIVE);
+            RequestAssignment assignment = assignmentRepository.findById(fixture.assignmentId()).orElseThrow();
+            assertThat(assignment.getCloseReason()).isEqualTo(AssignmentCloseReason.REQUEST_ENDED);
+            assertThat(assignment.getClosedAt()).isNotNull();
+            assertThat(changeEventRepository.findAllByCareRequestIdOrderByOccurredAtAscIdAsc(fixture.requestId()))
+                    .extracting(com.gyeot.domain.carerequest.entity.RequestChangeEvent::getEventType)
+                    .containsExactly(ChangeEventType.REQUEST_STATUS_CHANGED);
         });
+        assertThat(withdrawalEventProbe.count()).isEqualTo(1);
+        assertThat(refreshTokenRepository.findByTokenHash(refreshTokenGenerator.hash(firstSession.rawToken()))
+                .orElseThrow().getRevokedAt()).isNotNull();
+        assertThat(refreshTokenRepository.findByTokenHash(refreshTokenGenerator.hash(secondSession.rawToken()))
+                .orElseThrow().getRevokedAt()).isNotNull();
+        assertThat(refreshTokenRepository.findByTokenHash(refreshTokenGenerator.hash(otherUserSession.rawToken()))
+                .orElseThrow().getRevokedAt()).isNull();
         assertPermissionRevokedForWithdrawal(fixture);
         assertOwnerItemsKept(fixture);
         assertThat(ownerLogs(fixture))
@@ -262,7 +312,7 @@ class UserWithdrawalCleanupIntegrationTest {
     }
 
     @Test
-    void 시작_전_수락한_담당자가_탈퇴하면_요청은_요청됨으로_돌아가고_권한은_탈퇴_사유로_회수된다() {
+    void acceptedAssigneeWithdrawalClosesAssignmentAndReopensRequest() {
         Fixture fixture = createFixture(Stage.ACCEPTED);
 
         withdrawalService.withdraw(fixture.assigneeId());
@@ -274,6 +324,9 @@ class UserWithdrawalCleanupIntegrationTest {
             RequestAssignment assignment = assignmentRepository.findById(fixture.assignmentId()).orElseThrow();
             assertThat(assignment.getCloseReason()).isEqualTo(AssignmentCloseReason.USER_WITHDRAWN);
             assertThat(assignment.getClosedAt()).isNotNull();
+            assertThat(changeEventRepository.findAllByCareRequestIdOrderByOccurredAtAscIdAsc(fixture.requestId()))
+                    .extracting(com.gyeot.domain.carerequest.entity.RequestChangeEvent::getEventType)
+                    .containsExactly(ChangeEventType.ASSIGNMENT_CLOSED, ChangeEventType.REQUEST_STATUS_CHANGED);
         });
         assertPermissionRevokedForWithdrawal(fixture);
         assertOwnerItemsKept(fixture);
@@ -283,7 +336,7 @@ class UserWithdrawalCleanupIntegrationTest {
     }
 
     @Test
-    void 수락_전_대상자가_탈퇴하면_지정만_마감되고_요청은_유지되며_PENDING_권한이_탈퇴_사유로_회수된다() {
+    void pendingAssigneeWithdrawalClosesAssignmentAndKeepsRequestOpen() {
         Fixture fixture = createFixture(Stage.REQUESTED);
 
         withdrawalService.withdraw(fixture.assigneeId());
@@ -420,8 +473,9 @@ class UserWithdrawalCleanupIntegrationTest {
 
             Situation otherSituation = situationRepository.save(Situation.create(assigneeId, "HOSPITAL_VISIT",
                     "담당자의 상황", now.minusDays(1), now.plusDays(2)));
-            participantRepository.save(SituationParticipant.create(otherSituation, assigneeId,
-                    SituationParticipantRole.OWNER, now.minusHours(2)));
+            SituationParticipant assigneeOwnerParticipant = participantRepository.save(
+                    SituationParticipant.create(otherSituation, assigneeId,
+                            SituationParticipantRole.OWNER, now.minusHours(2)));
             SituationParticipant ownerOtherParticipant = participantRepository.save(SituationParticipant.create(
                     otherSituation, ownerId, SituationParticipantRole.PARTICIPANT, now.minusHours(1)));
 
@@ -455,7 +509,8 @@ class UserWithdrawalCleanupIntegrationTest {
                 }
             }
 
-            return new Fixture(ownerId, assigneeId, assigneeParticipant.getId(), ownerOtherParticipant.getId(),
+            return new Fixture(ownerId, assigneeId, assigneeParticipant.getId(), assigneeOwnerParticipant.getId(),
+                    ownerOtherParticipant.getId(),
                     request.getId(), assignment.getId(), sharedItemId, privateItemId, permission.getId());
         });
     }
@@ -471,7 +526,25 @@ class UserWithdrawalCleanupIntegrationTest {
                 informationId, InformationType.MEDICATION, eventType, occurredAt));
     }
 
-    private record Fixture(Long ownerId, Long assigneeId, Long assigneeParticipantId, Long ownerOtherParticipantId,
+    private record Fixture(Long ownerId, Long assigneeId, Long assigneeParticipantId,
+                           Long assigneeOwnerParticipantId, Long ownerOtherParticipantId,
                            Long requestId, Long assignmentId, Long sharedItemId, Long privateItemId,
                            Long permissionId) {}
+
+    static class WithdrawalEventProbe {
+        private final AtomicInteger count = new AtomicInteger();
+
+        @EventListener
+        public void onUserWithdrawn(UserWithdrawnEvent event) {
+            count.incrementAndGet();
+        }
+
+        void reset() {
+            count.set(0);
+        }
+
+        int count() {
+            return count.get();
+        }
+    }
 }

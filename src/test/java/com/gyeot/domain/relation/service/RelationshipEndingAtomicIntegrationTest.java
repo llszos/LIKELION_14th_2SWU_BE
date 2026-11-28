@@ -157,9 +157,7 @@ class RelationshipEndingAtomicIntegrationTest {
 
         relationshipService.endRelationship(fixture.sourceUserId(), fixture.relationshipId());
         assertCascadeApplied(fixture);
-        long autoRevokeLogCount = accessLogsFor(fixture.chains());
-        int requestHistoryCount = changeEventRepository.findAllByCareRequestIdOrderByOccurredAtAscIdAsc(
-                fixture.chains().getFirst().requestId()).size();
+        CascadeSnapshot beforeRedelivery = snapshotCascade(fixture);
         var endedRelationship = relationshipRepository.findById(fixture.relationshipId()).orElseThrow();
         RelationshipEndedEvent replay = new RelationshipEndedEvent(fixture.relationshipId(), fixture.sourceUserId(),
                 fixture.targetUserId(), endedRelationship.getRelationshipType(), endedRelationship.getEndedAt());
@@ -167,9 +165,7 @@ class RelationshipEndingAtomicIntegrationTest {
         tx.executeWithoutResult(status -> eventPublisher.publishEvent(replay));
 
         assertCascadeApplied(fixture);
-        assertThat(changeEventRepository.findAllByCareRequestIdOrderByOccurredAtAscIdAsc(
-                fixture.chains().getFirst().requestId())).hasSize(requestHistoryCount);
-        assertThat(accessLogsFor(fixture.chains())).isEqualTo(autoRevokeLogCount);
+        assertThat(snapshotCascade(fixture)).isEqualTo(beforeRedelivery);
     }
 
     @Test
@@ -387,6 +383,57 @@ class RelationshipEndingAtomicIntegrationTest {
         });
     }
 
+    private CascadeSnapshot snapshotCascade(Fixture fixture) {
+        Relationship relationship = relationshipRepository.findById(fixture.relationshipId()).orElseThrow();
+        long relationshipRows = countRows("""
+                SELECT COUNT(*) FROM relationships
+                WHERE source_user_id = ? AND target_user_id = ? AND relationship_type = 'MY_PERSON'
+                """, fixture.sourceUserId(), fixture.targetUserId());
+        long emergencyContactRows = countRows("""
+                SELECT COUNT(*) FROM emergency_contacts
+                WHERE user_id = ? AND contact_user_id = ?
+                """, fixture.sourceUserId(), fixture.targetUserId());
+        List<EmergencyContactSnapshot> emergencyContacts = emergencyContactRepository
+                .findAllByUserIdOrderByPriorityAsc(fixture.sourceUserId()).stream()
+                .map(contact -> new EmergencyContactSnapshot(contact.getContactUserId(), contact.getPriority()))
+                .toList();
+
+        List<ChainSnapshot> chains = fixture.chains().stream().map(chain -> {
+            SituationParticipant participant = participantRepository.findById(chain.participantId()).orElseThrow();
+            CareRequest request = careRequestRepository.findById(chain.requestId()).orElseThrow();
+            RequestAssignment assignment = assignmentRepository.findById(chain.assignmentId()).orElseThrow();
+            RequestInformationPermission permission = permissionRepository.findById(chain.permissionId()).orElseThrow();
+            long participantRows = countRows("""
+                    SELECT COUNT(*) FROM situation_participants WHERE situation_id = ? AND user_id = ?
+                    """, participant.getSituation().getId(), participant.getUserId());
+            long requestRows = countRows("SELECT COUNT(*) FROM care_requests WHERE situation_id = ?",
+                    request.getSituationId());
+            long assignmentRows = countRows("SELECT COUNT(*) FROM request_assignments WHERE request_id = ?",
+                    request.getId());
+            long permissionRows = countRows("SELECT COUNT(*) FROM request_information_permissions WHERE request_id = ?",
+                    request.getId());
+            long requestHistoryRows = countRows("SELECT COUNT(*) FROM request_change_events WHERE request_id = ?",
+                    request.getId());
+            long accessLogRows = countRows("SELECT COUNT(*) FROM information_access_logs WHERE permission_id = ?",
+                    permission.getId());
+
+            return new ChainSnapshot(
+                    participant.getStatus(), participant.getLeftAt(), participantRows,
+                    request.getStatus(), request.getCancelReason(), request.getCanceledAt(), requestRows,
+                    assignment.getCloseReason(), assignment.getClosedAt(), assignmentRows,
+                    permission.getStatus(), permission.getRevokeReason(), permission.getRevokedAt(), permissionRows,
+                    requestHistoryRows, accessLogRows);
+        }).toList();
+
+        return new CascadeSnapshot(relationship.getStatus(), relationship.getEndedAt(), relationshipRows,
+                emergencyContactRows, emergencyContacts, chains);
+    }
+
+    private long countRows(String sql, Object... parameters) {
+        Long count = jdbcTemplate.queryForObject(sql, Long.class, parameters);
+        return count == null ? 0L : count;
+    }
+
     private long accessLogsFor(List<Chain> chains) {
         List<Long> permissionIds = chains.stream().map(Chain::permissionId).toList();
         return accessLogRepository.findAll().stream()
@@ -406,6 +453,17 @@ class RelationshipEndingAtomicIntegrationTest {
 
     private enum FailurePoint { NONE, B_AFTER_PARTICIPANT_REMOVED, C_AFTER_ASSIGNMENT_CLOSED }
 
+    private record CascadeSnapshot(RelationshipStatus relationshipStatus, LocalDateTime relationshipEndedAt,
+                                  long relationshipRows, long emergencyContactRows,
+                                  List<EmergencyContactSnapshot> emergencyContacts, List<ChainSnapshot> chains) {}
+    private record EmergencyContactSnapshot(Long contactUserId, int priority) {}
+    private record ChainSnapshot(SituationParticipantStatus participantStatus, LocalDateTime participantLeftAt,
+                                 long participantRows, CareRequestStatus requestStatus, CancelReason cancelReason,
+                                 LocalDateTime requestCanceledAt, long requestRows,
+                                 AssignmentCloseReason assignmentCloseReason, LocalDateTime assignmentClosedAt,
+                                 long assignmentRows, PermissionStatus permissionStatus, RevokeReason revokeReason,
+                                 LocalDateTime permissionRevokedAt, long permissionRows,
+                                 long requestHistoryRows, long accessLogRows) {}
     private record Fixture(long sourceUserId, long targetUserId, long relationshipId, List<Chain> chains) {}
     private record Chain(long situationId, long participantId, long requestId, long assignmentId, long permissionId) {}
 
